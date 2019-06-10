@@ -1,0 +1,18 @@
+# -*- mode: yaml; -*-
+
+Language:        Cpp
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+BreakBeforeBraces: Linux
+ColumnLimit: 140
+AllowShortFunctionsOnASingleLine: false
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+SortIncludes: false
+IndentCaseLabels: true
+SpacesInAngles: true
+NamespaceIndentation: Inner
+FixNamespaceComments: true
+Cpp11BracedListStyle: false
+ReflowComments: true

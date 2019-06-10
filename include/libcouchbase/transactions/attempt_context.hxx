@@ -1,0 +1,75 @@
+#pragma once
+
+#include <string>
+
+#include <libcouchbase/transactions/transaction_document.hxx>
+
+namespace couchbase
+{
+namespace transactions
+{
+    /**
+     * Provides methods to allow an application's transaction logic to read, mutate, insert and delete documents, as well as commit or
+     * rollback the transaction.
+     */
+    class AttemptContext
+    {
+      public:
+        /**
+         * Gets a document from the specified Couchbase collection matching the specified id.
+         *
+         * @param collection the Couchbase collection the document exists on
+         * @param id the document's ID
+         * @return an TransactionDocument containing the document
+         */
+        TransactionDocument get(Collection &collection, std::string id);
+
+        /**
+         * Mutates the specified document with new content, using the document's last TransactionDocument#cas().
+         *
+         * The mutation is staged until the transaction is committed.  That is, any read of the document by any Couchbase component will see
+         * the document's current value, rather than this staged or 'dirty' data.  If the attempt is rolled back, the staged mutation will
+         * be removed.
+         *
+         * This staged data effectively locks the document from other transactional writes until the attempt completes (commits or rolls
+         * back).
+         *
+         * If the mutation fails, the transaction will automatically rollback this attempt, then retry.
+         *
+         * @param document the doc to be updated
+         * @param content the content to replace the doc with.
+         * @return the document, updated with its new CAS value.
+         */
+        TransactionDocument replace(Collection &collection, const TransactionDocument &document, const std::string &content);
+
+        /**
+         * Inserts a new document into the specified Couchbase collection.
+         *
+         * As with #replace, the insert is staged until the transaction is committed.  Due to technical limitations it is not as possible to
+         * completely hide the staged data from the rest of the Couchbase platform, as an empty document must be created.
+         *
+         * This staged data effectively locks the document from other transactional writes until the attempt completes
+         * (commits or rolls back).
+         *
+         * @param collection the Couchbase collection in which to insert the doc
+         * @param id the document's unique ID
+         * @param content the content to insert
+         * @return the doc, updated with its new CAS value and ID, and converted to a TransactionDocument
+         */
+        TransactionDocument insert(Collection &collection, const std::string &id, const std::string &content);
+
+        /**
+         * Removes the specified document, using the document's last TransactionDocument#cas
+         *
+         * As with {@link #replace}, the remove is staged until the transaction is committed.  That is, the document will continue to exist,
+         * and the rest of the Couchbase platform will continue to see it.
+         *
+         * This staged data effectively locks the document from other transactional writes until the attempt completes (commits or rolls
+         * back).
+         *
+         * @param document the document to be removed
+         */
+        void remove(Collection &collection, const TransactionDocument &document);
+    };
+} // namespace transactions
+} // namespace couchbase
