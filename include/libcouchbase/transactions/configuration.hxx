@@ -13,6 +13,7 @@ namespace transactions
     {
       public:
         DurabilityLevel durabilityLevel();
+        uint32_t transactionExpirationTime();
     };
 } // namespace transactions
 } // namespace couchbase

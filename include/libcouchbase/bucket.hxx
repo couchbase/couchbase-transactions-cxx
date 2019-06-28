@@ -2,8 +2,13 @@
 
 #include <libcouchbase/collection.hxx>
 
+struct lcb_st;
+
 namespace couchbase
 {
+
+class Cluster;
+
 /**
  * Couchbase bucket.
  *
@@ -11,7 +16,15 @@ namespace couchbase
  */
 class Bucket
 {
+    friend class Cluster;
+    friend class Collection;
+
+  private:
+    lcb_st *lcb_;
+
+    explicit Bucket(lcb_st *instance, const std::string &name);
+
   public:
-    Collection default_collection();
+    Collection *default_collection();
 };
 } // namespace couchbase

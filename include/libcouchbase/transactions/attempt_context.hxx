@@ -1,8 +1,14 @@
 #pragma once
 
 #include <string>
+#include <vector>
+#include <mutex>
 
+#include <libcouchbase/collection.hxx>
 #include <libcouchbase/transactions/transaction_document.hxx>
+#include <libcouchbase/transactions/transaction_context.hxx>
+#include <libcouchbase/transactions/attempt_state.hxx>
+#include <libcouchbase/transactions/staged_mutation.hxx>
 
 namespace couchbase
 {
@@ -14,7 +20,20 @@ namespace transactions
      */
     class AttemptContext
     {
+      private:
+        couchbase::transactions::TransactionContext &transaction_ctx_;
+        std::string atr_id_;
+        Collection *atr_collection_;
+        bool is_done_;
+        AttemptState state_;
+        std::string id_;
+        StagedMutationQueue staged_mutations_;
+
+        void init_atr_if_needed(Collection *collection, const std::string &id);
+
       public:
+        explicit AttemptContext(couchbase::transactions::TransactionContext &transaction_ctx);
+
         /**
          * Gets a document from the specified Couchbase collection matching the specified id.
          *
@@ -22,7 +41,7 @@ namespace transactions
          * @param id the document's ID
          * @return an TransactionDocument containing the document
          */
-        TransactionDocument get(Collection &collection, std::string id);
+        TransactionDocument get(Collection *collection, const std::string &id);
 
         /**
          * Mutates the specified document with new content, using the document's last TransactionDocument#cas().
@@ -40,7 +59,7 @@ namespace transactions
          * @param content the content to replace the doc with.
          * @return the document, updated with its new CAS value.
          */
-        TransactionDocument replace(Collection &collection, const TransactionDocument &document, const std::string &content);
+        TransactionDocument replace(Collection *collection, const TransactionDocument &document, const std::string &content);
 
         /**
          * Inserts a new document into the specified Couchbase collection.
@@ -56,7 +75,7 @@ namespace transactions
          * @param content the content to insert
          * @return the doc, updated with its new CAS value and ID, and converted to a TransactionDocument
          */
-        TransactionDocument insert(Collection &collection, const std::string &id, const std::string &content);
+        TransactionDocument insert(Collection *collection, const std::string &id, const std::string &content);
 
         /**
          * Removes the specified document, using the document's last TransactionDocument#cas
@@ -69,7 +88,17 @@ namespace transactions
          *
          * @param document the document to be removed
          */
-        void remove(Collection &collection, const TransactionDocument &document);
+        void remove(Collection *collection, TransactionDocument &document);
+
+        /**
+         * Commits the transaction.  All staged replaces, inserts and removals will be written.
+         *
+         * After this, no further operations are permitted on this instance, and they will result in an
+         * exception that will, if not caught in the transaction logic, cause the transaction to
+         * fail.
+         */
+        void commit();
+        bool is_done();
     };
 } // namespace transactions
 } // namespace couchbase

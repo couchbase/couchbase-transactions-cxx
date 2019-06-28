@@ -21,8 +21,11 @@ namespace transactions
     {
       public:
         Transactions(couchbase::Cluster &cluster, Configuration &configuration);
+        void run(Logic &logic);
         void close();
-        Result run(Logic &logic);
+
+      private:
+        void execute_transaction(TransactionContext &context);
     };
 } // namespace transactions
 } // namespace couchbase

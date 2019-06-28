@@ -14,14 +14,14 @@ string gen_uid();
 class PlayerHitsMonsterLogic : public transactions::Logic
 {
   private:
-    Collection &collection_;
+    Collection *collection_;
     string uid_;
     int damage_;
     string player_id_;
     string monster_id_;
 
   public:
-    PlayerHitsMonsterLogic(Collection &collection, string uid, int damage, string player_id, string monster_id)
+    PlayerHitsMonsterLogic(Collection *collection, const string &uid, int damage, const string &player_id, const string &monster_id)
         : collection_(collection), uid_(uid), damage_(damage), player_id_(player_id), monster_id_(monster_id)
     {
     }
@@ -31,7 +31,7 @@ class PlayerHitsMonsterLogic : public transactions::Logic
         return experience / 100;
     }
 
-    transactions::Result run(transactions::AttemptContext &ctx)
+    void run(transactions::AttemptContext &ctx) override
     {
         transactions::TransactionDocument monster = ctx.get(collection_, monster_id_);
         json11::Json monster_body = monster.content_as< Json11Parser >();
@@ -71,8 +71,6 @@ class PlayerHitsMonsterLogic : public transactions::Logic
             ctx.replace(collection_, player, json11::Json(monster_new_body).dump());
         }
         cout << "About to commit transaction" << endl;
-
-        return transactions::Result();
     }
 };
 
@@ -80,14 +78,14 @@ class GameServer
 {
   private:
     transactions::Transactions &transactions_;
-    Collection &collection_;
+    Collection *collection_;
 
   public:
-    GameServer(transactions::Transactions &transactions, Collection &collection) : transactions_(transactions), collection_(collection)
+    GameServer(transactions::Transactions &transactions, Collection *collection) : transactions_(transactions), collection_(collection)
     {
     }
 
-    void player_hits_monster(string uid, int damage, string player_id, string monster_id)
+    void player_hits_monster(const string &uid, int damage, const string &player_id, const string &monster_id)
     {
         PlayerHitsMonsterLogic logic(collection_, uid, damage, player_id, monster_id);
         transactions_.run(logic);
@@ -96,15 +94,14 @@ class GameServer
 
 int main(int argc, const char *argv[])
 {
-    string cluster_address = "couchbase://localhost";
+    string cluster_address = "couchbase://localhost:12000";
     string user_name = "Administrator";
     string password = "password";
-    string bucket_name = "bucket";
+    string bucket_name = "gamesim-sample";
 
-    Cluster cluster(cluster_address);
-    cluster.authenticate(user_name, password);
-    Bucket bucket = cluster.bucket(bucket_name);
-    Collection collection = bucket.default_collection();
+    Cluster cluster(cluster_address, user_name, password);
+    Bucket *bucket = cluster.bucket(bucket_name);
+    Collection *collection = bucket->default_collection();
 
     transactions::Configuration configuration;
     transactions::Transactions transactions(cluster, configuration);
@@ -134,10 +131,10 @@ int main(int argc, const char *argv[])
     };
     // clang-format on
 
-    collection.upsert(player_id, player_data.dump());
+    collection->upsert(player_id, player_data.dump());
     cout << "Upserted sample player document: " << player_id << endl;
 
-    collection.upsert(monster_id, monster_data.dump());
+    collection->upsert(monster_id, monster_data.dump());
     cout << "Upserted sample monster document: " << monster_id << endl;
 
     game_server.player_hits_monster(gen_uid(), rand() % 8000, player_id, monster_id);

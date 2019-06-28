@@ -1,7 +1,6 @@
 #pragma once
 
 #include <libcouchbase/transactions/attempt_context.hxx>
-#include <libcouchbase/transactions/result.hxx>
 
 namespace couchbase
 {
@@ -14,7 +13,8 @@ namespace transactions
      */
     class Logic
     {
-        virtual Result run(AttemptContext &ctx) = 0;
+      public:
+        virtual void run(AttemptContext &ctx) = 0;
     };
 } // namespace transactions
 } // namespace couchbase
