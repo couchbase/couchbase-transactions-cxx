@@ -7,13 +7,13 @@ namespace couchbase
 namespace transactions
 {
 
-    class TransactionContext
+    class transaction_context
     {
       private:
         std::string id_;
 
       public:
-        TransactionContext();
+        transaction_context();
 
         const std::string &id();
     };

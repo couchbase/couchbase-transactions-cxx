@@ -8,31 +8,31 @@ namespace couchbase
 {
 namespace transactions
 {
-    class TransactionDocument
+    class transaction_document
     {
       private:
-        const Collection &collection_;
+        const collection &collection_;
         std::string value_;
         std::string id_;
         uint64_t cas_;
-        TransactionLinks links_;
-        TransactionDocumentStatus status_;
+        transaction_links links_;
+        transaction_document_status status_;
 
       public:
-        TransactionDocument(const Collection &collection, const std::string &id, const std::string &value, uint64_t cas,
-                            TransactionDocumentStatus status = NORMAL, TransactionLinks links = {});
+        transaction_document(const collection &collection, const std::string &id, const std::string &value, uint64_t cas,
+                             transaction_document_status status = NORMAL, transaction_links links = {});
 
-        const Collection &collection() const;
+        const collection &collection_ref() const;
         const std::string &content() const;
         void content(const std::string &content);
         const std::string &id() const;
         const uint64_t cas() const;
         void cas(uint64_t cas);
-        const TransactionLinks links() const;
-        const TransactionDocumentStatus status() const;
-        void status(TransactionDocumentStatus status);
+        const transaction_links links() const;
+        const transaction_document_status status() const;
+        void status(transaction_document_status status);
 
-        template < typename ValueParser > typename ValueParser::ValueType content_as()
+        template <typename ValueParser> typename ValueParser::ValueType content_as()
         {
             return ValueParser::parse(value_);
         }

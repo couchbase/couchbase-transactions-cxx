@@ -5,26 +5,26 @@
 #include <libcouchbase/cluster.hxx>
 #include <libcouchbase/bucket.hxx>
 
-couchbase::Cluster::Cluster(const std::string &cluster_address, const std::string &user_name, const std::string &password)
+couchbase::cluster::cluster(const std::string &cluster_address, const std::string &user_name, const std::string &password)
     : lcb_(nullptr), cluster_address_(cluster_address), user_name_(user_name), password_(password)
 {
     connect();
 }
 
-couchbase::Cluster::~Cluster()
+couchbase::cluster::~cluster()
 {
     shutdown();
 }
 
-couchbase::Bucket *couchbase::Cluster::bucket(const std::string &name)
+couchbase::bucket *couchbase::cluster::open_bucket(const std::string &name)
 {
-    Bucket *bucket = new Bucket(lcb_, name);
+    bucket *bkt = new bucket(lcb_, name);
     // TODO: cache buckets
     lcb_ = nullptr;
-    return bucket;
+    return bkt;
 }
 
-void couchbase::Cluster::connect()
+void couchbase::cluster::connect()
 {
     lcb_STATUS rc;
 
@@ -62,7 +62,7 @@ void couchbase::Cluster::connect()
     }
 }
 
-void couchbase::Cluster::shutdown()
+void couchbase::cluster::shutdown()
 {
     if (lcb_ != nullptr) {
         lcb_destroy(lcb_);

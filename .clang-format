@@ -1,6 +1,6 @@
 # -*- mode: yaml; -*-
 
-Language:        Cpp
+Language: Cpp
 BasedOnStyle: LLVM
 
 IndentWidth: 4
@@ -16,3 +16,4 @@ NamespaceIndentation: Inner
 FixNamespaceComments: true
 Cpp11BracedListStyle: false
 ReflowComments: true
+SpacesInAngles: false

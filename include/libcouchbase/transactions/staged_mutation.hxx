@@ -11,37 +11,37 @@ namespace couchbase
 {
 namespace transactions
 {
-    enum StagedMutationType { INSERT, REMOVE, REPLACE };
+    enum staged_mutation_type { INSERT, REMOVE, REPLACE };
 
-    class StagedMutation
+    class staged_mutation
     {
       private:
-        TransactionDocument doc_;
-        StagedMutationType type_;
+        transaction_document doc_;
+        staged_mutation_type type_;
         std::string content_;
 
       public:
-        StagedMutation(TransactionDocument &doc, const std::string &content, StagedMutationType type);
+        staged_mutation(transaction_document &doc, std::string content, staged_mutation_type type);
 
-        const TransactionDocument &doc() const;
-        const StagedMutationType &type() const;
+        const transaction_document &doc() const;
+        const staged_mutation_type &type() const;
         const std::string &content() const;
     };
 
-    class StagedMutationQueue
+    class staged_mutation_queue
     {
       private:
         std::mutex mutex_;
-        std::vector< StagedMutation > queue_;
+        std::vector<staged_mutation> queue_;
 
       public:
         bool empty();
-        void add(const StagedMutation &mutation);
-        void extract_to(const std::string &prefix, std::vector< couchbase::MutateInSpec > &specs);
+        void add(const staged_mutation &mutation);
+        void extract_to(const std::string &prefix, std::vector<couchbase::mutate_in_spec> &specs);
 
-        StagedMutation *find_replace(Collection *collection, const std::string &id);
-        StagedMutation *find_insert(Collection *collection, const std::string &id);
-        StagedMutation *find_remove(Collection *collection, const std::string &id);
+        staged_mutation *find_replace(collection *collection, const std::string &id);
+        staged_mutation *find_insert(collection *collection, const std::string &id);
+        staged_mutation *find_remove(collection *collection, const std::string &id);
     };
 } // namespace transactions
 } // namespace couchbase

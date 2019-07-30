@@ -9,7 +9,7 @@ namespace transactions
     /**
      * The possible states for a transaction attempt.
      */
-    enum AttemptState {
+    enum attempt_state {
         /**
          * The attempt finished very early.
          */
@@ -44,7 +44,7 @@ namespace transactions
         ROLLED_BACK
     };
 
-    inline const char *attempt_state_name(AttemptState state)
+    inline const char *attempt_state_name(attempt_state state)
     {
         switch (state) {
             case NOT_STARTED:
@@ -60,7 +60,7 @@ namespace transactions
             case ROLLED_BACK:
                 return "ROLLED_BACK";
             default:
-                throw std::string("unknown attempt state: ") + std::to_string(state);
+                throw std::runtime_error("unknown attempt state: " + std::to_string(state));
         }
     }
 } // namespace transactions

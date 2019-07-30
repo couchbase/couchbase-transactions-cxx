@@ -7,24 +7,24 @@ struct lcb_st;
 namespace couchbase
 {
 
-class Cluster;
+class cluster;
 
 /**
  * Couchbase bucket.
  *
  * Exposes bucket-level operations and collections accessors.
  */
-class Bucket
+class bucket
 {
-    friend class Cluster;
-    friend class Collection;
+    friend class cluster;
+    friend class collection;
 
   private:
     lcb_st *lcb_;
 
-    explicit Bucket(lcb_st *instance, const std::string &name);
+    explicit bucket(lcb_st *instance, const std::string &name);
 
   public:
-    Collection *default_collection();
+    collection *default_collection();
 };
 } // namespace couchbase

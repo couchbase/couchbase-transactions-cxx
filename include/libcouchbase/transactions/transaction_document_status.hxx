@@ -8,7 +8,7 @@ namespace transactions
      * Gives additional information regarding a returned document's status.  The application is free to ignore any of them,
      * but may wish to take action on <code>AMBIGUOUS</code>.
      */
-    enum TransactionDocumentStatus {
+    enum transaction_document_status {
 
         /**
          * The fetched document was not involved in a transaction.

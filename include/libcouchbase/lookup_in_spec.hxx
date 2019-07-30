@@ -4,25 +4,25 @@
 
 namespace couchbase
 {
-class Collection;
+class collection;
 
-enum LookupInSpecType { LOOKUP_IN_GET, LOOKUP_IN_FULLDOC_GET };
+enum lookup_in_spec_type { LOOKUP_IN_GET, LOOKUP_IN_FULLDOC_GET };
 
-class LookupInSpec
+class lookup_in_spec
 {
-    friend Collection;
+    friend collection;
 
   public:
-    static LookupInSpec get(const std::string &path);
-    static LookupInSpec fulldoc_get();
+    static lookup_in_spec get(const std::string &path);
+    static lookup_in_spec fulldoc_get();
 
-    LookupInSpec &xattr();
+    lookup_in_spec &xattr();
 
   private:
-    LookupInSpecType type_;
+    lookup_in_spec_type type_;
     std::string path_;
     uint32_t flags_;
 
-    LookupInSpec(LookupInSpecType type, const std::string &path);
+    lookup_in_spec(lookup_in_spec_type type, const std::string &path);
 };
 } // namespace couchbase

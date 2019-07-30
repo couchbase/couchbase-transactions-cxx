@@ -8,10 +8,10 @@
 namespace couchbase
 {
 
-class Result
+class result
 {
   public:
-    Result();
+    result();
 
     lcb_STATUS rc;
     uint64_t cas;
@@ -19,7 +19,7 @@ class Result
     uint32_t flags;
     std::string key;
     std::string value;
-    std::vector< std::string > values;
+    std::vector<std::string> values;
 };
 
 } // namespace couchbase

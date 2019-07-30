@@ -4,32 +4,32 @@
 
 namespace couchbase
 {
-class Collection;
+class collection;
 
-enum MutateInSpecType { MUTATE_IN_UPSERT, MUTATE_IN_INSERT, MUTATE_IN_FULLDOC_INSERT, MUTATE_IN_FULLDOC_UPSERT };
+enum mutate_in_spec_type { MUTATE_IN_UPSERT, MUTATE_IN_INSERT, MUTATE_IN_FULLDOC_INSERT, MUTATE_IN_FULLDOC_UPSERT };
 
-class MutateInSpec
+class mutate_in_spec
 {
-    friend Collection;
+    friend collection;
 
   public:
-    static MutateInSpec upsert(const std::string &path, const std::string &value);
-    static MutateInSpec insert(const std::string &path, const std::string &value);
-    static MutateInSpec fulldoc_insert(const std::string &value);
-    static MutateInSpec fulldoc_upsert(const std::string &value);
+    static mutate_in_spec upsert(const std::string &path, const std::string &value);
+    static mutate_in_spec insert(const std::string &path, const std::string &value);
+    static mutate_in_spec fulldoc_insert(const std::string &value);
+    static mutate_in_spec fulldoc_upsert(const std::string &value);
 
-    MutateInSpec &xattr();
-    MutateInSpec &create_path();
-    MutateInSpec &expand_macro();
+    mutate_in_spec &xattr();
+    mutate_in_spec &create_path();
+    mutate_in_spec &expand_macro();
 
   private:
-    MutateInSpecType type_;
+    mutate_in_spec_type type_;
     std::string path_;
     std::string value_;
     uint32_t flags_;
 
-    MutateInSpec(MutateInSpecType type, const std::string &path, const std::string &value);
-    MutateInSpec(MutateInSpecType type, const std::string &value);
+    mutate_in_spec(mutate_in_spec_type type, const std::string &path, const std::string &value);
+    mutate_in_spec(mutate_in_spec_type type, const std::string &value);
 };
 
 } // namespace couchbase

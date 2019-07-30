@@ -5,7 +5,7 @@ namespace couchbase
 {
 namespace transactions
 {
-    class UidGenerator
+    class uid_generator
     {
       public:
         static std::string next();

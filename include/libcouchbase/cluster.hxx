@@ -7,9 +7,9 @@ struct lcb_st;
 
 namespace couchbase
 {
-class Bucket;
+class bucket;
 
-class Cluster
+class cluster
 {
   private:
     lcb_st *lcb_;
@@ -20,10 +20,10 @@ class Cluster
     void connect();
 
   public:
-    explicit Cluster(const std::string &cluster_address, const std::string &user_name, const std::string &password);
-    ~Cluster();
+    explicit cluster(const std::string &cluster_address, const std::string &user_name, const std::string &password);
+    ~cluster();
 
-    Bucket* bucket(const std::string &name);
+    bucket *open_bucket(const std::string &name);
     void shutdown();
 };
 } // namespace couchbase

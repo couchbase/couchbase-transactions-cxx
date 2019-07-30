@@ -4,14 +4,14 @@
 
 #include <libcouchbase/bucket.hxx>
 
-couchbase::Collection* couchbase::Bucket::default_collection()
+couchbase::collection *couchbase::bucket::default_collection()
 {
-    Collection *collection = new Collection(this, "", "");
+    collection *col = new collection(this, "", "");
     // cache collection
-    return collection;
+    return col;
 }
 
-couchbase::Bucket::Bucket(lcb_st *instance, const std::string &name) : lcb_(instance)
+couchbase::bucket::bucket(lcb_st *instance, const std::string &name) : lcb_(instance)
 {
     lcb_STATUS rc;
 

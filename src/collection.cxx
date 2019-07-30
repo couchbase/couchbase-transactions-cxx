@@ -9,8 +9,8 @@
 extern "C" {
 static void store_callback(lcb_INSTANCE *, int, const lcb_RESPSTORE *resp)
 {
-    couchbase::Result *res = nullptr;
-    lcb_respstore_cookie(resp, reinterpret_cast< void ** >(&res));
+    couchbase::result *res = nullptr;
+    lcb_respstore_cookie(resp, reinterpret_cast<void **>(&res));
     res->rc = lcb_respstore_status(resp);
     lcb_respstore_cas(resp, &res->cas);
     const char *data = nullptr;
@@ -21,8 +21,8 @@ static void store_callback(lcb_INSTANCE *, int, const lcb_RESPSTORE *resp)
 
 static void get_callback(lcb_INSTANCE *, int, const lcb_RESPGET *resp)
 {
-    couchbase::Result *res = nullptr;
-    lcb_respget_cookie(resp, reinterpret_cast< void ** >(&res));
+    couchbase::result *res = nullptr;
+    lcb_respget_cookie(resp, reinterpret_cast<void **>(&res));
     res->rc = lcb_respget_status(resp);
     if (res->rc == LCB_SUCCESS) {
         lcb_respget_cas(resp, &res->cas);
@@ -40,8 +40,8 @@ static void get_callback(lcb_INSTANCE *, int, const lcb_RESPGET *resp)
 
 static void remove_callback(lcb_INSTANCE *, int, const lcb_RESPREMOVE *resp)
 {
-    couchbase::Result *res = nullptr;
-    lcb_respremove_cookie(resp, reinterpret_cast< void ** >(&res));
+    couchbase::result *res = nullptr;
+    lcb_respremove_cookie(resp, reinterpret_cast<void **>(&res));
     res->rc = lcb_respremove_status(resp);
     lcb_respremove_cas(resp, &res->cas);
     const char *data = nullptr;
@@ -52,8 +52,8 @@ static void remove_callback(lcb_INSTANCE *, int, const lcb_RESPREMOVE *resp)
 
 static void subdoc_callback(lcb_INSTANCE *, int, const lcb_RESPSUBDOC *resp)
 {
-    couchbase::Result *res = nullptr;
-    lcb_respsubdoc_cookie(resp, reinterpret_cast< void ** >(&res));
+    couchbase::result *res = nullptr;
+    lcb_respsubdoc_cookie(resp, reinterpret_cast<void **>(&res));
     res->rc = lcb_respsubdoc_status(resp);
     lcb_respsubdoc_cas(resp, &res->cas);
     const char *data = nullptr;
@@ -74,43 +74,43 @@ static void subdoc_callback(lcb_INSTANCE *, int, const lcb_RESPSUBDOC *resp)
 }
 }
 
-couchbase::Collection::Collection(Bucket *bucket, const std::string &scope, const std::string &name)
+couchbase::collection::collection(bucket *bucket, const std::string &scope, const std::string &name)
     : bucket_(bucket), scope_(scope), name_(name)
 {
-    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_STORE, reinterpret_cast< lcb_RESPCALLBACK >(store_callback));
-    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_GET, reinterpret_cast< lcb_RESPCALLBACK >(get_callback));
-    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_REMOVE, reinterpret_cast< lcb_RESPCALLBACK >(remove_callback));
-    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_SDLOOKUP, reinterpret_cast< lcb_RESPCALLBACK >(subdoc_callback));
-    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_SDMUTATE, reinterpret_cast< lcb_RESPCALLBACK >(subdoc_callback));
+    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_STORE, reinterpret_cast<lcb_RESPCALLBACK>(store_callback));
+    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_GET, reinterpret_cast<lcb_RESPCALLBACK>(get_callback));
+    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_REMOVE, reinterpret_cast<lcb_RESPCALLBACK>(remove_callback));
+    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_SDLOOKUP, reinterpret_cast<lcb_RESPCALLBACK>(subdoc_callback));
+    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_SDMUTATE, reinterpret_cast<lcb_RESPCALLBACK>(subdoc_callback));
     const char *tmp;
     lcb_cntl(bucket_->lcb_, LCB_CNTL_GET, LCB_CNTL_BUCKETNAME, &tmp);
     bucket_name_ = std::string(tmp);
 }
 
-const std::string &couchbase::Collection::name() const
+const std::string &couchbase::collection::name() const
 {
     return name_;
 }
 
-const std::string &couchbase::Collection::scope() const
+const std::string &couchbase::collection::scope() const
 {
     return scope_;
 }
 
-const std::string &couchbase::Collection::bucket_name() const
+const std::string &couchbase::collection::bucket_name() const
 {
     return bucket_name_;
 }
 
-couchbase::Result couchbase::Collection::get(const std::string &id)
+couchbase::result couchbase::collection::get(const std::string &id)
 {
     lcb_CMDGET *cmd;
     lcb_cmdget_create(&cmd);
     lcb_cmdget_key(cmd, id.data(), id.size());
     lcb_cmdget_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
     lcb_STATUS rc;
-    Result res;
-    rc = lcb_get(bucket_->lcb_, reinterpret_cast< void * >(&res), cmd);
+    result res;
+    rc = lcb_get(bucket_->lcb_, reinterpret_cast<void *>(&res), cmd);
     lcb_cmdget_destroy(cmd);
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to get (sched) document: ") + lcb_strerror_short(rc));
@@ -122,7 +122,7 @@ couchbase::Result couchbase::Collection::get(const std::string &id)
     return res;
 }
 
-couchbase::Result couchbase::Collection::store(lcb_STORE_OPERATION operation, const std::string &id, const std::string &value, uint64_t cas)
+couchbase::result couchbase::collection::store(lcb_STORE_OPERATION operation, const std::string &id, const std::string &value, uint64_t cas)
 {
     lcb_CMDSTORE *cmd;
     lcb_cmdstore_create(&cmd, operation);
@@ -131,8 +131,8 @@ couchbase::Result couchbase::Collection::store(lcb_STORE_OPERATION operation, co
     lcb_cmdstore_cas(cmd, cas);
     lcb_cmdstore_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
     lcb_STATUS rc;
-    Result res;
-    rc = lcb_store(bucket_->lcb_, reinterpret_cast< void * >(&res), cmd);
+    result res;
+    rc = lcb_store(bucket_->lcb_, reinterpret_cast<void *>(&res), cmd);
     lcb_cmdstore_destroy(cmd);
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to store (sched) document: ") + lcb_strerror_short(rc));
@@ -144,22 +144,22 @@ couchbase::Result couchbase::Collection::store(lcb_STORE_OPERATION operation, co
     return res;
 }
 
-couchbase::Result couchbase::Collection::upsert(const std::string &id, const std::string &value, uint64_t cas)
+couchbase::result couchbase::collection::upsert(const std::string &id, const std::string &value, uint64_t cas)
 {
     return store(LCB_STORE_UPSERT, id, value, cas);
 }
 
-couchbase::Result couchbase::Collection::insert(const std::string &id, const std::string &value)
+couchbase::result couchbase::collection::insert(const std::string &id, const std::string &value)
 {
     return store(LCB_STORE_ADD, id, value, 0);
 }
 
-couchbase::Result couchbase::Collection::replace(const std::string &id, const std::string &value, uint64_t cas)
+couchbase::result couchbase::collection::replace(const std::string &id, const std::string &value, uint64_t cas)
 {
     return store(LCB_STORE_REPLACE, id, value, cas);
 }
 
-couchbase::Result couchbase::Collection::remove(const std::string &id, uint64_t cas)
+couchbase::result couchbase::collection::remove(const std::string &id, uint64_t cas)
 {
     lcb_CMDREMOVE *cmd;
     lcb_cmdremove_create(&cmd);
@@ -167,8 +167,8 @@ couchbase::Result couchbase::Collection::remove(const std::string &id, uint64_t 
     lcb_cmdremove_cas(cmd, cas);
     lcb_cmdremove_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
     lcb_STATUS rc;
-    Result res;
-    rc = lcb_remove(bucket_->lcb_, reinterpret_cast< void * >(&res), cmd);
+    result res;
+    rc = lcb_remove(bucket_->lcb_, reinterpret_cast<void *>(&res), cmd);
     lcb_cmdremove_destroy(cmd);
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to remove (sched) document: ") + lcb_strerror_short(rc));
@@ -180,7 +180,7 @@ couchbase::Result couchbase::Collection::remove(const std::string &id, uint64_t 
     return res;
 }
 
-couchbase::Result couchbase::Collection::mutate_in(const std::string &id, const std::vector< couchbase::MutateInSpec > &specs)
+couchbase::result couchbase::collection::mutate_in(const std::string &id, const std::vector<couchbase::mutate_in_spec> &specs)
 {
     lcb_CMDSUBDOC *cmd;
     lcb_cmdsubdoc_create(&cmd);
@@ -210,8 +210,8 @@ couchbase::Result couchbase::Collection::mutate_in(const std::string &id, const 
     }
     lcb_cmdsubdoc_operations(cmd, ops);
     lcb_STATUS rc;
-    Result res;
-    rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast< void * >(&res), cmd);
+    result res;
+    rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast<void *>(&res), cmd);
     lcb_cmdsubdoc_destroy(cmd);
     lcb_subdocops_destroy(ops);
     if (rc != LCB_SUCCESS) {
@@ -224,7 +224,7 @@ couchbase::Result couchbase::Collection::mutate_in(const std::string &id, const 
     return res;
 }
 
-couchbase::Result couchbase::Collection::lookup_in(const std::string &id, const std::vector< couchbase::LookupInSpec > &specs)
+couchbase::result couchbase::collection::lookup_in(const std::string &id, const std::vector<couchbase::lookup_in_spec> &specs)
 {
     lcb_CMDSUBDOC *cmd;
     lcb_cmdsubdoc_create(&cmd);
@@ -246,8 +246,8 @@ couchbase::Result couchbase::Collection::lookup_in(const std::string &id, const 
     }
     lcb_cmdsubdoc_operations(cmd, ops);
     lcb_STATUS rc;
-    Result res;
-    rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast< void * >(&res), cmd);
+    result res;
+    rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast<void *>(&res), cmd);
     lcb_cmdsubdoc_destroy(cmd);
     lcb_subdocops_destroy(ops);
     if (rc != LCB_SUCCESS) {

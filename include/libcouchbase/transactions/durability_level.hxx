@@ -4,7 +4,7 @@ namespace couchbase
 {
 namespace transactions
 {
-    enum DurabilityLevel {
+    enum durability_level {
         /**
          * Durability settings are disabled.
          */

@@ -9,11 +9,11 @@ namespace transactions
     /**
      * Tunables for the transactions.
      */
-    class Configuration
+    class configuration
     {
       public:
-        DurabilityLevel durabilityLevel();
-        uint32_t transactionExpirationTime();
+        durability_level durabilityLevel();
+        uint32_t transaction_expiration_time();
     };
 } // namespace transactions
 } // namespace couchbase

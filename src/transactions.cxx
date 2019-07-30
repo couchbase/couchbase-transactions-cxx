@@ -3,23 +3,22 @@
 #include <iostream>
 #include <libcouchbase/transactions/transaction_context.hxx>
 
-couchbase::transactions::Transactions::Transactions(couchbase::Cluster &cluster, couchbase::transactions::Configuration &configuration)
+couchbase::transactions::transactions::transactions(couchbase::cluster &cluster, couchbase::transactions::configuration &configuration)
 {
-    std::cerr << "Transactions()" << std::endl;
+    std::cerr << "transactions()" << std::endl;
 }
 
-void couchbase::transactions::Transactions::close()
+void couchbase::transactions::transactions::close()
 {
-    std::cerr << "Transactions#close()" << std::endl;
+    std::cerr << "transactions#close()" << std::endl;
 }
 
-void couchbase::transactions::Transactions::run(couchbase::transactions::Logic &logic)
+void couchbase::transactions::transactions::run(const logic &logic)
 {
-    TransactionContext overall;
-    AttemptContext ctx(overall);
-    logic.run(ctx);
+    transaction_context overall;
+    attempt_context ctx(overall);
+    logic(ctx);
     if (!ctx.is_done()) {
         ctx.commit();
     }
 }
-

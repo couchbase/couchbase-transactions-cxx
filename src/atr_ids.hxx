@@ -4,7 +4,7 @@ namespace couchbase
 {
 namespace transactions
 {
-    class AtrIds
+    class attr_ids
     {
       public:
         static const std::string &atr_id_for_vbucket(int vbucket_id);

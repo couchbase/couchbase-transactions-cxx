@@ -1,12 +1,12 @@
 #include <libcouchbase/transactions/transaction_context.hxx>
 #include <libcouchbase/transactions/uid_generator.hxx>
 
-couchbase::transactions::TransactionContext::TransactionContext()
+couchbase::transactions::transaction_context::transaction_context()
 {
-    id_ = UidGenerator::next();
+    id_ = uid_generator::next();
 }
 
-const std::string &couchbase::transactions::TransactionContext::id()
+const std::string &couchbase::transactions::transaction_context::id()
 {
     return id_;
 }

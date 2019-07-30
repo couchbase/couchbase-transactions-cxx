@@ -9,7 +9,7 @@ namespace couchbase
 namespace transactions
 {
     // Each vbucket has 1 ATR.  The '#136' stuff is used purely to force a document to a particular vbucket
-    const std::vector< std::string >
+    const std::vector<std::string>
         ATR_IDS({ "atr-0-#32",     "atr-1-#122",     "atr-2-#194",     "atr-3-#284",     "atr-4-#9b",     "atr-5-#1285",    "atr-6-#b18",
                   "atr-7-#a08",    "atr-8-#24",      "atr-9-#8db",     "atr-10-#59b8",   "atr-11-#11b9",  "atr-12-#226",    "atr-13-#136",
                   "atr-14-#924",   "atr-15-#bbc",    "atr-16-#83c",    "atr-17-#89",     "atr-18-#835",   "atr-19-#b21",    "atr-20-#204",
@@ -160,7 +160,7 @@ namespace transactions
 } // namespace transactions
 } // namespace couchbase
 
-const std::string &couchbase::transactions::AtrIds::atr_id_for_vbucket(int vbucket_id)
+const std::string &couchbase::transactions::attr_ids::atr_id_for_vbucket(int vbucket_id)
 {
     if (vbucket_id < 0 || vbucket_id > ATR_IDS.size()) {
         throw std::invalid_argument(std::string("invalid vbucket_id: ") + std::to_string(vbucket_id));
@@ -170,7 +170,7 @@ const std::string &couchbase::transactions::AtrIds::atr_id_for_vbucket(int vbuck
 
 #include "../deps/libcouchbase/src/vbucket/crc32.h"
 
-int couchbase::transactions::AtrIds::vbucket_for_key(const std::string &key)
+int couchbase::transactions::attr_ids::vbucket_for_key(const std::string &key)
 {
     static const int num_vbuckets = 1024;
     uint32_t digest = hash_crc32(key.data(), key.size());

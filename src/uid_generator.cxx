@@ -4,7 +4,7 @@
 
 #include <libcouchbase/transactions/uid_generator.hxx>
 
-std::string couchbase::transactions::UidGenerator::next()
+std::string couchbase::transactions::uid_generator::next()
 {
     static auto rnd = std::default_random_engine(std::chrono::system_clock::now().time_since_epoch().count());
     std::uniform_int_distribution< uint64_t > dist;

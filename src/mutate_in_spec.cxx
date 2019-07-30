@@ -1,48 +1,48 @@
 #include <libcouchbase/mutate_in_spec.hxx>
 #include <libcouchbase/couchbase.h>
 
-couchbase::MutateInSpec::MutateInSpec(MutateInSpecType type, const std::string &path, const std::string &value)
+couchbase::mutate_in_spec::mutate_in_spec(mutate_in_spec_type type, const std::string &path, const std::string &value)
     : type_(type), path_(path), value_(value), flags_(0)
 {
 }
 
-couchbase::MutateInSpec::MutateInSpec(MutateInSpecType type, const std::string &value) : type_(type), path_(""), value_(value), flags_(0)
+couchbase::mutate_in_spec::mutate_in_spec(mutate_in_spec_type type, const std::string &value) : type_(type), path_(""), value_(value), flags_(0)
 {
 }
 
-couchbase::MutateInSpec couchbase::MutateInSpec::upsert(const std::string &path, const std::string &value)
+couchbase::mutate_in_spec couchbase::mutate_in_spec::upsert(const std::string &path, const std::string &value)
 {
-    return couchbase::MutateInSpec(MutateInSpecType::MUTATE_IN_UPSERT, path, value);
+    return couchbase::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_UPSERT, path, value);
 }
 
-couchbase::MutateInSpec couchbase::MutateInSpec::insert(const std::string &path, const std::string &value)
+couchbase::mutate_in_spec couchbase::mutate_in_spec::insert(const std::string &path, const std::string &value)
 {
-    return couchbase::MutateInSpec(MutateInSpecType::MUTATE_IN_INSERT, path, value);
+    return couchbase::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_INSERT, path, value);
 }
 
-couchbase::MutateInSpec couchbase::MutateInSpec::fulldoc_insert(const std::string &value)
+couchbase::mutate_in_spec couchbase::mutate_in_spec::fulldoc_insert(const std::string &value)
 {
-    return couchbase::MutateInSpec(MutateInSpecType::MUTATE_IN_FULLDOC_INSERT, value);
+    return couchbase::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_FULLDOC_INSERT, value);
 }
 
-couchbase::MutateInSpec couchbase::MutateInSpec::fulldoc_upsert(const std::string &value)
+couchbase::mutate_in_spec couchbase::mutate_in_spec::fulldoc_upsert(const std::string &value)
 {
-    return couchbase::MutateInSpec(MutateInSpecType::MUTATE_IN_FULLDOC_UPSERT, value);
+    return couchbase::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_FULLDOC_UPSERT, value);
 }
 
-couchbase::MutateInSpec &couchbase::MutateInSpec::xattr()
+couchbase::mutate_in_spec &couchbase::mutate_in_spec::xattr()
 {
     flags_ |= LCB_SUBDOCOPS_F_XATTRPATH;
     return *this;
 }
 
-couchbase::MutateInSpec &couchbase::MutateInSpec::create_path()
+couchbase::mutate_in_spec &couchbase::mutate_in_spec::create_path()
 {
     flags_ |= LCB_SUBDOCOPS_F_MKINTERMEDIATES;
     return *this;
 }
 
-couchbase::MutateInSpec &couchbase::MutateInSpec::expand_macro()
+couchbase::mutate_in_spec &couchbase::mutate_in_spec::expand_macro()
 {
     flags_ |= LCB_SUBDOCOPS_F_XATTR_MACROVALUES;
     return *this;

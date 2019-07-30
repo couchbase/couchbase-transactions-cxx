@@ -6,7 +6,7 @@ namespace couchbase
 {
 namespace transactions
 {
-    class TransactionLinks
+    class transaction_links
     {
       private:
         std::string atr_id_;
@@ -18,9 +18,9 @@ namespace transactions
         std::string staged_content_;
 
       public:
-        TransactionLinks() = default;
-        TransactionLinks(const std::string &atr_id, const std::string &atr_bucket_name, const std::string &atr_scope_name,
-                         const std::string &atr_collection_name, const std::string &content, const std::string &version);
+        transaction_links() = default;
+        transaction_links(const std::string &atr_id, const std::string &atr_bucket_name, const std::string &atr_scope_name,
+                          const std::string &atr_collection_name, const std::string &content, const std::string &version);
 
         const std::string &atr_id() const;
         const std::string &atr_bucket_name() const;

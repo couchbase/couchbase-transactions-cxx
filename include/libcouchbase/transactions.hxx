@@ -1,14 +1,18 @@
 #pragma once
 
+#include <functional>
+
 #include <libcouchbase/cluster.hxx>
 
 #include <libcouchbase/transactions/configuration.hxx>
-#include <libcouchbase/transactions/logic.hxx>
+#include <libcouchbase/transactions/attempt_context.hxx>
 
 namespace couchbase
 {
 namespace transactions
 {
+    typedef std::function<void(attempt_context &)> logic;
+
     /**
      * @mainpage
      *
@@ -17,15 +21,12 @@ namespace transactions
      * @example examples/game_server.cxx
      * Shows how the transaction could be integrated into application
      */
-    class Transactions
+    class transactions
     {
       public:
-        Transactions(couchbase::Cluster &cluster, Configuration &configuration);
-        void run(Logic &logic);
+        transactions(couchbase::cluster &cluster, configuration &configuration);
+        void run(const logic &logic);
         void close();
-
-      private:
-        void execute_transaction(TransactionContext &context);
     };
 } // namespace transactions
 } // namespace couchbase
