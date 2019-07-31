@@ -74,7 +74,7 @@ class GameServer
 
 int main(int argc, const char *argv[])
 {
-    string cluster_address = "couchbase://localhost:12000";
+    string cluster_address = "couchbase://localhost";
     string user_name = "Administrator";
     string password = "password";
     string bucket_name = "gamesim-sample";

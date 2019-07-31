@@ -255,7 +255,7 @@ couchbase::result couchbase::collection::lookup_in(const std::string &id, const 
     }
     lcb_wait(bucket_->lcb_);
     if (res.rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to lookup sub-document: ") + lcb_strerror_short(rc));
+        throw std::runtime_error(std::string("failed to lookup sub-document: ") + lcb_strerror_short(res.rc));
     }
     return res;
 }

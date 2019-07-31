@@ -34,7 +34,7 @@ void couchbase::cluster::connect()
     cfg.v.v4.connstr = cluster_address_.c_str();
     cfg.v.v4.io = nullptr;
     cfg.v.v4.logger = nullptr;
-    cfg.v.v4.type = LCB_TYPE_BUCKET;
+    cfg.v.v4.type = LCB_TYPE_CLUSTER;
     cfg.v.v4.username = nullptr;
     cfg.v.v4.passwd = nullptr;
     rc = lcb_create(&lcb_, &cfg);
