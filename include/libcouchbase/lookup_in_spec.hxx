@@ -23,6 +23,6 @@ class lookup_in_spec
     std::string path_;
     uint32_t flags_;
 
-    lookup_in_spec(lookup_in_spec_type type, const std::string &path);
+    lookup_in_spec(lookup_in_spec_type type, std::string path);
 };
 } // namespace couchbase

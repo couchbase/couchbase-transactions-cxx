@@ -28,8 +28,8 @@ class mutate_in_spec
     std::string value_;
     uint32_t flags_;
 
-    mutate_in_spec(mutate_in_spec_type type, const std::string &path, const std::string &value);
-    mutate_in_spec(mutate_in_spec_type type, const std::string &value);
+    mutate_in_spec(mutate_in_spec_type type, std::string path, std::string value);
+    mutate_in_spec(mutate_in_spec_type type, std::string value);
 };
 
 } // namespace couchbase

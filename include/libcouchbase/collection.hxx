@@ -22,7 +22,7 @@ class collection
     bucket *bucket_;
     std::string bucket_name_;
 
-    explicit collection(bucket *bucket, const std::string &scope, const std::string &name);
+    explicit collection(bucket *bucket, std::string scope, std::string name);
 
     result store(lcb_STORE_OPERATION operation, const std::string &id, const std::string &value, uint64_t cas);
 

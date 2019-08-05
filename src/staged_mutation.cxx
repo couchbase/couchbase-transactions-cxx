@@ -75,8 +75,8 @@ couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutati
 {
     for (auto &item : queue_) {
         if (item.type() == staged_mutation_type::REPLACE && item.doc().id() == id &&
-            item.doc().collection_ref().bucket_name() == collection->bucket_name() && item.doc().collection_ref().scope() == collection->scope() &&
-            item.doc().collection_ref().name() == collection->name()) {
+            item.doc().collection_ref().bucket_name() == collection->bucket_name() &&
+            item.doc().collection_ref().scope() == collection->scope() && item.doc().collection_ref().name() == collection->name()) {
             return &item;
         }
     }
@@ -88,8 +88,8 @@ couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutati
 {
     for (auto &item : queue_) {
         if (item.type() == staged_mutation_type::INSERT && item.doc().id() == id &&
-            item.doc().collection_ref().bucket_name() == collection->bucket_name() && item.doc().collection_ref().scope() == collection->scope() &&
-            item.doc().collection_ref().name() == collection->name()) {
+            item.doc().collection_ref().bucket_name() == collection->bucket_name() &&
+            item.doc().collection_ref().scope() == collection->scope() && item.doc().collection_ref().name() == collection->name()) {
             return &item;
         }
     }
@@ -101,8 +101,8 @@ couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutati
 {
     for (auto &item : queue_) {
         if (item.type() == staged_mutation_type::REMOVE && item.doc().id() == id &&
-            item.doc().collection_ref().bucket_name() == collection->bucket_name() && item.doc().collection_ref().scope() == collection->scope() &&
-            item.doc().collection_ref().name() == collection->name()) {
+            item.doc().collection_ref().bucket_name() == collection->bucket_name() &&
+            item.doc().collection_ref().scope() == collection->scope() && item.doc().collection_ref().name() == collection->name()) {
             return &item;
         }
     }

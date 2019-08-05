@@ -4,9 +4,10 @@
 #include <libcouchbase/couchbase.h>
 #include <libcouchbase/cluster.hxx>
 #include <libcouchbase/bucket.hxx>
+#include <utility>
 
-couchbase::cluster::cluster(const std::string &cluster_address, const std::string &user_name, const std::string &password)
-    : lcb_(nullptr), cluster_address_(cluster_address), user_name_(user_name), password_(password)
+couchbase::cluster::cluster(std::string cluster_address, std::string user_name, std::string password)
+    : lcb_(nullptr), cluster_address_(std::move(cluster_address)), user_name_(std::move(user_name)), password_(std::move(password))
 {
     connect();
 }

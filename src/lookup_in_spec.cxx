@@ -1,7 +1,8 @@
 #include <libcouchbase/lookup_in_spec.hxx>
+#include <utility>
 #include <libcouchbase/couchbase.h>
 
-couchbase::lookup_in_spec::lookup_in_spec(couchbase::lookup_in_spec_type type, const std::string &path = "") : type_(type), path_(path)
+couchbase::lookup_in_spec::lookup_in_spec(couchbase::lookup_in_spec_type type, std::string path = "") : type_(type), path_(std::move(path))
 {
 }
 

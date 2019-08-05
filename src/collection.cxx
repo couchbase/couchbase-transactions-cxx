@@ -5,6 +5,7 @@
 #include <libcouchbase/result.hxx>
 #include <libcouchbase/couchbase.h>
 #include <libcouchbase/lookup_in_spec.hxx>
+#include <utility>
 
 extern "C" {
 static void store_callback(lcb_INSTANCE *, int, const lcb_RESPSTORE *resp)
@@ -62,7 +63,7 @@ static void subdoc_callback(lcb_INSTANCE *, int, const lcb_RESPSUBDOC *resp)
     res->key = std::string(data, ndata);
 
     size_t len = lcb_respsubdoc_result_size(resp);
-    res->value.resize(len);
+    res->values.resize(len);
     for (size_t idx = 0; idx < len; idx++) {
         data = nullptr;
         ndata = 0;
@@ -74,8 +75,8 @@ static void subdoc_callback(lcb_INSTANCE *, int, const lcb_RESPSUBDOC *resp)
 }
 }
 
-couchbase::collection::collection(bucket *bucket, const std::string &scope, const std::string &name)
-    : bucket_(bucket), scope_(scope), name_(name)
+couchbase::collection::collection(bucket *bucket, std::string scope, std::string name)
+    : bucket_(bucket), scope_(std::move(scope)), name_(std::move(name))
 {
     lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_STORE, reinterpret_cast<lcb_RESPCALLBACK>(store_callback));
     lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_GET, reinterpret_cast<lcb_RESPCALLBACK>(get_callback));
@@ -234,10 +235,10 @@ couchbase::result couchbase::collection::lookup_in(const std::string &id, const 
     lcb_SUBDOCOPS *ops;
     lcb_subdocops_create(&ops, specs.size());
     size_t idx = 0;
-    for (auto spec : specs) {
+    for (const auto& spec : specs) {
         switch (spec.type_) {
             case LOOKUP_IN_GET:
-                lcb_subdocops_get(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
+                lcb_subdocops_get(ops, idx++, spec.flags_, spec.path_.c_str(), spec.path_.size());
                 break;
             case LOOKUP_IN_FULLDOC_GET:
                 lcb_subdocops_fulldoc_get(ops, idx++, spec.flags_);

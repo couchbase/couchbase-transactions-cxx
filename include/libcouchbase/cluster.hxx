@@ -20,7 +20,7 @@ class cluster
     void connect();
 
   public:
-    explicit cluster(const std::string &cluster_address, const std::string &user_name, const std::string &password);
+    explicit cluster(std::string cluster_address, std::string user_name, std::string password);
     ~cluster();
 
     bucket *open_bucket(const std::string &name);

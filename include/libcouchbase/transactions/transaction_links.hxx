@@ -19,8 +19,8 @@ namespace transactions
 
       public:
         transaction_links() = default;
-        transaction_links(const std::string &atr_id, const std::string &atr_bucket_name, const std::string &atr_scope_name,
-                          const std::string &atr_collection_name, const std::string &content, const std::string &version);
+        transaction_links(std::string atr_id, std::string atr_bucket_name, std::string atr_scope_name,
+                          std::string atr_collection_name, std::string content, std::string version);
 
         const std::string &atr_id() const;
         const std::string &atr_bucket_name() const;

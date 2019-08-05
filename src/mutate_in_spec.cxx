@@ -1,12 +1,14 @@
 #include <libcouchbase/mutate_in_spec.hxx>
+#include <utility>
 #include <libcouchbase/couchbase.h>
 
-couchbase::mutate_in_spec::mutate_in_spec(mutate_in_spec_type type, const std::string &path, const std::string &value)
-    : type_(type), path_(path), value_(value), flags_(0)
+couchbase::mutate_in_spec::mutate_in_spec(mutate_in_spec_type type, std::string path, std::string value)
+    : type_(type), path_(std::move(path)), value_(std::move(value)), flags_(0)
 {
 }
 
-couchbase::mutate_in_spec::mutate_in_spec(mutate_in_spec_type type, const std::string &value) : type_(type), path_(""), value_(value), flags_(0)
+couchbase::mutate_in_spec::mutate_in_spec(mutate_in_spec_type type, std::string value)
+    : type_(type), path_(""), value_(std::move(value)), flags_(0)
 {
 }
 
