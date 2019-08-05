@@ -4,6 +4,7 @@
 #include <vector>
 
 #include <libcouchbase/couchbase.h>
+#include <json11.hpp>
 
 namespace couchbase
 {
@@ -18,8 +19,8 @@ class result
     uint8_t datatype;
     uint32_t flags;
     std::string key;
-    std::string value;
-    std::vector<std::string> values;
+    json11::Json value;
+    std::vector<json11::Json> values;
 };
 
 } // namespace couchbase

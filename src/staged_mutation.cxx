@@ -6,7 +6,7 @@
 #include <libcouchbase/transactions/staged_mutation.hxx>
 #include <libcouchbase/transactions/transaction_fields.hxx>
 
-couchbase::transactions::staged_mutation::staged_mutation(couchbase::transactions::transaction_document &doc, std::string content,
+couchbase::transactions::staged_mutation::staged_mutation(couchbase::transactions::transaction_document &doc, json11::Json content,
                                                           couchbase::transactions::staged_mutation_type type)
     : doc_(std::move(doc)), content_(std::move(content)), type_(type)
 {
@@ -22,7 +22,7 @@ const couchbase::transactions::staged_mutation_type &couchbase::transactions::st
     return type_;
 }
 
-const std::string &couchbase::transactions::staged_mutation::content() const
+const json11::Json &couchbase::transactions::staged_mutation::content() const
 {
     return content_;
 }
@@ -65,9 +65,9 @@ void couchbase::transactions::staged_mutation_queue::extract_to(const std::strin
                 break;
         }
     }
-    specs.push_back(mutate_in_spec::upsert(prefix + ATR_FIELD_DOCS_INSERTED, json11::Json(inserts).dump()).xattr());
-    specs.push_back(mutate_in_spec::upsert(prefix + ATR_FIELD_DOCS_REPLACED, json11::Json(replaces).dump()).xattr());
-    specs.push_back(mutate_in_spec::upsert(prefix + ATR_FIELD_DOCS_REMOVED, json11::Json(removes).dump()).xattr());
+    specs.push_back(mutate_in_spec::upsert(prefix + ATR_FIELD_DOCS_INSERTED, inserts).xattr());
+    specs.push_back(mutate_in_spec::upsert(prefix + ATR_FIELD_DOCS_REPLACED, replaces).xattr());
+    specs.push_back(mutate_in_spec::upsert(prefix + ATR_FIELD_DOCS_REMOVED, removes).xattr());
 }
 
 couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutation_queue::find_replace(couchbase::collection *collection,

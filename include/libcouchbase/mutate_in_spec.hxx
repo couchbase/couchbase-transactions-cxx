@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <json11.hpp>
 
 namespace couchbase
 {
@@ -13,10 +14,10 @@ class mutate_in_spec
     friend collection;
 
   public:
-    static mutate_in_spec upsert(const std::string &path, const std::string &value);
-    static mutate_in_spec insert(const std::string &path, const std::string &value);
-    static mutate_in_spec fulldoc_insert(const std::string &value);
-    static mutate_in_spec fulldoc_upsert(const std::string &value);
+    static mutate_in_spec upsert(const std::string &path, const json11::Json &value);
+    static mutate_in_spec insert(const std::string &path, const json11::Json &value);
+    static mutate_in_spec fulldoc_insert(const json11::Json &value);
+    static mutate_in_spec fulldoc_upsert(const json11::Json &value);
 
     mutate_in_spec &xattr();
     mutate_in_spec &create_path();

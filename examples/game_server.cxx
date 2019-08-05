@@ -4,8 +4,6 @@
 #include <libcouchbase/transactions.hxx>
 #include <libcouchbase/cluster.hxx>
 
-#include "json11_parser.hxx"
-
 using namespace std;
 using namespace couchbase;
 
@@ -31,7 +29,7 @@ class GameServer
     {
         transactions_.run([&](transactions::attempt_context &ctx) {
             transactions::transaction_document monster = ctx.get(collection_, monster_id);
-            json11::Json monster_body = monster.content_as<Json11Parser>();
+            json11::Json monster_body = monster.content();
 
             int monster_hitpoints = monster_body["hitpoints"].int_value();
             int monster_new_hitpoints = monster_hitpoints - damage_;
@@ -45,7 +43,7 @@ class GameServer
                 // Monster is killed. The remove is just for demoing, and a more realistic examples would set a "dead" flag or similar.
                 ctx.remove(collection_, monster);
 
-                json11::Json player_body = player.content_as<Json11Parser>();
+                json11::Json player_body = player.content();
 
                 // the player earns experience for killing the monster
                 int experience_for_killing_monster = monster_body["experienceWhenKilled"].int_value();

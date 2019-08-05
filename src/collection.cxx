@@ -35,7 +35,8 @@ static void get_callback(lcb_INSTANCE *, int, const lcb_RESPGET *resp)
         lcb_respget_key(resp, &data, &ndata);
         res->key = std::string(data, ndata);
         lcb_respget_value(resp, &data, &ndata);
-        res->value = std::string(data, ndata);
+        std::string err;
+        res->value = json11::Json::parse(std::string(data, ndata), err);
     }
 }
 
@@ -69,7 +70,8 @@ static void subdoc_callback(lcb_INSTANCE *, int, const lcb_RESPSUBDOC *resp)
         ndata = 0;
         lcb_respsubdoc_result_value(resp, idx, &data, &ndata);
         if (data) {
-            res->values[idx] = std::string(data, ndata);
+            std::string err;
+            res->values[idx] = json11::Json::parse(std::string(data, ndata), err);
         }
     }
 }
@@ -118,7 +120,7 @@ couchbase::result couchbase::collection::get(const std::string &id)
     }
     lcb_wait(bucket_->lcb_);
     if (res.rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to get document: ") + lcb_strerror_short(rc));
+        throw std::runtime_error(std::string("failed to get document: ") + lcb_strerror_short(res.rc));
     }
     return res;
 }
@@ -140,7 +142,7 @@ couchbase::result couchbase::collection::store(lcb_STORE_OPERATION operation, co
     }
     lcb_wait(bucket_->lcb_);
     if (res.rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to store document: ") + lcb_strerror_short(rc));
+        throw std::runtime_error(std::string("failed to store document: ") + lcb_strerror_short(res.rc));
     }
     return res;
 }
@@ -176,7 +178,7 @@ couchbase::result couchbase::collection::remove(const std::string &id, uint64_t 
     }
     lcb_wait(bucket_->lcb_);
     if (res.rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to remove document: ") + lcb_strerror_short(rc));
+        throw std::runtime_error(std::string("failed to remove document: ") + lcb_strerror_short(res.rc));
     }
     return res;
 }
@@ -219,7 +221,7 @@ couchbase::result couchbase::collection::mutate_in(const std::string &id, const 
         throw std::runtime_error(std::string("failed to mutate (sched) sub-document: ") + lcb_strerror_short(rc));
     }
     lcb_wait(bucket_->lcb_);
-    if (res.rc != LCB_SUCCESS) {
+    if (res.rc != LCB_SUCCESS && res.rc != LCB_SUBDOC_MULTI_FAILURE) {
         throw std::runtime_error(std::string("failed to mutate sub-document: ") + lcb_strerror_short(res.rc));
     }
     return res;
@@ -255,5 +257,8 @@ couchbase::result couchbase::collection::lookup_in(const std::string &id, const 
         throw std::runtime_error(std::string("failed to lookup (sched) sub-document: ") + lcb_strerror_short(rc));
     }
     lcb_wait(bucket_->lcb_);
+    if (res.rc != LCB_SUCCESS && res.rc != LCB_SUBDOC_MULTI_FAILURE) {
+        throw std::runtime_error(std::string("failed to lookup sub-document: ") + lcb_strerror_short(res.rc));
+    }
     return res;
 }

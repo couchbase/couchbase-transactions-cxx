@@ -18,14 +18,14 @@ namespace transactions
       private:
         transaction_document doc_;
         staged_mutation_type type_;
-        std::string content_;
+        json11::Json content_;
 
       public:
-        staged_mutation(transaction_document &doc, std::string content, staged_mutation_type type);
+        staged_mutation(transaction_document &doc, json11::Json content, staged_mutation_type type);
 
         const transaction_document &doc() const;
         const staged_mutation_type &type() const;
-        const std::string &content() const;
+        const json11::Json &content() const;
     };
 
     class staged_mutation_queue

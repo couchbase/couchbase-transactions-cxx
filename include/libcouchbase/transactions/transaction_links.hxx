@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <json11.hpp>
 
 namespace couchbase
 {
@@ -15,19 +16,19 @@ namespace transactions
         std::string atr_collection_name_;
         // id of the transaction that has staged content
         std::string staged_version_;
-        std::string staged_content_;
+        json11::Json staged_content_;
 
       public:
         transaction_links() = default;
-        transaction_links(std::string atr_id, std::string atr_bucket_name, std::string atr_scope_name,
-                          std::string atr_collection_name, std::string content, std::string version);
+        transaction_links(std::string atr_id, std::string atr_bucket_name, std::string atr_scope_name, std::string atr_collection_name,
+                          json11::Json content, std::string version);
 
         const std::string &atr_id() const;
         const std::string &atr_bucket_name() const;
         const std::string &atr_scope_name() const;
         const std::string &atr_collection_name() const;
         const std::string &staged_version() const;
-        const std::string &staged_content() const;
+        const json11::Json &staged_content() const;
 
         /**
          * Note this doesn't guarantee an active transaction, as it may have expired and need rolling back.

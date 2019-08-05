@@ -12,30 +12,25 @@ namespace transactions
     {
       private:
         const collection &collection_;
-        std::string value_;
+        json11::Json value_;
         std::string id_;
         uint64_t cas_;
         transaction_links links_;
         transaction_document_status status_;
 
       public:
-        transaction_document(const collection &collection, std::string id, std::string value, uint64_t cas,
+        transaction_document(const collection &collection, std::string id, json11::Json value, uint64_t cas,
                              transaction_document_status status = NORMAL, transaction_links links = {});
 
         const collection &collection_ref() const;
-        const std::string &content() const;
-        void content(const std::string &content);
+        const json11::Json &content() const;
+        void content(const json11::Json &content);
         const std::string &id() const;
         uint64_t cas() const;
         void cas(uint64_t cas);
         transaction_links links() const;
         transaction_document_status status() const;
         void status(transaction_document_status status);
-
-        template <typename ValueParser> typename ValueParser::ValueType content_as()
-        {
-            return ValueParser::parse(value_);
-        }
     };
 } // namespace transactions
 } // namespace couchbase
