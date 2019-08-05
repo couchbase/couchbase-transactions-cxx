@@ -51,7 +51,7 @@ couchbase::transactions::transaction_document couchbase::transactions::attempt_c
                                                     lookup_in_spec::get(STAGED_DATA).xattr(), lookup_in_spec::get(ATR_BUCKET_NAME).xattr(),
                                                     lookup_in_spec::get(ATR_SCOPE_NAME).xattr(), lookup_in_spec::get(ATR_COLL_NAME).xattr(),
                                                     lookup_in_spec::fulldoc_get() });
-    if (res.rc == LCB_SUCCESS) {
+    if (res.rc == LCB_SUCCESS || res.rc == LCB_SUBDOC_MULTI_FAILURE) {
         std::string atr_id = res.values[0];
         std::string staged_version = res.values[1];
         std::string staged_data = res.values[2];
@@ -114,7 +114,7 @@ couchbase::transactions::attempt_context::replace(couchbase::collection *collect
             document.id(),
             {
                 mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
-                mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "${Mutation.CAS}").xattr().expand_macro(),
+                mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "\"${Mutation.CAS}\"").xattr().expand_macro(),
                 mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, "15").xattr(),
                 mutate_in_spec::fulldoc_upsert("{}"),
             });

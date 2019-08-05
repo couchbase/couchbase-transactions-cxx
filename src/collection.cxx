@@ -191,7 +191,7 @@ couchbase::result couchbase::collection::mutate_in(const std::string &id, const 
     lcb_SUBDOCOPS *ops;
     lcb_subdocops_create(&ops, specs.size());
     size_t idx = 0;
-    for (auto spec : specs) {
+    for (const auto &spec : specs) {
         switch (spec.type_) {
             case MUTATE_IN_UPSERT:
                 lcb_subdocops_dict_upsert(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size(), spec.value_.data(),
@@ -220,7 +220,7 @@ couchbase::result couchbase::collection::mutate_in(const std::string &id, const 
     }
     lcb_wait(bucket_->lcb_);
     if (res.rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to mutate sub-document: ") + lcb_strerror_short(rc));
+        throw std::runtime_error(std::string("failed to mutate sub-document: ") + lcb_strerror_short(res.rc));
     }
     return res;
 }
@@ -235,10 +235,10 @@ couchbase::result couchbase::collection::lookup_in(const std::string &id, const 
     lcb_SUBDOCOPS *ops;
     lcb_subdocops_create(&ops, specs.size());
     size_t idx = 0;
-    for (const auto& spec : specs) {
+    for (const auto &spec : specs) {
         switch (spec.type_) {
             case LOOKUP_IN_GET:
-                lcb_subdocops_get(ops, idx++, spec.flags_, spec.path_.c_str(), spec.path_.size());
+                lcb_subdocops_get(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
                 break;
             case LOOKUP_IN_FULLDOC_GET:
                 lcb_subdocops_fulldoc_get(ops, idx++, spec.flags_);
@@ -255,8 +255,5 @@ couchbase::result couchbase::collection::lookup_in(const std::string &id, const 
         throw std::runtime_error(std::string("failed to lookup (sched) sub-document: ") + lcb_strerror_short(rc));
     }
     lcb_wait(bucket_->lcb_);
-    if (res.rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to lookup sub-document: ") + lcb_strerror_short(res.rc));
-    }
     return res;
 }
