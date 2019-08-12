@@ -9,8 +9,25 @@
 
 #include "atr_ids.hxx"
 
-couchbase::transactions::attempt_context::attempt_context(couchbase::transactions::transaction_context &transaction_ctx)
-    : transaction_ctx_(transaction_ctx), state_(attempt_state::NOT_STARTED), atr_id_(""), atr_collection_(nullptr), is_done_(false)
+static lcb_DURABILITY_LEVEL durability(const couchbase::transactions::configuration &config)
+{
+    switch (config.durability_level()) {
+        case couchbase::transactions::NONE:
+            return LCB_DURABILITYLEVEL_NONE;
+        case couchbase::transactions::MAJORITY:
+            return LCB_DURABILITYLEVEL_MAJORITY;
+        case couchbase::transactions::MAJORITY_AND_PERSIST_ON_MASTER:
+            return LCB_DURABILITYLEVEL_MAJORITY_AND_PERSIST_ON_MASTER;
+        case couchbase::transactions::PERSIST_TO_MAJORITY:
+            return LCB_DURABILITYLEVEL_PERSIST_TO_MAJORITY;
+    }
+    throw std::runtime_error("unknown durability: " + std::to_string(config.durability_level()));
+}
+
+couchbase::transactions::attempt_context::attempt_context(couchbase::transactions::transaction_context &transaction_ctx,
+                                                          const couchbase::transactions::configuration &config)
+    : transaction_ctx_(transaction_ctx), config_(config), state_(attempt_state::NOT_STARTED), atr_id_(""), atr_collection_(nullptr),
+      is_done_(false)
 {
     id_ = uid_generator::next();
 }
@@ -116,20 +133,23 @@ couchbase::transactions::transaction_document couchbase::transactions::attempt_c
                 mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "${Mutation.CAS}").xattr().expand_macro(),
                 mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, 15).xattr(),
                 mutate_in_spec::fulldoc_upsert(json11::Json::object{}),
-            });
+            },
+            durability(config_));
         if (res.rc != LCB_SUCCESS) {
             throw std::runtime_error(std::string("failed to set ATR to pending state: ") + lcb_strerror_short(res.rc));
         }
     }
 
-    const result &res = collection->mutate_in(document.id(), {
-                                                                 mutate_in_spec::upsert(STAGED_VERSION, id_).xattr().create_path(),
-                                                                 mutate_in_spec::upsert(ATR_ID, atr_id_).xattr(),
-                                                                 mutate_in_spec::upsert(STAGED_DATA, content).xattr(),
-                                                                 mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
-                                                                 mutate_in_spec::upsert(ATR_SCOPE_NAME, collection->scope()).xattr(),
-                                                                 mutate_in_spec::upsert(ATR_COLL_NAME, collection->name()).xattr(),
-                                                             });
+    const result &res = collection->mutate_in(document.id(),
+                                              {
+                                                  mutate_in_spec::upsert(STAGED_VERSION, id_).xattr().create_path(),
+                                                  mutate_in_spec::upsert(ATR_ID, atr_id_).xattr(),
+                                                  mutate_in_spec::upsert(STAGED_DATA, content).xattr(),
+                                                  mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
+                                                  mutate_in_spec::upsert(ATR_SCOPE_NAME, collection->scope()).xattr(),
+                                                  mutate_in_spec::upsert(ATR_COLL_NAME, collection->name()).xattr(),
+                                              },
+                                              durability(config_));
 
     if (res.rc == LCB_SUCCESS) {
         transaction_document out(
@@ -149,23 +169,27 @@ couchbase::transactions::attempt_context::insert(couchbase::collection *collecti
     if (staged_mutations_.empty()) {
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id_ + ".");
         collection->mutate_in(
-            id, {
-                    mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
-                    mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "${Mutation.CAS}").xattr().expand_macro(),
-                    mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, 15).xattr(),
-                    mutate_in_spec::fulldoc_upsert(json11::Json::object{}),
-                });
+            id,
+            {
+                mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
+                mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "${Mutation.CAS}").xattr().expand_macro(),
+                mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, 15).xattr(),
+                mutate_in_spec::fulldoc_upsert(json11::Json::object{}),
+            },
+            durability(config_));
     }
 
-    const result &res = collection->mutate_in(id, {
-                                                      mutate_in_spec::upsert(STAGED_VERSION, id_).xattr().create_path(),
-                                                      mutate_in_spec::insert(ATR_ID, atr_id_).xattr(),
-                                                      mutate_in_spec::insert(STAGED_DATA, content).xattr(),
-                                                      mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
-                                                      mutate_in_spec::insert(ATR_SCOPE_NAME, collection->scope()).xattr(),
-                                                      mutate_in_spec::insert(ATR_COLL_NAME, collection->name()).xattr(),
-                                                      mutate_in_spec::fulldoc_insert(json11::Json::object{}),
-                                                  });
+    const result &res = collection->mutate_in(id,
+                                              {
+                                                  mutate_in_spec::upsert(STAGED_VERSION, id_).xattr().create_path(),
+                                                  mutate_in_spec::insert(ATR_ID, atr_id_).xattr(),
+                                                  mutate_in_spec::insert(STAGED_DATA, content).xattr(),
+                                                  mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
+                                                  mutate_in_spec::insert(ATR_SCOPE_NAME, collection->scope()).xattr(),
+                                                  mutate_in_spec::insert(ATR_COLL_NAME, collection->name()).xattr(),
+                                                  mutate_in_spec::fulldoc_insert(json11::Json::object{}),
+                                              },
+                                              durability(config_));
     if (res.rc == LCB_SUCCESS) {
         transaction_document out(
             *collection, id, content, res.cas, transaction_document_status::NORMAL,
@@ -190,17 +214,20 @@ void couchbase::transactions::attempt_context::remove(couchbase::collection *col
                 mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "${Mutation.CAS}").xattr().expand_macro(),
                 mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, 15).xattr(),
                 mutate_in_spec::fulldoc_upsert(json11::Json::object{}),
-            });
+            },
+            durability(config_));
     }
 
-    const result &res = collection->mutate_in(document.id(), {
-                                                                 mutate_in_spec::upsert(STAGED_VERSION, id_).xattr().create_path(),
-                                                                 mutate_in_spec::upsert(ATR_ID, atr_id_).xattr(),
-                                                                 mutate_in_spec::upsert(STAGED_DATA, STAGED_DATA_REMOVED_VALUE).xattr(),
-                                                                 mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
-                                                                 mutate_in_spec::upsert(ATR_SCOPE_NAME, collection->scope()).xattr(),
-                                                                 mutate_in_spec::upsert(ATR_COLL_NAME, collection->name()).xattr(),
-                                                             });
+    const result &res = collection->mutate_in(document.id(),
+                                              {
+                                                  mutate_in_spec::upsert(STAGED_VERSION, id_).xattr().create_path(),
+                                                  mutate_in_spec::upsert(ATR_ID, atr_id_).xattr(),
+                                                  mutate_in_spec::upsert(STAGED_DATA, STAGED_DATA_REMOVED_VALUE).xattr(),
+                                                  mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
+                                                  mutate_in_spec::upsert(ATR_SCOPE_NAME, collection->scope()).xattr(),
+                                                  mutate_in_spec::upsert(ATR_COLL_NAME, collection->name()).xattr(),
+                                              },
+                                              durability(config_));
     if (res.rc == LCB_SUCCESS) {
         document.cas(res.cas);
         staged_mutations_.add(staged_mutation(document, "", staged_mutation_type::REMOVE));

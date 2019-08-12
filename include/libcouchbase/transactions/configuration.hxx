@@ -12,8 +12,12 @@ namespace transactions
     class configuration
     {
       public:
-        durability_level durabilityLevel();
-        uint32_t transaction_expiration_time();
+        enum durability_level durability_level() const;
+        void durability_level(enum durability_level level);
+
+      private:
+        enum durability_level level_ { durability_level::MAJORITY };
     };
+
 } // namespace transactions
 } // namespace couchbase

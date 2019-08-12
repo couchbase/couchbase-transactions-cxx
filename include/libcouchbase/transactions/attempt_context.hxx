@@ -9,6 +9,7 @@
 #include <libcouchbase/transactions/transaction_context.hxx>
 #include <libcouchbase/transactions/attempt_state.hxx>
 #include <libcouchbase/transactions/staged_mutation.hxx>
+#include <libcouchbase/transactions/configuration.hxx>
 
 namespace couchbase
 {
@@ -21,7 +22,8 @@ namespace transactions
     class attempt_context
     {
       private:
-        couchbase::transactions::transaction_context &transaction_ctx_;
+        transaction_context &transaction_ctx_;
+        const configuration &config_;
         std::string atr_id_;
         collection *atr_collection_;
         bool is_done_;
@@ -32,7 +34,7 @@ namespace transactions
         void init_atr_if_needed(collection *collection, const std::string &id);
 
       public:
-        explicit attempt_context(couchbase::transactions::transaction_context &transaction_ctx);
+        attempt_context(transaction_context &transaction_ctx, const configuration &config);
 
         /**
          * Gets a document from the specified Couchbase collection matching the specified id.

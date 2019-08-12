@@ -82,6 +82,7 @@ int main(int argc, const char *argv[])
     collection *collection = bucket->default_collection();
 
     transactions::configuration configuration;
+    configuration.durability_level(transactions::durability_level::MAJORITY);
     transactions::transactions transactions(cluster, configuration);
 
     GameServer game_server(transactions, collection);

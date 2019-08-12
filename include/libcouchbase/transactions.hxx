@@ -24,9 +24,13 @@ namespace transactions
     class transactions
     {
       public:
-        transactions(couchbase::cluster &cluster, configuration &configuration);
+        transactions(couchbase::cluster &cluster, const configuration &configuration);
         void run(const logic &logic);
         void close();
+
+      private:
+        couchbase::cluster &cluster_;
+        const couchbase::transactions::configuration &config_;
     };
 } // namespace transactions
 } // namespace couchbase
