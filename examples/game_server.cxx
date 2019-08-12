@@ -59,7 +59,7 @@ class GameServer
                 player_new_body["level"] = player_new_level;
                 ctx.replace(collection_, player, json11::Json(player_new_body).dump());
             } else {
-                cout << "Monster " << monster_id << "is damaged but alive" << endl;
+                cout << "Monster " << monster_id << " is damaged but alive" << endl;
 
                 json11::Json::object monster_new_body = monster_body.object_items();
                 monster_new_body["hitpoints"] = monster_new_hitpoints;

@@ -119,9 +119,6 @@ couchbase::result couchbase::collection::get(const std::string &id)
         throw std::runtime_error(std::string("failed to get (sched) document: ") + lcb_strerror_short(rc));
     }
     lcb_wait(bucket_->lcb_);
-    if (res.rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to get document: ") + lcb_strerror_short(res.rc));
-    }
     return res;
 }
 
@@ -141,9 +138,6 @@ couchbase::result couchbase::collection::store(lcb_STORE_OPERATION operation, co
         throw std::runtime_error(std::string("failed to store (sched) document: ") + lcb_strerror_short(rc));
     }
     lcb_wait(bucket_->lcb_);
-    if (res.rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to store document: ") + lcb_strerror_short(res.rc));
-    }
     return res;
 }
 
@@ -177,9 +171,6 @@ couchbase::result couchbase::collection::remove(const std::string &id, uint64_t 
         throw std::runtime_error(std::string("failed to remove (sched) document: ") + lcb_strerror_short(rc));
     }
     lcb_wait(bucket_->lcb_);
-    if (res.rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to remove document: ") + lcb_strerror_short(res.rc));
-    }
     return res;
 }
 
@@ -221,9 +212,6 @@ couchbase::result couchbase::collection::mutate_in(const std::string &id, const 
         throw std::runtime_error(std::string("failed to mutate (sched) sub-document: ") + lcb_strerror_short(rc));
     }
     lcb_wait(bucket_->lcb_);
-    if (res.rc != LCB_SUCCESS && res.rc != LCB_SUBDOC_MULTI_FAILURE) {
-        throw std::runtime_error(std::string("failed to mutate sub-document: ") + lcb_strerror_short(res.rc));
-    }
     return res;
 }
 
@@ -257,8 +245,5 @@ couchbase::result couchbase::collection::lookup_in(const std::string &id, const 
         throw std::runtime_error(std::string("failed to lookup (sched) sub-document: ") + lcb_strerror_short(rc));
     }
     lcb_wait(bucket_->lcb_);
-    if (res.rc != LCB_SUCCESS && res.rc != LCB_SUBDOC_MULTI_FAILURE) {
-        throw std::runtime_error(std::string("failed to lookup sub-document: ") + lcb_strerror_short(res.rc));
-    }
     return res;
 }
