@@ -11,7 +11,7 @@ namespace transactions
     class transaction_document
     {
       private:
-        const collection &collection_;
+        collection &collection_;
         json11::Json value_;
         std::string id_;
         uint64_t cas_;
@@ -19,10 +19,10 @@ namespace transactions
         transaction_document_status status_;
 
       public:
-        transaction_document(const collection &collection, std::string id, json11::Json value, uint64_t cas,
+        transaction_document(collection &collection, std::string id, json11::Json value, uint64_t cas,
                              transaction_document_status status = NORMAL, transaction_links links = {});
 
-        const collection &collection_ref() const;
+        collection &collection_ref();
         const json11::Json &content() const;
         void content(const json11::Json &content);
         const std::string &id() const;

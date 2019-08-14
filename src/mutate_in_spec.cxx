@@ -35,7 +35,7 @@ couchbase::mutate_in_spec couchbase::mutate_in_spec::fulldoc_upsert(const json11
 
 couchbase::mutate_in_spec couchbase::mutate_in_spec::remove(const std::string &path)
 {
-    return couchbase::mutate_in_spec(mutate_in_spec_type::REMOVE, path);
+    return couchbase::mutate_in_spec(mutate_in_spec_type::REMOVE, path, "");
 }
 
 couchbase::mutate_in_spec &couchbase::mutate_in_spec::xattr()

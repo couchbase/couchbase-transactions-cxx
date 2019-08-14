@@ -3,7 +3,7 @@
 #include <libcouchbase/transactions/transaction_document.hxx>
 #include <utility>
 
-couchbase::transactions::transaction_document::transaction_document(const collection &collection, std::string id, json11::Json value,
+couchbase::transactions::transaction_document::transaction_document(collection &collection, std::string id, json11::Json value,
                                                                     uint64_t cas,
                                                                     couchbase::transactions::transaction_document_status status,
                                                                     couchbase::transactions::transaction_links links)
@@ -26,7 +26,7 @@ uint64_t couchbase::transactions::transaction_document::cas() const
     return cas_;
 }
 
-const couchbase::collection &couchbase::transactions::transaction_document::collection_ref() const
+couchbase::collection &couchbase::transactions::transaction_document::collection_ref()
 {
     return collection_;
 }

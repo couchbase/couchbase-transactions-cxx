@@ -5,6 +5,7 @@
 
 #include <libcouchbase/transactions/staged_mutation.hxx>
 #include <libcouchbase/transactions/transaction_fields.hxx>
+#include <iostream>
 
 couchbase::transactions::staged_mutation::staged_mutation(couchbase::transactions::transaction_document &doc, json11::Json content,
                                                           couchbase::transactions::staged_mutation_type type)
@@ -12,7 +13,7 @@ couchbase::transactions::staged_mutation::staged_mutation(couchbase::transaction
 {
 }
 
-const couchbase::transactions::transaction_document &couchbase::transactions::staged_mutation::doc() const
+couchbase::transactions::transaction_document &couchbase::transactions::staged_mutation::doc()
 {
     return doc_;
 }
@@ -73,6 +74,7 @@ void couchbase::transactions::staged_mutation_queue::extract_to(const std::strin
 couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutation_queue::find_replace(couchbase::collection *collection,
                                                                                                        const std::string &id)
 {
+    std::unique_lock<std::mutex> lock(mutex_);
     for (auto &item : queue_) {
         if (item.type() == staged_mutation_type::REPLACE && item.doc().id() == id &&
             item.doc().collection_ref().bucket_name() == collection->bucket_name() &&
@@ -86,6 +88,7 @@ couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutati
 couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutation_queue::find_insert(couchbase::collection *collection,
                                                                                                       const std::string &id)
 {
+    std::unique_lock<std::mutex> lock(mutex_);
     for (auto &item : queue_) {
         if (item.type() == staged_mutation_type::INSERT && item.doc().id() == id &&
             item.doc().collection_ref().bucket_name() == collection->bucket_name() &&
@@ -99,6 +102,7 @@ couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutati
 couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutation_queue::find_remove(couchbase::collection *collection,
                                                                                                       const std::string &id)
 {
+    std::unique_lock<std::mutex> lock(mutex_);
     for (auto &item : queue_) {
         if (item.type() == staged_mutation_type::REMOVE && item.doc().id() == id &&
             item.doc().collection_ref().bucket_name() == collection->bucket_name() &&
@@ -107,4 +111,25 @@ couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutati
         }
     }
     return nullptr;
+}
+
+void couchbase::transactions::staged_mutation_queue::commit()
+{
+    std::unique_lock<std::mutex> lock(mutex_);
+
+    for (auto &item : queue_) {
+        switch (item.type()) {
+            case REMOVE:
+                item.doc().collection_ref().remove(item.doc().id());
+                break;
+            case INSERT:
+            case REPLACE:
+                item.doc().collection_ref().mutate_in(item.doc().id(),
+                                                      {
+                                                          mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
+                                                          mutate_in_spec::fulldoc_upsert(item.content()),
+                                                      });
+                break;
+        }
+    }
 }

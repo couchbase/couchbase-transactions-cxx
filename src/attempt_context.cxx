@@ -155,7 +155,7 @@ couchbase::transactions::transaction_document couchbase::transactions::attempt_c
         transaction_document out(
             *collection, document.id(), document.content(), res.cas, transaction_document_status::NORMAL,
             transaction_links(atr_id_, collection->bucket_name(), collection->scope(), collection->name(), content, id_));
-        staged_mutations_.add(staged_mutation(out, document.content(), staged_mutation_type::REPLACE));
+        staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::REPLACE));
         return out;
     }
     throw std::runtime_error(std::string("failed to replace the document: ") + lcb_strerror_short(res.rc));
@@ -246,6 +246,8 @@ void couchbase::transactions::attempt_context::commit()
     staged_mutations_.extract_to(prefix, specs);
     const result &res = atr_collection_->mutate_in(atr_id_, specs);
     if (res.rc == LCB_SUCCESS) {
+        std::vector<transaction_document> docs;
+        staged_mutations_.commit();
         is_done_ = true;
         state_ = attempt_state::COMMITTED;
     } else {

@@ -43,7 +43,7 @@ class GameServer
                 // Monster is killed. The remove is just for demoing, and a more realistic examples would set a "dead" flag or similar.
                 ctx.remove(collection_, monster);
 
-                json11::Json player_body = player.content();
+                const json11::Json &player_body = player.content();
 
                 // the player earns experience for killing the monster
                 int experience_for_killing_monster = monster_body["experienceWhenKilled"].int_value();
@@ -57,13 +57,13 @@ class GameServer
                 json11::Json::object player_new_body = player_body.object_items();
                 player_new_body["experience"] = player_new_experience;
                 player_new_body["level"] = player_new_level;
-                ctx.replace(collection_, player, json11::Json(player_new_body).dump());
+                ctx.replace(collection_, player, player_new_body);
             } else {
                 cout << "Monster " << monster_id << " is damaged but alive" << endl;
 
                 json11::Json::object monster_new_body = monster_body.object_items();
                 monster_new_body["hitpoints"] = monster_new_hitpoints;
-                ctx.replace(collection_, player, json11::Json(monster_new_body).dump());
+                ctx.replace(collection_, monster, monster_new_body);
             }
             cout << "About to commit transaction" << endl;
         });
@@ -75,7 +75,7 @@ int main(int argc, const char *argv[])
     string cluster_address = "couchbase://localhost";
     string user_name = "Administrator";
     string password = "password";
-    string bucket_name = "gamesim-sample";
+    string bucket_name = "default";
 
     cluster cluster(cluster_address, user_name, password);
 
