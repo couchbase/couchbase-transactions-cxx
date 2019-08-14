@@ -17,9 +17,11 @@ couchbase::cluster::~cluster()
     shutdown();
 }
 
-couchbase::bucket *couchbase::cluster::open_bucket(const std::string &name)
+std::unique_ptr<couchbase::bucket> couchbase::cluster::open_bucket(const std::string &name)
 {
-    bucket *bkt = new bucket(lcb_, name);
+    connect();
+    std::unique_lock<std::mutex> lock(mutex_);
+    auto bkt = std::make_unique<bucket>(lcb_, name);
     // TODO: cache buckets
     lcb_ = nullptr;
     return bkt;
@@ -27,6 +29,10 @@ couchbase::bucket *couchbase::cluster::open_bucket(const std::string &name)
 
 void couchbase::cluster::connect()
 {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (lcb_ != nullptr) {
+        return;
+    }
     lcb_STATUS rc;
 
     struct lcb_create_st cfg {
@@ -69,4 +75,45 @@ void couchbase::cluster::shutdown()
         lcb_destroy(lcb_);
         lcb_ = nullptr;
     }
+}
+
+extern "C" {
+static void http_callback(lcb_INSTANCE *, int, const lcb_RESPHTTP *resp)
+{
+    couchbase::result *res = nullptr;
+    lcb_resphttp_cookie(resp, reinterpret_cast<void **>(&res));
+    res->rc = lcb_resphttp_status(resp);
+    if (res->rc == LCB_SUCCESS) {
+        const char *data = nullptr;
+        size_t ndata = 0;
+        lcb_resphttp_body(resp, &data, &ndata);
+        std::string err;
+        std::string payload(data, ndata);
+        res->value = json11::Json::parse(payload, err);
+    }
+}
+}
+
+std::list<std::string> couchbase::cluster::buckets()
+{
+    connect();
+    std::unique_lock<std::mutex> lock(mutex_);
+    std::string path("/pools/default/buckets");
+    lcb_CMDHTTP *cmd;
+    lcb_cmdhttp_create(&cmd, lcb_HTTP_TYPE::LCB_HTTP_TYPE_MANAGEMENT);
+    lcb_cmdhttp_method(cmd, lcb_HTTP_METHOD::LCB_HTTP_METHOD_GET);
+    lcb_cmdhttp_path(cmd, path.data(), path.size());
+    lcb_install_callback3(lcb_, LCB_CALLBACK_HTTP, (lcb_RESPCALLBACK)http_callback);
+    couchbase::result res;
+    lcb_http(lcb_, &res, cmd);
+    lcb_cmdhttp_destroy(cmd);
+    lcb_wait(lcb_);
+    if (res.rc != LCB_SUCCESS) {
+        throw std::runtime_error(std::string("failed to retrieve list of buckets: ") + lcb_strerror_short(res.rc));
+    }
+    std::list<std::string> names;
+    for (const auto &it : res.value.array_items()) {
+        names.push_back(it["name"].string_value());
+    }
+    return names;
 }

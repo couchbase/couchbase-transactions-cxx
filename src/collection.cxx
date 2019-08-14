@@ -105,12 +105,15 @@ const std::string &couchbase::collection::bucket_name() const
     return bucket_name_;
 }
 
-couchbase::result couchbase::collection::get(const std::string &id)
+couchbase::result couchbase::collection::get(const std::string &id, uint32_t expiry)
 {
     lcb_CMDGET *cmd;
     lcb_cmdget_create(&cmd);
     lcb_cmdget_key(cmd, id.data(), id.size());
     lcb_cmdget_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+    if (expiry) {
+        lcb_cmdget_expiration(cmd, expiry);
+    }
     lcb_STATUS rc;
     result res;
     rc = lcb_get(bucket_->lcb_, reinterpret_cast<void *>(&res), cmd);
@@ -184,6 +187,7 @@ couchbase::result couchbase::collection::mutate_in(const std::string &id, const 
     lcb_cmdsubdoc_create(&cmd);
     lcb_cmdsubdoc_key(cmd, id.data(), id.size());
     lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+    lcb_cmdsubdoc_create_if_missing(cmd, true);
 
     lcb_SUBDOCOPS *ops;
     lcb_subdocops_create(&ops, specs.size());
@@ -203,6 +207,9 @@ couchbase::result couchbase::collection::mutate_in(const std::string &id, const 
                 break;
             case MUTATE_IN_FULLDOC_INSERT:
                 lcb_subdocops_fulldoc_add(ops, idx++, spec.flags_, spec.value_.data(), spec.value_.size());
+                break;
+            case REMOVE:
+                lcb_subdocops_remove(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
                 break;
         }
     }

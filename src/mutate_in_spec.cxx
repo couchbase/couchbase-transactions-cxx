@@ -33,6 +33,11 @@ couchbase::mutate_in_spec couchbase::mutate_in_spec::fulldoc_upsert(const json11
     return couchbase::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_FULLDOC_UPSERT, value.dump());
 }
 
+couchbase::mutate_in_spec couchbase::mutate_in_spec::remove(const std::string &path)
+{
+    return couchbase::mutate_in_spec(mutate_in_spec_type::REMOVE, path);
+}
+
 couchbase::mutate_in_spec &couchbase::mutate_in_spec::xattr()
 {
     flags_ |= LCB_SUBDOCOPS_F_XATTRPATH;

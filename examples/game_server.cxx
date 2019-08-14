@@ -78,7 +78,8 @@ int main(int argc, const char *argv[])
     string bucket_name = "gamesim-sample";
 
     cluster cluster(cluster_address, user_name, password);
-    bucket *bucket = cluster.open_bucket(bucket_name);
+
+    auto bucket = cluster.open_bucket(bucket_name);
     collection *collection = bucket->default_collection();
 
     transactions::configuration configuration;

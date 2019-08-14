@@ -15,8 +15,12 @@ namespace transactions
         enum durability_level durability_level() const;
         void durability_level(enum durability_level level);
 
+        int cleanup_window() const;
+        void cleanup_window(int ms);
+
       private:
         enum durability_level level_ { durability_level::MAJORITY };
+        int cleanup_window_{ 120000 };
     };
 
 } // namespace transactions

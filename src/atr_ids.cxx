@@ -160,7 +160,7 @@ namespace transactions
 } // namespace transactions
 } // namespace couchbase
 
-const std::string &couchbase::transactions::attr_ids::atr_id_for_vbucket(int vbucket_id)
+const std::string &couchbase::transactions::atr_ids::atr_id_for_vbucket(int vbucket_id)
 {
     if (vbucket_id < 0 || vbucket_id > ATR_IDS.size()) {
         throw std::invalid_argument(std::string("invalid vbucket_id: ") + std::to_string(vbucket_id));
@@ -170,9 +170,13 @@ const std::string &couchbase::transactions::attr_ids::atr_id_for_vbucket(int vbu
 
 #include "../deps/libcouchbase/src/vbucket/crc32.h"
 
-int couchbase::transactions::attr_ids::vbucket_for_key(const std::string &key)
+int couchbase::transactions::atr_ids::vbucket_for_key(const std::string &key)
 {
     static const int num_vbuckets = 1024;
     uint32_t digest = hash_crc32(key.data(), key.size());
     return digest % num_vbuckets;
+}
+const std::vector<std::string> &couchbase::transactions::atr_ids::all()
+{
+    return ATR_IDS;
 }

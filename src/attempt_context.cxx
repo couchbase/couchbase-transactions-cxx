@@ -35,8 +35,8 @@ couchbase::transactions::attempt_context::attempt_context(couchbase::transaction
 void couchbase::transactions::attempt_context::init_atr_if_needed(couchbase::collection *collection, const std::string &id)
 {
     if (atr_id_.empty()) {
-        int vbucket_id = attr_ids::vbucket_for_key(id);
-        atr_id_ = attr_ids::atr_id_for_vbucket(vbucket_id);
+        int vbucket_id = atr_ids::vbucket_for_key(id);
+        atr_id_ = atr_ids::atr_id_for_vbucket(vbucket_id);
         atr_collection_ = collection;
         state_ = attempt_state::PENDING;
         std::cout << "First mutated doc in transaction is \"" << id << "\" on vbucket " << vbucket_id << ", so using atr \"" << atr_id_

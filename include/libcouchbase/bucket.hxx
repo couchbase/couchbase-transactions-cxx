@@ -6,9 +6,6 @@ struct lcb_st;
 
 namespace couchbase
 {
-
-class cluster;
-
 /**
  * Couchbase bucket.
  *
@@ -16,15 +13,13 @@ class cluster;
  */
 class bucket
 {
-    friend class cluster;
     friend class collection;
 
   private:
     lcb_st *lcb_;
 
-    explicit bucket(lcb_st *instance, const std::string &name);
-
   public:
+    bucket(lcb_st *instance, const std::string &name);
     collection *default_collection();
 };
 } // namespace couchbase

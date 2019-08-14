@@ -1,6 +1,9 @@
 #pragma once
 
 #include <string>
+#include <list>
+#include <mutex>
+
 #include <libcouchbase/bucket.hxx>
 
 struct lcb_st;
@@ -16,6 +19,7 @@ class cluster
     std::string cluster_address_;
     std::string user_name_;
     std::string password_;
+    std::mutex mutex_;
 
     void connect();
 
@@ -23,7 +27,8 @@ class cluster
     explicit cluster(std::string cluster_address, std::string user_name, std::string password);
     ~cluster();
 
-    bucket *open_bucket(const std::string &name);
+    std::list<std::string> buckets();
+    std::unique_ptr<bucket> open_bucket(const std::string &name);
     void shutdown();
 };
 } // namespace couchbase

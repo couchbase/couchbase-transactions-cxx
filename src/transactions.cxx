@@ -1,8 +1,7 @@
 #include <libcouchbase/transactions.hxx>
 
-couchbase::transactions::transactions::transactions(couchbase::cluster &cluster,
-                                                    const couchbase::transactions::configuration &configuration)
-    : cluster_(cluster), config_(configuration)
+couchbase::transactions::transactions::transactions(couchbase::cluster &cluster, const couchbase::transactions::configuration &config)
+    : cluster_(cluster), config_(config), cleanup_(cluster_, config_)
 {
 }
 

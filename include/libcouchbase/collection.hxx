@@ -27,7 +27,7 @@ class collection
     result store(lcb_STORE_OPERATION operation, const std::string &id, const std::string &value, uint64_t cas, lcb_DURABILITY_LEVEL level);
 
   public:
-    result get(const std::string &id);
+    result get(const std::string &id, uint32_t expiry = 0);
     result upsert(const std::string &id, const std::string &value, uint64_t cas = 0, lcb_DURABILITY_LEVEL level = LCB_DURABILITYLEVEL_NONE);
     result insert(const std::string &id, const std::string &value, lcb_DURABILITY_LEVEL level = LCB_DURABILITYLEVEL_NONE);
     result replace(const std::string &id, const std::string &value, uint64_t cas, lcb_DURABILITY_LEVEL level = LCB_DURABILITYLEVEL_NONE);

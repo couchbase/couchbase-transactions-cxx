@@ -29,6 +29,10 @@ namespace transactions
     // Fields inside regular docs that are part of a transaction
     static const std::string TRANSACTION_INTERFACE_PREFIX_ONLY = "txn";
     static const std::string TRANSACTION_INTERFACE_PREFIX = TRANSACTION_INTERFACE_PREFIX_ONLY + ".";
+    static const std::string TRANSACTION_RESTORE_PREFIX_ONLY = TRANSACTION_INTERFACE_PREFIX_ONLY + ".restore";
+    static const std::string TRANSACTION_RESTORE_PREFIX = TRANSACTION_RESTORE_PREFIX_ONLY + ".";
+    static const std::string TRANSACTION_ID = TRANSACTION_INTERFACE_PREFIX + "id.txn";
+    static const std::string ATTEMPT_ID = TRANSACTION_INTERFACE_PREFIX + "id.atmpt";
     static const std::string STAGED_VERSION = TRANSACTION_INTERFACE_PREFIX + "ver";
     static const std::string ATR_ID = TRANSACTION_INTERFACE_PREFIX + "atr_id";
     static const std::string ATR_BUCKET_NAME = TRANSACTION_INTERFACE_PREFIX + "atr_bkt";
@@ -40,6 +44,10 @@ namespace transactions
     static const std::string ATR_SCOPE_NAME = TRANSACTION_INTERFACE_PREFIX + "atr_scope";
     static const std::string ATR_COLL_NAME = TRANSACTION_INTERFACE_PREFIX + "atr_col";
     static const std::string STAGED_DATA = TRANSACTION_INTERFACE_PREFIX + "staged";
+    static const std::string TYPE = TRANSACTION_INTERFACE_PREFIX + "op.type";
+    static const std::string PRE_TXN_CAS = TRANSACTION_RESTORE_PREFIX + "CAS";
+    static const std::string PRE_TXN_REVID = TRANSACTION_RESTORE_PREFIX + "revid";
+    static const std::string PRE_TXN_EXPTIME = TRANSACTION_RESTORE_PREFIX + "exptime";
 
     static const std::string STAGED_DATA_REMOVED_VALUE = "<<REMOVED>>";
 } // namespace transactions

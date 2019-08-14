@@ -6,6 +6,7 @@
 
 #include <libcouchbase/transactions/configuration.hxx>
 #include <libcouchbase/transactions/attempt_context.hxx>
+#include <libcouchbase/transactions/transactions_cleanup.hxx>
 
 namespace couchbase
 {
@@ -24,13 +25,14 @@ namespace transactions
     class transactions
     {
       public:
-        transactions(couchbase::cluster &cluster, const configuration &configuration);
+        transactions(cluster &cluster, const configuration &config);
         void run(const logic &logic);
         void close();
 
       private:
         couchbase::cluster &cluster_;
-        const couchbase::transactions::configuration &config_;
+        const configuration &config_;
+        transactions_cleanup cleanup_;
     };
 } // namespace transactions
 } // namespace couchbase
