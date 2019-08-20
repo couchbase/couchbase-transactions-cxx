@@ -1,7 +1,10 @@
-#include <couchbase/client/mutate_in_spec.hxx>
 #include <utility>
+
+#include <folly/json.h>
+
 #include <libcouchbase/couchbase.h>
-#include <json11.hpp>
+
+#include <couchbase/client/mutate_in_spec.hxx>
 
 namespace cb = couchbase;
 
@@ -15,24 +18,24 @@ cb::mutate_in_spec::mutate_in_spec(mutate_in_spec_type type, std::string value)
 {
 }
 
-cb::mutate_in_spec cb::mutate_in_spec::upsert(const std::string &path, const json11::Json &value)
+cb::mutate_in_spec cb::mutate_in_spec::upsert(const std::string &path, const folly::dynamic &value)
 {
-    return cb::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_UPSERT, path, value.dump());
+    return cb::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_UPSERT, path, folly::toJson(value));
 }
 
-cb::mutate_in_spec cb::mutate_in_spec::insert(const std::string &path, const json11::Json &value)
+cb::mutate_in_spec cb::mutate_in_spec::insert(const std::string &path, const folly::dynamic &value)
 {
-    return cb::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_INSERT, path, value.dump());
+    return cb::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_INSERT, path, folly::toJson(value));
 }
 
-cb::mutate_in_spec cb::mutate_in_spec::fulldoc_insert(const json11::Json &value)
+cb::mutate_in_spec cb::mutate_in_spec::fulldoc_insert(const folly::dynamic &value)
 {
-    return cb::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_FULLDOC_INSERT, value.dump());
+    return cb::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_FULLDOC_INSERT, folly::toJson(value));
 }
 
-cb::mutate_in_spec cb::mutate_in_spec::fulldoc_upsert(const json11::Json &value)
+cb::mutate_in_spec cb::mutate_in_spec::fulldoc_upsert(const folly::dynamic &value)
 {
-    return cb::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_FULLDOC_UPSERT, value.dump());
+    return cb::mutate_in_spec(mutate_in_spec_type::MUTATE_IN_FULLDOC_UPSERT, folly::toJson(value));
 }
 
 cb::mutate_in_spec cb::mutate_in_spec::remove(const std::string &path)

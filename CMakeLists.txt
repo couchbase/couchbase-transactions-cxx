@@ -14,10 +14,6 @@ add_subdirectory(deps/libcouchbase)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake/Modules)
 
-include(FindPkgConfig)
-pkg_check_modules(JSON11 REQUIRED json11>=1.0)
-message(STATUS "found json11: ${JSON11_LDFLAGS};${JSON11_CFLAGS}")
-
 set(transactions_BOOST_COMPONENTS system thread)
 if (BUILD_TESTING)
     list(APPEND transactions_BOOST_COMPONENTS unit_test_framework)
@@ -52,7 +48,7 @@ file(GLOB_RECURSE transactions_src_FILES ${PROJECT_SOURCE_DIR}/src/transactions/
 add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions_src_FILES})
 
 add_executable(game_server examples/game_server.cxx)
-target_link_libraries(game_server transactions_cxx client_cxx ${JSON11_LIBRARIES} couchbase)
+target_link_libraries(game_server transactions_cxx client_cxx ${double-conversion_LIBRARIES} ${Folly_LIBRARIES} couchbase)
 
 if (BUILD_DOC)
     find_package(Doxygen)

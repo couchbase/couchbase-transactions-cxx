@@ -4,7 +4,7 @@
 #include <vector>
 
 #include <libcouchbase/couchbase.h>
-#include <json11.hpp>
+#include <folly/dynamic.h>
 
 namespace couchbase
 {
@@ -19,8 +19,8 @@ class result
     uint8_t datatype;
     uint32_t flags;
     std::string key;
-    json11::Json value;
-    std::vector<json11::Json> values;
+    folly::dynamic value;
+    std::vector<folly::dynamic> values;
 };
 
 } // namespace couchbase

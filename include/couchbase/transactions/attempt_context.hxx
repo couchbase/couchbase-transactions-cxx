@@ -61,7 +61,7 @@ namespace transactions
          * @param content the content to replace the doc with.
          * @return the document, updated with its new CAS value.
          */
-        transaction_document replace(collection *collection, const transaction_document &document, const json11::Json &content);
+        transaction_document replace(collection *collection, const transaction_document &document, const folly::dynamic &content);
 
         /**
          * Inserts a new document into the specified Couchbase collection.
@@ -77,7 +77,7 @@ namespace transactions
          * @param content the content to insert
          * @return the doc, updated with its new CAS value and ID, and converted to a TransactionDocument
          */
-        transaction_document insert(collection *collection, const std::string &id, const json11::Json &content);
+        transaction_document insert(collection *collection, const std::string &id, const folly::dynamic &content);
 
         /**
          * Removes the specified document, using the document's last TransactionDocument#cas

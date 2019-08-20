@@ -1,13 +1,11 @@
 #include <utility>
 
-#include <json11.hpp>
-
 #include <couchbase/transactions/staged_mutation.hxx>
 #include <couchbase/transactions/transaction_fields.hxx>
 
 namespace tx = couchbase::transactions;
 
-tx::staged_mutation::staged_mutation(tx::transaction_document &doc, json11::Json content, tx::staged_mutation_type type)
+tx::staged_mutation::staged_mutation(tx::transaction_document &doc, folly::dynamic content, tx::staged_mutation_type type)
     : doc_(std::move(doc)), content_(std::move(content)), type_(type)
 {
 }
@@ -22,7 +20,7 @@ const tx::staged_mutation_type &tx::staged_mutation::type() const
     return type_;
 }
 
-const json11::Json &tx::staged_mutation::content() const
+const folly::dynamic &tx::staged_mutation::content() const
 {
     return content_;
 }
@@ -41,18 +39,20 @@ void tx::staged_mutation_queue::add(const tx::staged_mutation &mutation)
 void tx::staged_mutation_queue::extract_to(const std::string &prefix, std::vector<couchbase::mutate_in_spec> &specs)
 {
     std::unique_lock<std::mutex> lock(mutex_);
-    json11::Json::array inserts;
-    json11::Json::array replaces;
-    json11::Json::array removes;
+    auto inserts = folly::dynamic::array();
+    auto replaces = folly::dynamic::array();
+    auto removes = folly::dynamic::array();
 
     for (auto &mutation : queue_) {
-        json11::Json doc = json11::Json::object{
-            { ATR_FIELD_PER_DOC_ID, mutation.doc().id() },
-            { ATR_FIELD_PER_DOC_CAS, std::to_string(mutation.doc().cas()) },
-            { ATR_FIELD_PER_DOC_BUCKET, mutation.doc().collection_ref().bucket_name() },
-            { ATR_FIELD_PER_DOC_SCOPE, mutation.doc().collection_ref().scope() },
-            { ATR_FIELD_PER_DOC_COLLECTION, mutation.doc().collection_ref().name() },
-        };
+        // clang-format off
+        folly::dynamic doc = folly::dynamic::object
+            (ATR_FIELD_PER_DOC_ID, mutation.doc().id())
+            (ATR_FIELD_PER_DOC_CAS, std::to_string(mutation.doc().cas()))
+            (ATR_FIELD_PER_DOC_BUCKET, mutation.doc().collection_ref().bucket_name())
+            (ATR_FIELD_PER_DOC_SCOPE, mutation.doc().collection_ref().scope())
+            (ATR_FIELD_PER_DOC_COLLECTION, mutation.doc().collection_ref().name())
+        ;
+        // clang-format on
         switch (mutation.type()) {
             case INSERT:
                 inserts.push_back(doc);

@@ -71,12 +71,12 @@ void tx::transactions_cleanup::lost_attempts_loop()
                 auto res = col->lookup_in(CLIENT_RECORD_DOC_ID, { lookup_in_spec::get(FIELD_CLIENTS).xattr() });
                 std::vector<std::string> expired_client_uids;
                 std::vector<std::string> active_client_uids;
-                for (auto &client : res.values[0].object_items()) {
-                    auto &other_client_uid = client.first;
+                for (auto &client : res.values[0].items()) {
+                    auto other_client_uid = client.first.asString();
                     auto cl = client.second;
                     uint64_t cas_ms = res.cas / 1000000;
-                    uint64_t heartbeat_ms = parse_mutation_cas(cl[FIELD_HEARTBEAT].string_value());
-                    uint64_t expires_ms = cl[FIELD_EXPIRES].int_value();
+                    uint64_t heartbeat_ms = parse_mutation_cas(cl[FIELD_HEARTBEAT].asString());
+                    uint64_t expires_ms = cl[FIELD_EXPIRES].asInt();
                     uint64_t expired_period = cas_ms - heartbeat_ms;
                     bool has_expired = expired_period >= expires_ms;
                     if (has_expired && other_client_uid != uid) {
@@ -114,19 +114,19 @@ void tx::transactions_cleanup::lost_attempts_loop()
                     col->mutate_in(atr_id, { mutate_in_spec::upsert("dummy", nullptr).xattr() });
                     result atr = col->lookup_in(atr_id, { lookup_in_spec::get(ATR_FIELD_ATTEMPTS).xattr() });
                     uint64_t cas_ms = atr.cas / 1000000;
-                    for (auto &kv : atr.values[0].object_items()) {
+                    for (auto &kv : atr.values[0].items()) {
                         auto attempt_id = kv.first;
                         auto entry = kv.second;
-                        std::string status = entry[ATR_FIELD_STATUS].string_value();
-                        uint64_t start_ms = parse_mutation_cas(entry[ATR_FIELD_START_TIMESTAMP].string_value());
-                        uint64_t commit_ms = parse_mutation_cas(entry[ATR_FIELD_START_COMMIT].string_value());
-                        uint64_t complete_ms = parse_mutation_cas(entry[ATR_FIELD_TIMESTAMP_COMPLETE].string_value());
-                        uint64_t rollback_ms = parse_mutation_cas(entry[ATR_FIELD_TIMESTAMP_ROLLBACK_START].string_value());
-                        uint64_t rolledback_ms = parse_mutation_cas(entry[ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE].string_value());
-                        int expires_after_ms = entry[ATR_FIELD_EXPIRES_AFTER_MSECS].int_value();
-                        auto inserted_ids = entry[ATR_FIELD_DOCS_INSERTED].array_items();
-                        auto replaced_ids = entry[ATR_FIELD_DOCS_REPLACED].array_items();
-                        auto removed_ids = entry[ATR_FIELD_DOCS_REMOVED].array_items();
+                        std::string status = entry[ATR_FIELD_STATUS].asString();
+                        uint64_t start_ms = parse_mutation_cas(entry[ATR_FIELD_START_TIMESTAMP].asString());
+                        uint64_t commit_ms = parse_mutation_cas(entry[ATR_FIELD_START_COMMIT].asString());
+                        uint64_t complete_ms = parse_mutation_cas(entry[ATR_FIELD_TIMESTAMP_COMPLETE].asString());
+                        uint64_t rollback_ms = parse_mutation_cas(entry[ATR_FIELD_TIMESTAMP_ROLLBACK_START].asString());
+                        uint64_t rolledback_ms = parse_mutation_cas(entry[ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE].asString());
+                        int expires_after_ms = entry[ATR_FIELD_EXPIRES_AFTER_MSECS].asInt();
+                        auto inserted_ids = entry[ATR_FIELD_DOCS_INSERTED];
+                        auto replaced_ids = entry[ATR_FIELD_DOCS_REPLACED];
+                        auto removed_ids = entry[ATR_FIELD_DOCS_REMOVED];
 
                         const uint64_t safety_margin_ms = 2500;
                         bool has_expired = false;
@@ -138,19 +138,18 @@ void tx::transactions_cleanup::lost_attempts_loop()
                         }
                         if (status == "COMMITTED") {
                             for (auto &id : inserted_ids) {
-                                result doc =
-                                    col->lookup_in(id.string_value(), {
-                                                                          lookup_in_spec::get(ATR_ID).xattr(),
-                                                                          lookup_in_spec::get(TRANSACTION_ID).xattr(),
-                                                                          lookup_in_spec::get(ATTEMPT_ID).xattr(),
-                                                                          lookup_in_spec::get(STAGED_DATA).xattr(),
-                                                                          lookup_in_spec::get(ATR_BUCKET_NAME).xattr(),
-                                                                          lookup_in_spec::get(ATR_COLL_NAME).xattr(),
-                                                                          lookup_in_spec::get(TRANSACTION_RESTORE_PREFIX_ONLY).xattr(),
-                                                                          lookup_in_spec::get(TYPE).xattr(),
-                                                                          lookup_in_spec::get("$document").xattr(),
-                                                                          lookup_in_spec::fulldoc_get(),
-                                                                      });
+                                result doc = col->lookup_in(id.asString(), {
+                                                                               lookup_in_spec::get(ATR_ID).xattr(),
+                                                                               lookup_in_spec::get(TRANSACTION_ID).xattr(),
+                                                                               lookup_in_spec::get(ATTEMPT_ID).xattr(),
+                                                                               lookup_in_spec::get(STAGED_DATA).xattr(),
+                                                                               lookup_in_spec::get(ATR_BUCKET_NAME).xattr(),
+                                                                               lookup_in_spec::get(ATR_COLL_NAME).xattr(),
+                                                                               lookup_in_spec::get(TRANSACTION_RESTORE_PREFIX_ONLY).xattr(),
+                                                                               lookup_in_spec::get(TYPE).xattr(),
+                                                                               lookup_in_spec::get("$document").xattr(),
+                                                                               lookup_in_spec::fulldoc_get(),
+                                                                           });
                             }
                         } else if (status == "ABORTED") {
                             // TODO:

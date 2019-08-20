@@ -5,7 +5,6 @@
 #include <couchbase/transactions/uid_generator.hxx>
 #include <couchbase/transactions/attempt_state.hxx>
 #include <couchbase/transactions/transaction_fields.hxx>
-#include <json11.hpp>
 
 #include "atr_ids.hxx"
 
@@ -70,27 +69,27 @@ tx::transaction_document tx::attempt_context::get(collection *collection, const 
                                                     lookup_in_spec::get(ATR_SCOPE_NAME).xattr(), lookup_in_spec::get(ATR_COLL_NAME).xattr(),
                                                     lookup_in_spec::fulldoc_get() });
     if (res.rc == LCB_SUCCESS || res.rc == LCB_SUBDOC_MULTI_FAILURE) {
-        std::string atr_id = res.values[0].string_value();
-        std::string staged_version = res.values[1].string_value();
-        json11::Json staged_data = res.values[2];
-        std::string atr_bucket_name = res.values[3].string_value();
-        std::string atr_scope_name = res.values[4].string_value();
-        std::string atr_coll_name = res.values[5].string_value();
-        json11::Json content = res.values[6];
+        std::string atr_id = res.values[0].asString();
+        std::string staged_version = res.values[1].asString();
+        folly::dynamic staged_data = res.values[2];
+        std::string atr_bucket_name = res.values[3].asString();
+        std::string atr_scope_name = res.values[4].asString();
+        std::string atr_coll_name = res.values[5].asString();
+        folly::dynamic content = res.values[6];
 
         transaction_document doc(*collection, id, content, res.cas, transaction_document_status::NORMAL,
                                  transaction_links(atr_id, atr_bucket_name, atr_scope_name, atr_coll_name, content, id));
 
         if (doc.links().is_document_in_transaction()) {
             const result &atr_res = collection->lookup_in(doc.links().atr_id(), { lookup_in_spec::get(ATR_FIELD_ATTEMPTS).xattr() });
-            if (atr_res.rc != LCB_KEY_ENOENT && !atr_res.values[0].is_null()) {
+            if (atr_res.rc != LCB_KEY_ENOENT && atr_res.values[0] != nullptr) {
                 std::string err;
-                const json11::Json &atr = atr_res.values[0];
-                const json11::Json &entry = atr[id_];
-                if (entry.is_null()) {
+                const folly::dynamic &atr = atr_res.values[0];
+                const folly::dynamic &entry = atr[id_];
+                if (entry == nullptr) {
                     // Don't know if txn was committed or rolled back.  Should not happen as ATR record should stick around long enough.
                     doc.status(transaction_document_status::AMBIGUOUS);
-                    if (doc.content().is_null()) {
+                    if (doc.content() == nullptr) {
                         throw std::runtime_error(std::string("not found"));
                     }
                 } else {
@@ -104,7 +103,7 @@ tx::transaction_document tx::attempt_context::get(collection *collection, const 
                             }
                         } else {
                             doc.status(transaction_document_status::IN_TXN_OTHER);
-                            if (doc.content().is_null()) {
+                            if (doc.content() == nullptr) {
                                 throw std::runtime_error(std::string("not found"));
                             }
                         }
@@ -121,7 +120,7 @@ tx::transaction_document tx::attempt_context::get(collection *collection, const 
 }
 
 tx::transaction_document tx::attempt_context::replace(couchbase::collection *collection, const tx::transaction_document &document,
-                                                      const json11::Json &content)
+                                                      const folly::dynamic &content)
 {
     init_atr_if_needed(collection, document.id());
 
@@ -133,7 +132,7 @@ tx::transaction_document tx::attempt_context::replace(couchbase::collection *col
                 mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
                 mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "${Mutation.CAS}").xattr().expand_macro(),
                 mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, 15).xattr(),
-                mutate_in_spec::fulldoc_upsert(json11::Json::object{}),
+                mutate_in_spec::fulldoc_upsert(folly::dynamic::object()),
             },
             durability(config_));
         if (res.rc != LCB_SUCCESS) {
@@ -162,7 +161,8 @@ tx::transaction_document tx::attempt_context::replace(couchbase::collection *col
     throw std::runtime_error(std::string("failed to replace the document: ") + lcb_strerror_short(res.rc));
 }
 
-tx::transaction_document tx::attempt_context::insert(couchbase::collection *collection, const std::string &id, const json11::Json &content)
+tx::transaction_document tx::attempt_context::insert(couchbase::collection *collection, const std::string &id,
+                                                     const folly::dynamic &content)
 {
     init_atr_if_needed(collection, id);
 
@@ -174,7 +174,7 @@ tx::transaction_document tx::attempt_context::insert(couchbase::collection *coll
                 mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
                 mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "${Mutation.CAS}").xattr().expand_macro(),
                 mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, 15).xattr(),
-                mutate_in_spec::fulldoc_upsert(json11::Json::object{}),
+                mutate_in_spec::fulldoc_upsert(folly::dynamic::object()),
             },
             durability(config_));
     }
@@ -187,7 +187,7 @@ tx::transaction_document tx::attempt_context::insert(couchbase::collection *coll
                                                   mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
                                                   mutate_in_spec::insert(ATR_SCOPE_NAME, collection->scope()).xattr(),
                                                   mutate_in_spec::insert(ATR_COLL_NAME, collection->name()).xattr(),
-                                                  mutate_in_spec::fulldoc_insert(json11::Json::object{}),
+                                                  mutate_in_spec::fulldoc_insert(folly::dynamic::object()),
                                               },
                                               durability(config_));
     if (res.rc == LCB_SUCCESS) {
@@ -212,7 +212,7 @@ void tx::attempt_context::remove(couchbase::collection *collection, tx::transact
                 mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
                 mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "${Mutation.CAS}").xattr().expand_macro(),
                 mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, 15).xattr(),
-                mutate_in_spec::fulldoc_upsert(json11::Json::object{}),
+                mutate_in_spec::fulldoc_upsert(folly::dynamic::object()),
             },
             durability(config_));
     }

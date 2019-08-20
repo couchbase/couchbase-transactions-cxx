@@ -1,11 +1,14 @@
 #include <iostream>
+#include <utility>
+
+#include <folly/json.h>
 
 #include <couchbase/client/bucket.hxx>
 #include <couchbase/client/collection.hxx>
 #include <couchbase/client/result.hxx>
-#include <libcouchbase/couchbase.h>
 #include <couchbase/client/lookup_in_spec.hxx>
-#include <utility>
+
+#include <libcouchbase/couchbase.h>
 
 namespace cb = couchbase;
 
@@ -37,8 +40,7 @@ static void get_callback(lcb_INSTANCE *, int, const lcb_RESPGET *resp)
         lcb_respget_key(resp, &data, &ndata);
         res->key = std::string(data, ndata);
         lcb_respget_value(resp, &data, &ndata);
-        std::string err;
-        res->value = json11::Json::parse(std::string(data, ndata), err);
+        res->value = folly::parseJson(std::string(data, ndata));
     }
 }
 
@@ -72,8 +74,7 @@ static void subdoc_callback(lcb_INSTANCE *, int, const lcb_RESPSUBDOC *resp)
         ndata = 0;
         lcb_respsubdoc_result_value(resp, idx, &data, &ndata);
         if (data) {
-            std::string err;
-            res->values[idx] = json11::Json::parse(std::string(data, ndata), err);
+            res->values[idx] = folly::parseJson(std::string(data, ndata));
         }
     }
 }

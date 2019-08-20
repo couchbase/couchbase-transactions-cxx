@@ -6,7 +6,7 @@
 namespace tx = couchbase::transactions;
 
 tx::transaction_links::transaction_links(std::string atr_id, std::string atr_bucket_name, std::string atr_scope_name,
-                                         std::string atr_collection_name, json11::Json content, std::string version)
+                                         std::string atr_collection_name, folly::dynamic content, std::string version)
     : atr_id_(std::move(atr_id)), atr_bucket_name_(std::move(atr_bucket_name)), atr_scope_name_(std::move(atr_scope_name)),
       atr_collection_name_(std::move(atr_collection_name)), staged_content_(std::move(content)), staged_version_(std::move(version))
 {
@@ -52,7 +52,7 @@ const std::string &tx::transaction_links::staged_version() const
     return staged_version_;
 }
 
-const json11::Json &tx::transaction_links::staged_content() const
+const folly::dynamic &tx::transaction_links::staged_content() const
 {
     return staged_content_;
 }

@@ -1,10 +1,12 @@
 #include <iostream>
 #include <stdexcept>
+#include <utility>
+
+#include <folly/json.h>
 
 #include <libcouchbase/couchbase.h>
 #include <couchbase/client/cluster.hxx>
 #include <couchbase/client/bucket.hxx>
-#include <utility>
 
 namespace cb = couchbase;
 
@@ -89,9 +91,8 @@ static void http_callback(lcb_INSTANCE *, int, const lcb_RESPHTTP *resp)
         const char *data = nullptr;
         size_t ndata = 0;
         lcb_resphttp_body(resp, &data, &ndata);
-        std::string err;
         std::string payload(data, ndata);
-        res->value = json11::Json::parse(payload, err);
+        res->value = folly::parseJson(payload);
     }
 }
 }
@@ -114,8 +115,8 @@ std::list<std::string> cb::cluster::buckets()
         throw std::runtime_error(std::string("failed to retrieve list of buckets: ") + lcb_strerror_short(res.rc));
     }
     std::list<std::string> names;
-    for (const auto &it : res.value.array_items()) {
-        names.push_back(it["name"].string_value());
+    for (const auto &it : res.value) {
+        names.push_back(it["name"].asString());
     }
     return names;
 }
