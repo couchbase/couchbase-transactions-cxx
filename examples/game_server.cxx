@@ -1,13 +1,17 @@
 #include <string>
 #include <iostream>
 
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>
+
 #include <couchbase/transactions.hxx>
 #include <couchbase/client/cluster.hxx>
 
+namespace uuids = boost::uuids;
+
 using namespace std;
 using namespace couchbase;
-
-string gen_uid();
 
 class GameServer
 {
@@ -72,6 +76,7 @@ class GameServer
 
 int main(int argc, const char *argv[])
 {
+    auto gen = uuids::random_generator()();
     string cluster_address = "couchbase://localhost";
     string user_name = "Administrator";
     string password = "password";
@@ -97,7 +102,7 @@ int main(int argc, const char *argv[])
         { "level", 141 },
         { "loggedIn", true },
         { "name", "Jane" },
-        { "uuid", gen_uid() },
+        { "uuid", uuids::to_string(uuids::uuid{gen}) },
     };
 
     string monster_id = "a_grue";
@@ -107,7 +112,7 @@ int main(int argc, const char *argv[])
         { "itemProbability", 0.19239324085462631 },
         { "jsonType", "monster" },
         { "name", "Grue" },
-        { "uuid", gen_uid() },
+        { "uuid", uuids::to_string(uuids::uuid{gen}) },
     };
     // clang-format on
 
@@ -117,26 +122,8 @@ int main(int argc, const char *argv[])
     collection->upsert(monster_id, monster_data.dump());
     cout << "Upserted sample monster document: " << monster_id << endl;
 
-    game_server.player_hits_monster(gen_uid(), rand() % 8000, player_id, monster_id);
+    game_server.player_hits_monster(uuids::to_string(uuids::uuid{ gen }), rand() % 8000, player_id, monster_id);
 
     transactions.close();
     cluster.shutdown();
-}
-
-#include <random>
-#include <sstream>
-#include <iomanip>
-
-string gen_uid()
-{
-    static thread_local mt19937_64 generator{ random_device{}() };
-    uniform_int_distribution<uint64_t> dist;
-
-    uint64_t high = dist(generator);
-    uint64_t low = dist(generator);
-
-    stringstream ss;
-    ss << hex << ((high >> 32) & 0xffffffff) << "-" << ((high >> 16) & 0xffff) << "-" << (high & 0xffff) << "-" << ((low >> 48) & 0xffff)
-       << "-" << (low & 0xffffffffffff);
-    return ss.str();
 }

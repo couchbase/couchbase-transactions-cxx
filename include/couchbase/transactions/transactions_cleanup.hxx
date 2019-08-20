@@ -24,7 +24,7 @@ namespace transactions
         std::thread lost_attempts_thr;
         const std::string client_uuid_;
 
-        bool running { false };
+        bool running{ false };
     };
 } // namespace transactions
 } // namespace couchbase

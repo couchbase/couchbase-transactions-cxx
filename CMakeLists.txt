@@ -12,10 +12,34 @@ set(LCB_STATIC_LIBEVENT ON)
 add_subdirectory(deps/libcouchbase)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake/Modules)
 
 include(FindPkgConfig)
 pkg_check_modules(JSON11 REQUIRED json11>=1.0)
 message(STATUS "found json11: ${JSON11_LDFLAGS};${JSON11_CFLAGS}")
+
+set(transactions_BOOST_COMPONENTS system thread)
+if (BUILD_TESTING)
+    list(APPEND transactions_BOOST_COMPONENTS unit_test_framework)
+endif ()
+
+set(Boost_USE_STATIC_LIBS ON)
+include(FindBoost)
+find_package(Boost REQUIRED COMPONENTS ${transactions_BOOST_COMPONENTS})
+include_directories(BEFORE ${Boost_INCLUDE_DIRS})
+
+message(STATUS "Boost_INCLUDE_DIRS: ${Boost_INCLUDE_DIRS}")
+message(STATUS "Boost_LIBRARIES: ${Boost_LIBRARIES}")
+
+find_package(double-conversion REQUIRED)
+include_directories(BEFORE ${double-conversion_INCLUDE_DIRS})
+message(STATUS "double-conversion_INCLUDE_DIR: ${double-conversion_INCLUDE_DIRS}")
+message(STATUS "double-conversion_LIBRARIES: ${double-conversion_LIBRARIES}")
+
+find_package(Folly REQUIRED)
+include_directories(BEFORE ${Folly_INCLUDE_DIR})
+message(STATUS "Folly_INCLUDE_DIR: ${Folly_INCLUDE_DIR}")
+message(STATUS "Folly_LIBRARIES: ${Folly_LIBRARIES}")
 
 include_directories(include deps/libcouchbase/include ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated)
 
