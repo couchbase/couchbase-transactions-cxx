@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.14)
 project(transactions_cxx)
 
 option(BUILD_DOC "Build documentation" ON)
+option(BUILD_EXAMPLES "Build examples" ON)
 
 set(LCB_NO_TESTS ON)
 set(LCB_NO_TOOLS ON)
@@ -47,9 +48,6 @@ file(GLOB_RECURSE transactions_include_FILES ${PROJECT_SOURCE_DIR}/include/couch
 file(GLOB_RECURSE transactions_src_FILES ${PROJECT_SOURCE_DIR}/src/transactions/*.cxx)
 add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions_src_FILES})
 
-add_executable(game_server examples/game_server.cxx)
-target_link_libraries(game_server transactions_cxx client_cxx ${double-conversion_LIBRARIES} ${Folly_LIBRARIES} couchbase)
-
 if (BUILD_DOC)
     find_package(Doxygen)
     if (DOXYGEN_FOUND)
@@ -61,7 +59,11 @@ if (BUILD_DOC)
                 WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
                 COMMENT "Generating API documentation with Doxygen"
                 VERBATIM)
-    else()
+    else ()
         message(WARNING "Doxygen need to be installed to generate the doxygen documentation")
-    endif()
-endif()
+    endif ()
+endif ()
+
+if (BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif ()
