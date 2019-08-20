@@ -4,12 +4,12 @@
 #include <vector>
 #include <mutex>
 
-#include <libcouchbase/collection.hxx>
-#include <libcouchbase/transactions/transaction_document.hxx>
-#include <libcouchbase/transactions/transaction_context.hxx>
-#include <libcouchbase/transactions/attempt_state.hxx>
-#include <libcouchbase/transactions/staged_mutation.hxx>
-#include <libcouchbase/transactions/configuration.hxx>
+#include <couchbase/client/collection.hxx>
+#include <couchbase/transactions/transaction_document.hxx>
+#include <couchbase/transactions/transaction_context.hxx>
+#include <couchbase/transactions/attempt_state.hxx>
+#include <couchbase/transactions/staged_mutation.hxx>
+#include <couchbase/transactions/configuration.hxx>
 
 namespace couchbase
 {

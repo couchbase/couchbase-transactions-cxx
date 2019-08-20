@@ -1,38 +1,39 @@
 #include <iostream>
 
-#include <libcouchbase/collection.hxx>
-#include <libcouchbase/transactions/attempt_context.hxx>
-#include <libcouchbase/transactions/uid_generator.hxx>
-#include <libcouchbase/transactions/attempt_state.hxx>
-#include <libcouchbase/transactions/transaction_fields.hxx>
+#include <couchbase/client/collection.hxx>
+#include <couchbase/transactions/attempt_context.hxx>
+#include <couchbase/transactions/uid_generator.hxx>
+#include <couchbase/transactions/attempt_state.hxx>
+#include <couchbase/transactions/transaction_fields.hxx>
 #include <json11.hpp>
 
 #include "atr_ids.hxx"
 
-static lcb_DURABILITY_LEVEL durability(const couchbase::transactions::configuration &config)
+namespace tx = couchbase::transactions;
+
+static lcb_DURABILITY_LEVEL durability(const tx::configuration &config)
 {
     switch (config.durability_level()) {
-        case couchbase::transactions::NONE:
+        case tx::NONE:
             return LCB_DURABILITYLEVEL_NONE;
-        case couchbase::transactions::MAJORITY:
+        case tx::MAJORITY:
             return LCB_DURABILITYLEVEL_MAJORITY;
-        case couchbase::transactions::MAJORITY_AND_PERSIST_ON_MASTER:
+        case tx::MAJORITY_AND_PERSIST_ON_MASTER:
             return LCB_DURABILITYLEVEL_MAJORITY_AND_PERSIST_ON_MASTER;
-        case couchbase::transactions::PERSIST_TO_MAJORITY:
+        case tx::PERSIST_TO_MAJORITY:
             return LCB_DURABILITYLEVEL_PERSIST_TO_MAJORITY;
     }
     throw std::runtime_error("unknown durability: " + std::to_string(config.durability_level()));
 }
 
-couchbase::transactions::attempt_context::attempt_context(couchbase::transactions::transaction_context &transaction_ctx,
-                                                          const couchbase::transactions::configuration &config)
+tx::attempt_context::attempt_context(tx::transaction_context &transaction_ctx, const tx::configuration &config)
     : transaction_ctx_(transaction_ctx), config_(config), state_(attempt_state::NOT_STARTED), atr_id_(""), atr_collection_(nullptr),
       is_done_(false)
 {
     id_ = uid_generator::next();
 }
 
-void couchbase::transactions::attempt_context::init_atr_if_needed(couchbase::collection *collection, const std::string &id)
+void tx::attempt_context::init_atr_if_needed(couchbase::collection *collection, const std::string &id)
 {
     if (atr_id_.empty()) {
         int vbucket_id = atr_ids::vbucket_for_key(id);
@@ -44,12 +45,12 @@ void couchbase::transactions::attempt_context::init_atr_if_needed(couchbase::col
     }
 }
 
-bool couchbase::transactions::attempt_context::is_done()
+bool tx::attempt_context::is_done()
 {
     return is_done_;
 }
 
-couchbase::transactions::transaction_document couchbase::transactions::attempt_context::get(collection *collection, const std::string &id)
+tx::transaction_document tx::attempt_context::get(collection *collection, const std::string &id)
 {
     staged_mutation *mutation = staged_mutations_.find_replace(collection, id);
     if (mutation == nullptr) {
@@ -119,8 +120,8 @@ couchbase::transactions::transaction_document couchbase::transactions::attempt_c
     throw std::runtime_error(std::string("failed to get the document: ") + lcb_strerror_short(res.rc));
 }
 
-couchbase::transactions::transaction_document couchbase::transactions::attempt_context::replace(
-    couchbase::collection *collection, const couchbase::transactions::transaction_document &document, const json11::Json &content)
+tx::transaction_document tx::attempt_context::replace(couchbase::collection *collection, const tx::transaction_document &document,
+                                                      const json11::Json &content)
 {
     init_atr_if_needed(collection, document.id());
 
@@ -161,8 +162,7 @@ couchbase::transactions::transaction_document couchbase::transactions::attempt_c
     throw std::runtime_error(std::string("failed to replace the document: ") + lcb_strerror_short(res.rc));
 }
 
-couchbase::transactions::transaction_document
-couchbase::transactions::attempt_context::insert(couchbase::collection *collection, const std::string &id, const json11::Json &content)
+tx::transaction_document tx::attempt_context::insert(couchbase::collection *collection, const std::string &id, const json11::Json &content)
 {
     init_atr_if_needed(collection, id);
 
@@ -200,8 +200,7 @@ couchbase::transactions::attempt_context::insert(couchbase::collection *collecti
     throw std::runtime_error(std::string("failed to insert the document: ") + lcb_strerror_short(res.rc));
 }
 
-void couchbase::transactions::attempt_context::remove(couchbase::collection *collection,
-                                                      couchbase::transactions::transaction_document &document)
+void tx::attempt_context::remove(couchbase::collection *collection, tx::transaction_document &document)
 {
     init_atr_if_needed(collection, document.id());
 
@@ -236,7 +235,7 @@ void couchbase::transactions::attempt_context::remove(couchbase::collection *col
     throw std::runtime_error(std::string("failed to remove the document: ") + lcb_strerror_short(res.rc));
 }
 
-void couchbase::transactions::attempt_context::commit()
+void tx::attempt_context::commit()
 {
     std::string prefix(ATR_FIELD_ATTEMPTS + "." + id_ + ".");
     std::vector<mutate_in_spec> specs({

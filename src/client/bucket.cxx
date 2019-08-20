@@ -2,7 +2,9 @@
 
 #include <libcouchbase/couchbase.h>
 
-#include <libcouchbase/bucket.hxx>
+#include <couchbase/client/bucket.hxx>
+
+namespace cb = couchbase;
 
 extern "C" {
 static void open_callback(lcb_INSTANCE *instance, lcb_STATUS status)
@@ -12,14 +14,14 @@ static void open_callback(lcb_INSTANCE *instance, lcb_STATUS status)
 }
 }
 
-couchbase::collection *couchbase::bucket::default_collection()
+cb::collection *cb::bucket::default_collection()
 {
     collection *col = new collection(this, "", "");
     // cache collection
     return col;
 }
 
-couchbase::bucket::bucket(lcb_st *instance, const std::string &name) : lcb_(instance)
+cb::bucket::bucket(lcb_st *instance, const std::string &name) : lcb_(instance)
 {
     lcb_STATUS rc;
 

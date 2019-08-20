@@ -1,45 +1,44 @@
 #include <utility>
 
-#include <utility>
 #include <json11.hpp>
 
-#include <libcouchbase/transactions/staged_mutation.hxx>
-#include <libcouchbase/transactions/transaction_fields.hxx>
-#include <iostream>
+#include <couchbase/transactions/staged_mutation.hxx>
+#include <couchbase/transactions/transaction_fields.hxx>
 
-couchbase::transactions::staged_mutation::staged_mutation(couchbase::transactions::transaction_document &doc, json11::Json content,
-                                                          couchbase::transactions::staged_mutation_type type)
+namespace tx = couchbase::transactions;
+
+tx::staged_mutation::staged_mutation(tx::transaction_document &doc, json11::Json content, tx::staged_mutation_type type)
     : doc_(std::move(doc)), content_(std::move(content)), type_(type)
 {
 }
 
-couchbase::transactions::transaction_document &couchbase::transactions::staged_mutation::doc()
+tx::transaction_document &tx::staged_mutation::doc()
 {
     return doc_;
 }
 
-const couchbase::transactions::staged_mutation_type &couchbase::transactions::staged_mutation::type() const
+const tx::staged_mutation_type &tx::staged_mutation::type() const
 {
     return type_;
 }
 
-const json11::Json &couchbase::transactions::staged_mutation::content() const
+const json11::Json &tx::staged_mutation::content() const
 {
     return content_;
 }
 
-bool couchbase::transactions::staged_mutation_queue::empty()
+bool tx::staged_mutation_queue::empty()
 {
     std::unique_lock<std::mutex> lock(mutex_);
     return queue_.empty();
 }
 
-void couchbase::transactions::staged_mutation_queue::add(const couchbase::transactions::staged_mutation &mutation)
+void tx::staged_mutation_queue::add(const tx::staged_mutation &mutation)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     queue_.push_back(mutation);
 }
-void couchbase::transactions::staged_mutation_queue::extract_to(const std::string &prefix, std::vector<couchbase::mutate_in_spec> &specs)
+void tx::staged_mutation_queue::extract_to(const std::string &prefix, std::vector<couchbase::mutate_in_spec> &specs)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     json11::Json::array inserts;
@@ -71,8 +70,7 @@ void couchbase::transactions::staged_mutation_queue::extract_to(const std::strin
     specs.push_back(mutate_in_spec::upsert(prefix + ATR_FIELD_DOCS_REMOVED, removes).xattr());
 }
 
-couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutation_queue::find_replace(couchbase::collection *collection,
-                                                                                                       const std::string &id)
+tx::staged_mutation *tx::staged_mutation_queue::find_replace(couchbase::collection *collection, const std::string &id)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto &item : queue_) {
@@ -85,8 +83,7 @@ couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutati
     return nullptr;
 }
 
-couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutation_queue::find_insert(couchbase::collection *collection,
-                                                                                                      const std::string &id)
+tx::staged_mutation *tx::staged_mutation_queue::find_insert(couchbase::collection *collection, const std::string &id)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto &item : queue_) {
@@ -99,8 +96,7 @@ couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutati
     return nullptr;
 }
 
-couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutation_queue::find_remove(couchbase::collection *collection,
-                                                                                                      const std::string &id)
+tx::staged_mutation *tx::staged_mutation_queue::find_remove(couchbase::collection *collection, const std::string &id)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto &item : queue_) {
@@ -113,7 +109,7 @@ couchbase::transactions::staged_mutation *couchbase::transactions::staged_mutati
     return nullptr;
 }
 
-void couchbase::transactions::staged_mutation_queue::commit()
+void tx::staged_mutation_queue::commit()
 {
     std::unique_lock<std::mutex> lock(mutex_);
 

@@ -4,8 +4,8 @@
 #include <mutex>
 #include <vector>
 
-#include <libcouchbase/transactions/transaction_document.hxx>
-#include <libcouchbase/mutate_in_spec.hxx>
+#include <couchbase/transactions/transaction_document.hxx>
+#include <couchbase/client/mutate_in_spec.hxx>
 
 namespace couchbase
 {

@@ -1,16 +1,18 @@
 #include <iostream>
 
-#include <libcouchbase/bucket.hxx>
-#include <libcouchbase/collection.hxx>
-#include <libcouchbase/result.hxx>
+#include <couchbase/client/bucket.hxx>
+#include <couchbase/client/collection.hxx>
+#include <couchbase/client/result.hxx>
 #include <libcouchbase/couchbase.h>
-#include <libcouchbase/lookup_in_spec.hxx>
+#include <couchbase/client/lookup_in_spec.hxx>
 #include <utility>
+
+namespace cb = couchbase;
 
 extern "C" {
 static void store_callback(lcb_INSTANCE *, int, const lcb_RESPSTORE *resp)
 {
-    couchbase::result *res = nullptr;
+    cb::result *res = nullptr;
     lcb_respstore_cookie(resp, reinterpret_cast<void **>(&res));
     res->rc = lcb_respstore_status(resp);
     lcb_respstore_cas(resp, &res->cas);
@@ -22,7 +24,7 @@ static void store_callback(lcb_INSTANCE *, int, const lcb_RESPSTORE *resp)
 
 static void get_callback(lcb_INSTANCE *, int, const lcb_RESPGET *resp)
 {
-    couchbase::result *res = nullptr;
+    cb::result *res = nullptr;
     lcb_respget_cookie(resp, reinterpret_cast<void **>(&res));
     res->rc = lcb_respget_status(resp);
     if (res->rc == LCB_SUCCESS) {
@@ -42,7 +44,7 @@ static void get_callback(lcb_INSTANCE *, int, const lcb_RESPGET *resp)
 
 static void remove_callback(lcb_INSTANCE *, int, const lcb_RESPREMOVE *resp)
 {
-    couchbase::result *res = nullptr;
+    cb::result *res = nullptr;
     lcb_respremove_cookie(resp, reinterpret_cast<void **>(&res));
     res->rc = lcb_respremove_status(resp);
     lcb_respremove_cas(resp, &res->cas);
@@ -54,7 +56,7 @@ static void remove_callback(lcb_INSTANCE *, int, const lcb_RESPREMOVE *resp)
 
 static void subdoc_callback(lcb_INSTANCE *, int, const lcb_RESPSUBDOC *resp)
 {
-    couchbase::result *res = nullptr;
+    cb::result *res = nullptr;
     lcb_respsubdoc_cookie(resp, reinterpret_cast<void **>(&res));
     res->rc = lcb_respsubdoc_status(resp);
     lcb_respsubdoc_cas(resp, &res->cas);
@@ -77,7 +79,7 @@ static void subdoc_callback(lcb_INSTANCE *, int, const lcb_RESPSUBDOC *resp)
 }
 }
 
-couchbase::collection::collection(bucket *bucket, std::string scope, std::string name)
+cb::collection::collection(bucket *bucket, std::string scope, std::string name)
     : bucket_(bucket), scope_(std::move(scope)), name_(std::move(name))
 {
     lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_STORE, reinterpret_cast<lcb_RESPCALLBACK>(store_callback));
@@ -90,22 +92,22 @@ couchbase::collection::collection(bucket *bucket, std::string scope, std::string
     bucket_name_ = std::string(tmp);
 }
 
-const std::string &couchbase::collection::name() const
+const std::string &cb::collection::name() const
 {
     return name_;
 }
 
-const std::string &couchbase::collection::scope() const
+const std::string &cb::collection::scope() const
 {
     return scope_;
 }
 
-const std::string &couchbase::collection::bucket_name() const
+const std::string &cb::collection::bucket_name() const
 {
     return bucket_name_;
 }
 
-couchbase::result couchbase::collection::get(const std::string &id, uint32_t expiry)
+cb::result cb::collection::get(const std::string &id, uint32_t expiry)
 {
     lcb_CMDGET *cmd;
     lcb_cmdget_create(&cmd);
@@ -125,8 +127,8 @@ couchbase::result couchbase::collection::get(const std::string &id, uint32_t exp
     return res;
 }
 
-couchbase::result couchbase::collection::store(lcb_STORE_OPERATION operation, const std::string &id, const std::string &value, uint64_t cas,
-                                               lcb_DURABILITY_LEVEL level)
+cb::result cb::collection::store(lcb_STORE_OPERATION operation, const std::string &id, const std::string &value, uint64_t cas,
+                                 lcb_DURABILITY_LEVEL level)
 {
     lcb_CMDSTORE *cmd;
     lcb_cmdstore_create(&cmd, operation);
@@ -146,22 +148,22 @@ couchbase::result couchbase::collection::store(lcb_STORE_OPERATION operation, co
     return res;
 }
 
-couchbase::result couchbase::collection::upsert(const std::string &id, const std::string &value, uint64_t cas, lcb_DURABILITY_LEVEL level)
+cb::result cb::collection::upsert(const std::string &id, const std::string &value, uint64_t cas, lcb_DURABILITY_LEVEL level)
 {
     return store(LCB_STORE_UPSERT, id, value, cas, level);
 }
 
-couchbase::result couchbase::collection::insert(const std::string &id, const std::string &value, lcb_DURABILITY_LEVEL level)
+cb::result cb::collection::insert(const std::string &id, const std::string &value, lcb_DURABILITY_LEVEL level)
 {
     return store(LCB_STORE_ADD, id, value, 0, level);
 }
 
-couchbase::result couchbase::collection::replace(const std::string &id, const std::string &value, uint64_t cas, lcb_DURABILITY_LEVEL level)
+cb::result cb::collection::replace(const std::string &id, const std::string &value, uint64_t cas, lcb_DURABILITY_LEVEL level)
 {
     return store(LCB_STORE_REPLACE, id, value, cas, level);
 }
 
-couchbase::result couchbase::collection::remove(const std::string &id, uint64_t cas, lcb_DURABILITY_LEVEL level)
+cb::result cb::collection::remove(const std::string &id, uint64_t cas, lcb_DURABILITY_LEVEL level)
 {
     lcb_CMDREMOVE *cmd;
     lcb_cmdremove_create(&cmd);
@@ -180,8 +182,7 @@ couchbase::result couchbase::collection::remove(const std::string &id, uint64_t 
     return res;
 }
 
-couchbase::result couchbase::collection::mutate_in(const std::string &id, const std::vector<couchbase::mutate_in_spec> &specs,
-                                                   lcb_DURABILITY_LEVEL level)
+cb::result cb::collection::mutate_in(const std::string &id, const std::vector<cb::mutate_in_spec> &specs, lcb_DURABILITY_LEVEL level)
 {
     lcb_CMDSUBDOC *cmd;
     lcb_cmdsubdoc_create(&cmd);
@@ -227,7 +228,7 @@ couchbase::result couchbase::collection::mutate_in(const std::string &id, const 
     return res;
 }
 
-couchbase::result couchbase::collection::lookup_in(const std::string &id, const std::vector<couchbase::lookup_in_spec> &specs)
+cb::result cb::collection::lookup_in(const std::string &id, const std::vector<cb::lookup_in_spec> &specs)
 {
     lcb_CMDSUBDOC *cmd;
     lcb_cmdsubdoc_create(&cmd);

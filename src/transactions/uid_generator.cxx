@@ -2,12 +2,14 @@
 #include <chrono>
 #include <sstream>
 
-#include <libcouchbase/transactions/uid_generator.hxx>
+#include <couchbase/transactions/uid_generator.hxx>
 
-std::string couchbase::transactions::uid_generator::next()
+namespace tx = couchbase::transactions;
+
+std::string tx::uid_generator::next()
 {
     static auto rnd = std::default_random_engine(std::chrono::system_clock::now().time_since_epoch().count());
-    std::uniform_int_distribution< uint64_t > dist;
+    std::uniform_int_distribution<uint64_t> dist;
 
     uint64_t high = dist(rnd);
     uint64_t low = dist(rnd);

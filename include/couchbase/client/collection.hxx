@@ -3,9 +3,9 @@
 #include <string>
 #include <vector>
 
-#include <libcouchbase/result.hxx>
-#include <libcouchbase/mutate_in_spec.hxx>
-#include <libcouchbase/lookup_in_spec.hxx>
+#include <couchbase/client/result.hxx>
+#include <couchbase/client/mutate_in_spec.hxx>
+#include <couchbase/client/lookup_in_spec.hxx>
 
 namespace couchbase
 {

@@ -19,11 +19,16 @@ message(STATUS "found json11: ${JSON11_LDFLAGS};${JSON11_CFLAGS}")
 
 include_directories(include deps/libcouchbase/include ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated)
 
-add_library(cluster_cxx SHARED src/cluster.cxx include/libcouchbase/cluster.hxx src/bucket.cxx include/libcouchbase/bucket.hxx src/collection.cxx include/libcouchbase/collection.hxx src/result.cxx include/libcouchbase/result.hxx src/mutate_in_spec.cxx include/libcouchbase/mutate_in_spec.hxx src/lookup_in_spec.cxx include/libcouchbase/lookup_in_spec.hxx include/libcouchbase/exceptions.hxx src/client_record.cxx include/libcouchbase/transactions/client_record.hxx)
-add_library(transactions_cxx SHARED src/transactions.cxx include/libcouchbase/transactions.hxx include/libcouchbase/transactions/configuration.hxx include/libcouchbase/transactions/durability_level.hxx include/libcouchbase/transactions/attempt_context.hxx src/attempt_context.cxx src/transaction_document.cxx include/libcouchbase/transactions/transaction_document.hxx src/transaction_context.cxx include/libcouchbase/transactions/transaction_context.hxx src/uid_generator.cxx include/libcouchbase/transactions/uid_generator.hxx src/atr_ids.cxx src/atr_ids.hxx include/libcouchbase/transactions/attempt_state.hxx src/staged_mutation.cxx include/libcouchbase/transactions/staged_mutation.hxx include/libcouchbase/transactions/transaction_fields.hxx src/transaction_links.cxx include/libcouchbase/transactions/transaction_links.hxx include/libcouchbase/transactions/transaction_document_status.hxx src/configuration.cxx src/transactions_cleanup.cxx include/libcouchbase/transactions/transactions_cleanup.hxx)
+file(GLOB_RECURSE client_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/client/*.hxx)
+file(GLOB_RECURSE client_src_FILES ${PROJECT_SOURCE_DIR}/src/client/*.cxx)
+add_library(client_cxx SHARED ${client_include_FILES} ${client_src_FILES})
+
+file(GLOB_RECURSE transactions_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/transactions/*.hxx)
+file(GLOB_RECURSE transactions_src_FILES ${PROJECT_SOURCE_DIR}/src/transactions/*.cxx)
+add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions_src_FILES})
 
 add_executable(game_server examples/game_server.cxx)
-target_link_libraries(game_server transactions_cxx cluster_cxx ${JSON11_LIBRARIES} couchbase)
+target_link_libraries(game_server transactions_cxx client_cxx ${JSON11_LIBRARIES} couchbase)
 
 if (BUILD_DOC)
     find_package(Doxygen)

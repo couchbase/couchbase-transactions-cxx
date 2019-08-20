@@ -4,15 +4,16 @@
 
 #include <unistd.h>
 
-#include <libcouchbase/transactions/transactions_cleanup.hxx>
-#include <libcouchbase/transactions/client_record.hxx>
-#include <libcouchbase/transactions/uid_generator.hxx>
-#include <libcouchbase/transactions/transaction_fields.hxx>
+#include <couchbase/transactions/transactions_cleanup.hxx>
+#include <couchbase/transactions/client_record.hxx>
+#include <couchbase/transactions/uid_generator.hxx>
+#include <couchbase/transactions/transaction_fields.hxx>
 
 #include "atr_ids.hxx"
 
-couchbase::transactions::transactions_cleanup::transactions_cleanup(couchbase::cluster &cluster,
-                                                                    const couchbase::transactions::configuration &config)
+namespace tx = couchbase::transactions;
+
+tx::transactions_cleanup::transactions_cleanup(couchbase::cluster &cluster, const tx::configuration &config)
     : cluster_(cluster), config_(config), client_uuid_(uid_generator::next())
 {
     lost_attempts_thr = std::thread(std::bind(&transactions_cleanup::lost_attempts_loop, this));
@@ -53,7 +54,7 @@ static uint64_t parse_mutation_cas(std::string cas)
 #define FIELD_EXPIRES "expires_ms"
 #define SAFETY_MARGIN_EXPIRY_MS 2000
 
-void couchbase::transactions::transactions_cleanup::lost_attempts_loop()
+void tx::transactions_cleanup::lost_attempts_loop()
 {
     auto names = cluster_.buckets();
     std::list<std::thread> workers;
@@ -171,7 +172,7 @@ void couchbase::transactions::transactions_cleanup::lost_attempts_loop()
     }
 }
 
-couchbase::transactions::transactions_cleanup::~transactions_cleanup()
+tx::transactions_cleanup::~transactions_cleanup()
 {
     running = false;
     lost_attempts_thr.join();

@@ -2,11 +2,11 @@
 
 #include <functional>
 
-#include <libcouchbase/cluster.hxx>
+#include <couchbase/client/cluster.hxx>
 
-#include <libcouchbase/transactions/configuration.hxx>
-#include <libcouchbase/transactions/attempt_context.hxx>
-#include <libcouchbase/transactions/transactions_cleanup.hxx>
+#include <couchbase/transactions/configuration.hxx>
+#include <couchbase/transactions/attempt_context.hxx>
+#include <couchbase/transactions/transactions_cleanup.hxx>
 
 namespace couchbase
 {

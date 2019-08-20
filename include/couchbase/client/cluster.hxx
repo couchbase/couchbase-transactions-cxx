@@ -4,7 +4,7 @@
 #include <list>
 #include <mutex>
 
-#include <libcouchbase/bucket.hxx>
+#include <couchbase/client/bucket.hxx>
 
 struct lcb_st;
 

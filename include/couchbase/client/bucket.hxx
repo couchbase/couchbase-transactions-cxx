@@ -1,6 +1,6 @@
 #pragma once
 
-#include <libcouchbase/collection.hxx>
+#include <couchbase/client/collection.hxx>
 
 struct lcb_st;
 

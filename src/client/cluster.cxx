@@ -2,22 +2,24 @@
 #include <stdexcept>
 
 #include <libcouchbase/couchbase.h>
-#include <libcouchbase/cluster.hxx>
-#include <libcouchbase/bucket.hxx>
+#include <couchbase/client/cluster.hxx>
+#include <couchbase/client/bucket.hxx>
 #include <utility>
 
-couchbase::cluster::cluster(std::string cluster_address, std::string user_name, std::string password)
+namespace cb = couchbase;
+
+cb::cluster::cluster(std::string cluster_address, std::string user_name, std::string password)
     : lcb_(nullptr), cluster_address_(std::move(cluster_address)), user_name_(std::move(user_name)), password_(std::move(password))
 {
     connect();
 }
 
-couchbase::cluster::~cluster()
+cb::cluster::~cluster()
 {
     shutdown();
 }
 
-std::unique_ptr<couchbase::bucket> couchbase::cluster::open_bucket(const std::string &name)
+std::unique_ptr<cb::bucket> cb::cluster::open_bucket(const std::string &name)
 {
     connect();
     std::unique_lock<std::mutex> lock(mutex_);
@@ -27,7 +29,7 @@ std::unique_ptr<couchbase::bucket> couchbase::cluster::open_bucket(const std::st
     return bkt;
 }
 
-void couchbase::cluster::connect()
+void cb::cluster::connect()
 {
     std::unique_lock<std::mutex> lock(mutex_);
     if (lcb_ != nullptr) {
@@ -69,7 +71,7 @@ void couchbase::cluster::connect()
     }
 }
 
-void couchbase::cluster::shutdown()
+void cb::cluster::shutdown()
 {
     if (lcb_ != nullptr) {
         lcb_destroy(lcb_);
@@ -80,7 +82,7 @@ void couchbase::cluster::shutdown()
 extern "C" {
 static void http_callback(lcb_INSTANCE *, int, const lcb_RESPHTTP *resp)
 {
-    couchbase::result *res = nullptr;
+    cb::result *res = nullptr;
     lcb_resphttp_cookie(resp, reinterpret_cast<void **>(&res));
     res->rc = lcb_resphttp_status(resp);
     if (res->rc == LCB_SUCCESS) {
@@ -94,7 +96,7 @@ static void http_callback(lcb_INSTANCE *, int, const lcb_RESPHTTP *resp)
 }
 }
 
-std::list<std::string> couchbase::cluster::buckets()
+std::list<std::string> cb::cluster::buckets()
 {
     connect();
     std::unique_lock<std::mutex> lock(mutex_);
@@ -104,7 +106,7 @@ std::list<std::string> couchbase::cluster::buckets()
     lcb_cmdhttp_method(cmd, lcb_HTTP_METHOD::LCB_HTTP_METHOD_GET);
     lcb_cmdhttp_path(cmd, path.data(), path.size());
     lcb_install_callback3(lcb_, LCB_CALLBACK_HTTP, (lcb_RESPCALLBACK)http_callback);
-    couchbase::result res;
+    cb::result res;
     lcb_http(lcb_, &res, cmd);
     lcb_cmdhttp_destroy(cmd);
     lcb_wait(lcb_);

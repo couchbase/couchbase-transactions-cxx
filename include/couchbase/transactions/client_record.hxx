@@ -1,7 +1,7 @@
 #pragma once
 
-#include <libcouchbase/cluster.hxx>
-#include <libcouchbase/transactions/configuration.hxx>
+#include <couchbase/client/cluster.hxx>
+#include <couchbase/transactions/configuration.hxx>
 
 namespace couchbase
 {

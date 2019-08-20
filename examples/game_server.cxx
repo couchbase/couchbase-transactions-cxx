@@ -1,8 +1,8 @@
 #include <string>
 #include <iostream>
 
-#include <libcouchbase/transactions.hxx>
-#include <libcouchbase/cluster.hxx>
+#include <couchbase/transactions.hxx>
+#include <couchbase/client/cluster.hxx>
 
 using namespace std;
 using namespace couchbase;

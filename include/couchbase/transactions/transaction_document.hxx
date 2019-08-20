@@ -1,8 +1,8 @@
 #pragma once
 
-#include <libcouchbase/transactions/transaction_links.hxx>
-#include <libcouchbase/transactions/transaction_document_status.hxx>
-#include <libcouchbase/collection.hxx>
+#include <couchbase/transactions/transaction_links.hxx>
+#include <couchbase/transactions/transaction_document_status.hxx>
+#include <couchbase/client/collection.hxx>
 
 namespace couchbase
 {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <libcouchbase/transactions/durability_level.hxx>
+#include <couchbase/transactions/durability_level.hxx>
 
 namespace couchbase
 {
