@@ -6,7 +6,6 @@ namespace couchbase
 {
 namespace transactions
 {
-
     class transaction_context
     {
       private:
@@ -17,6 +16,5 @@ namespace transactions
 
         const std::string &id();
     };
-
 } // namespace transactions
 } // namespace couchbase

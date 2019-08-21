@@ -15,11 +15,14 @@ add_subdirectory(deps/libcouchbase)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake/Modules)
 
-set(transactions_BOOST_COMPONENTS system thread)
+
+set(transactions_BOOST_COMPONENTS system thread date_time log_setup log)
 if (BUILD_TESTING)
     list(APPEND transactions_BOOST_COMPONENTS unit_test_framework)
 endif ()
 
+find_package(Threads)
+set(Boost_USE_MULTITHREADED ON)
 set(Boost_USE_STATIC_LIBS ON)
 include(FindBoost)
 find_package(Boost REQUIRED COMPONENTS ${transactions_BOOST_COMPONENTS})

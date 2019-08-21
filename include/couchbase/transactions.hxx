@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <boost/log/sources/logger.hpp>
 
 #include <couchbase/client/cluster.hxx>
 
@@ -33,6 +34,7 @@ namespace transactions
         couchbase::cluster &cluster_;
         const configuration &config_;
         transactions_cleanup cleanup_;
+        boost::log::sources::logger_mt log_;
     };
 } // namespace transactions
 } // namespace couchbase

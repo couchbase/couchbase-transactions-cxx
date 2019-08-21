@@ -1,4 +1,5 @@
 #include <couchbase/transactions.hxx>
+#include <couchbase/transactions/logging.hxx>
 
 namespace tx = couchbase::transactions;
 
@@ -14,6 +15,7 @@ void tx::transactions::close()
 void tx::transactions::run(const logic &logic)
 {
     transaction_context overall;
+    LOG(log_, info) << "Running transaction context " << overall.id();
     attempt_context ctx(overall, config_);
     logic(ctx);
     if (!ctx.is_done()) {
