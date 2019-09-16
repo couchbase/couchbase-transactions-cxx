@@ -83,11 +83,11 @@ static void subdoc_callback(lcb_INSTANCE *, int, const lcb_RESPSUBDOC *resp)
 cb::collection::collection(bucket *bucket, std::string scope, std::string name)
     : bucket_(bucket), scope_(std::move(scope)), name_(std::move(name))
 {
-    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_STORE, reinterpret_cast<lcb_RESPCALLBACK>(store_callback));
-    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_GET, reinterpret_cast<lcb_RESPCALLBACK>(get_callback));
-    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_REMOVE, reinterpret_cast<lcb_RESPCALLBACK>(remove_callback));
-    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_SDLOOKUP, reinterpret_cast<lcb_RESPCALLBACK>(subdoc_callback));
-    lcb_install_callback3(bucket_->lcb_, LCB_CALLBACK_SDMUTATE, reinterpret_cast<lcb_RESPCALLBACK>(subdoc_callback));
+    lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_STORE, reinterpret_cast<lcb_RESPCALLBACK>(store_callback));
+    lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_GET, reinterpret_cast<lcb_RESPCALLBACK>(get_callback));
+    lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_REMOVE, reinterpret_cast<lcb_RESPCALLBACK>(remove_callback));
+    lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_SDLOOKUP, reinterpret_cast<lcb_RESPCALLBACK>(subdoc_callback));
+    lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_SDMUTATE, reinterpret_cast<lcb_RESPCALLBACK>(subdoc_callback));
     const char *tmp;
     lcb_cntl(bucket_->lcb_, LCB_CNTL_GET, LCB_CNTL_BUCKETNAME, &tmp);
     bucket_name_ = std::string(tmp);
@@ -156,7 +156,7 @@ cb::result cb::collection::upsert(const std::string &id, const std::string &valu
 
 cb::result cb::collection::insert(const std::string &id, const std::string &value, lcb_DURABILITY_LEVEL level)
 {
-    return store(LCB_STORE_ADD, id, value, 0, level);
+    return store(LCB_STORE_INSERT, id, value, 0, level);
 }
 
 cb::result cb::collection::replace(const std::string &id, const std::string &value, uint64_t cas, lcb_DURABILITY_LEVEL level)
@@ -189,39 +189,39 @@ cb::result cb::collection::mutate_in(const std::string &id, const std::vector<cb
     lcb_cmdsubdoc_create(&cmd);
     lcb_cmdsubdoc_key(cmd, id.data(), id.size());
     lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-    lcb_cmdsubdoc_create_if_missing(cmd, true);
+    lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
 
-    lcb_SUBDOCOPS *ops;
-    lcb_subdocops_create(&ops, specs.size());
+    lcb_SUBDOCSPECS *ops;
+    lcb_subdocspecs_create(&ops, specs.size());
     size_t idx = 0;
     for (const auto &spec : specs) {
         switch (spec.type_) {
             case MUTATE_IN_UPSERT:
-                lcb_subdocops_dict_upsert(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size(), spec.value_.data(),
-                                          spec.value_.size());
+                lcb_subdocspecs_dict_upsert(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size(), spec.value_.data(),
+                                            spec.value_.size());
                 break;
             case MUTATE_IN_INSERT:
-                lcb_subdocops_dict_add(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size(), spec.value_.data(),
-                                       spec.value_.size());
+                lcb_subdocspecs_dict_add(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size(), spec.value_.data(),
+                                         spec.value_.size());
                 break;
             case MUTATE_IN_FULLDOC_UPSERT:
-                lcb_subdocops_fulldoc_upsert(ops, idx++, spec.flags_, spec.value_.data(), spec.value_.size());
+                lcb_subdocspecs_fulldoc_upsert(ops, idx++, spec.flags_, spec.value_.data(), spec.value_.size());
                 break;
             case MUTATE_IN_FULLDOC_INSERT:
-                lcb_subdocops_fulldoc_add(ops, idx++, spec.flags_, spec.value_.data(), spec.value_.size());
+                lcb_subdocspecs_fulldoc_insert(ops, idx++, spec.flags_, spec.value_.data(), spec.value_.size());
                 break;
             case REMOVE:
-                lcb_subdocops_remove(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
+                lcb_subdocspecs_remove(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
                 break;
         }
     }
-    lcb_cmdsubdoc_operations(cmd, ops);
+    lcb_cmdsubdoc_specs(cmd, ops);
     lcb_cmdsubdoc_durability(cmd, level);
     lcb_STATUS rc;
     result res;
     rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast<void *>(&res), cmd);
     lcb_cmdsubdoc_destroy(cmd);
-    lcb_subdocops_destroy(ops);
+    lcb_subdocspecs_destroy(ops);
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to mutate (sched) sub-document: ") + lcb_strerror_short(rc));
     }
@@ -236,25 +236,25 @@ cb::result cb::collection::lookup_in(const std::string &id, const std::vector<cb
     lcb_cmdsubdoc_key(cmd, id.data(), id.size());
     lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
 
-    lcb_SUBDOCOPS *ops;
-    lcb_subdocops_create(&ops, specs.size());
+    lcb_SUBDOCSPECS *ops;
+    lcb_subdocspecs_create(&ops, specs.size());
     size_t idx = 0;
     for (const auto &spec : specs) {
         switch (spec.type_) {
             case LOOKUP_IN_GET:
-                lcb_subdocops_get(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
+                lcb_subdocspecs_get(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
                 break;
             case LOOKUP_IN_FULLDOC_GET:
-                lcb_subdocops_fulldoc_get(ops, idx++, spec.flags_);
+                lcb_subdocspecs_fulldoc_get(ops, idx++, spec.flags_);
                 break;
         }
     }
-    lcb_cmdsubdoc_operations(cmd, ops);
+    lcb_cmdsubdoc_specs(cmd, ops);
     lcb_STATUS rc;
     result res;
     rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast<void *>(&res), cmd);
     lcb_cmdsubdoc_destroy(cmd);
-    lcb_subdocops_destroy(ops);
+    lcb_subdocspecs_destroy(ops);
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to lookup (sched) sub-document: ") + lcb_strerror_short(rc));
     }

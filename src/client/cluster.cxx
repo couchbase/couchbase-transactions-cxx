@@ -38,17 +38,11 @@ void cb::cluster::connect()
         return;
     }
     lcb_STATUS rc;
-
-    struct lcb_create_st cfg {
-    };
-    cfg.version = 4;
-    cfg.v.v4.connstr = cluster_address_.c_str();
-    cfg.v.v4.io = nullptr;
-    cfg.v.v4.logger = nullptr;
-    cfg.v.v4.type = LCB_TYPE_CLUSTER;
-    cfg.v.v4.username = nullptr;
-    cfg.v.v4.passwd = nullptr;
-    rc = lcb_create(&lcb_, &cfg);
+    lcb_CREATEOPTS *opts;
+    lcb_createopts_create(&opts, LCB_TYPE_CLUSTER);
+    lcb_createopts_connstr(opts, cluster_address_.c_str(), cluster_address_.size());
+    rc = lcb_create(&lcb_, opts);
+    lcb_createopts_destroy(opts);
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to create libcouchbase instance: ") + lcb_strerror_short(rc));
     }
@@ -106,7 +100,7 @@ std::list<std::string> cb::cluster::buckets()
     lcb_cmdhttp_create(&cmd, lcb_HTTP_TYPE::LCB_HTTP_TYPE_MANAGEMENT);
     lcb_cmdhttp_method(cmd, lcb_HTTP_METHOD::LCB_HTTP_METHOD_GET);
     lcb_cmdhttp_path(cmd, path.data(), path.size());
-    lcb_install_callback3(lcb_, LCB_CALLBACK_HTTP, (lcb_RESPCALLBACK)http_callback);
+    lcb_install_callback(lcb_, LCB_CALLBACK_HTTP, (lcb_RESPCALLBACK)http_callback);
     cb::result res;
     lcb_http(lcb_, &res, cmd);
     lcb_cmdhttp_destroy(cmd);

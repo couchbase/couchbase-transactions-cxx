@@ -45,18 +45,18 @@ cb::mutate_in_spec cb::mutate_in_spec::remove(const std::string &path)
 
 cb::mutate_in_spec &cb::mutate_in_spec::xattr()
 {
-    flags_ |= LCB_SUBDOCOPS_F_XATTRPATH;
+    flags_ |= LCB_SUBDOCSPECS_F_XATTRPATH;
     return *this;
 }
 
 cb::mutate_in_spec &cb::mutate_in_spec::create_path()
 {
-    flags_ |= LCB_SUBDOCOPS_F_MKINTERMEDIATES;
+    flags_ |= LCB_SUBDOCSPECS_F_MKINTERMEDIATES;
     return *this;
 }
 
 cb::mutate_in_spec &cb::mutate_in_spec::expand_macro()
 {
-    flags_ |= LCB_SUBDOCOPS_F_XATTR_MACROVALUES;
+    flags_ |= LCB_SUBDOCSPECS_F_XATTR_MACROVALUES;
     return *this;
 }

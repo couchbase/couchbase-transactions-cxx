@@ -10,7 +10,7 @@ cb::lookup_in_spec::lookup_in_spec(cb::lookup_in_spec_type type, std::string pat
 
 cb::lookup_in_spec &cb::lookup_in_spec::xattr()
 {
-    flags_ |= LCB_SUBDOCOPS_F_XATTRPATH;
+    flags_ |= LCB_SUBDOCSPECS_F_XATTRPATH;
     return *this;
 }
 
