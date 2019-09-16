@@ -115,7 +115,7 @@ std::list<std::string> cb::cluster::buckets()
         throw std::runtime_error(std::string("failed to retrieve list of buckets: ") + lcb_strerror_short(res.rc));
     }
     std::list<std::string> names;
-    for (const auto &it : res.value) {
+    for (const auto &it : *res.value) {
         names.push_back(it["name"].asString());
     }
     return names;

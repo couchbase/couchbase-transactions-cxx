@@ -55,3 +55,10 @@ void tx::transaction_document::cas(uint64_t cas)
 {
     cas_ = cas;
 }
+std::ostream &tx::operator<<(std::ostream &os, const couchbase::transactions::transaction_document &document)
+{
+    os << "transaction_docyment{id: " << document.id_ << ", cas: " << document.cas_ << ", status: " << document.status_
+       << ", bucket: " << document.collection_.bucket_name() << ", coll: " << document.collection_.name() << ", links_: " << document.links_
+       << "}";
+    return os;
+}

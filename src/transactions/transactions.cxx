@@ -15,8 +15,8 @@ void tx::transactions::close()
 void tx::transactions::run(const logic &logic)
 {
     transaction_context overall;
-    LOG(log_, info) << "Running transaction context " << overall.id();
     attempt_context ctx(overall, config_);
+    LOG(overall, info) << "starting attempt " << overall.num_attempts() << "/" << overall.id() << "/" << ctx.id();
     logic(ctx);
     if (!ctx.is_done()) {
         ctx.commit();

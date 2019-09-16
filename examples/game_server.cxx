@@ -37,8 +37,8 @@ class GameServer
     void player_hits_monster(const string &action_id_, int damage_, const string &player_id, const string &monster_id)
     {
         transactions_.run([&](transactions::attempt_context &ctx) {
-            transactions::transaction_document monster = ctx.get(collection_, monster_id);
-            const dynamic &monster_body = monster.content();
+            auto monster = ctx.get(collection_, monster_id);
+            const dynamic &monster_body = monster->content();
 
             int monster_hitpoints = monster_body["hitpoints"].asInt();
             int monster_new_hitpoints = monster_hitpoints - damage_;
@@ -46,13 +46,13 @@ class GameServer
             cout << "Monster " << monster_id << " had " << monster_hitpoints << " hitpoints, took " << damage_ << " damage, now has "
                  << monster_new_hitpoints << " hitpoints" << endl;
 
-            transactions::transaction_document player = ctx.get(collection_, player_id);
+            auto player = ctx.get(collection_, player_id);
 
             if (monster_new_hitpoints <= 0) {
                 // Monster is killed. The remove is just for demoing, and a more realistic examples would set a "dead" flag or similar.
-                ctx.remove(collection_, monster);
+                ctx.remove(collection_, *monster);
 
-                const dynamic &player_body = player.content();
+                const dynamic &player_body = player->content();
 
                 // the player earns experience for killing the monster
                 int experience_for_killing_monster = monster_body["experienceWhenKilled"].asInt();
@@ -66,13 +66,13 @@ class GameServer
                 dynamic player_new_body = player_body;
                 player_new_body["experience"] = player_new_experience;
                 player_new_body["level"] = player_new_level;
-                ctx.replace(collection_, player, player_new_body);
+                ctx.replace(collection_, *player, player_new_body);
             } else {
                 cout << "Monster " << monster_id << " is damaged but alive" << endl;
 
                 dynamic monster_new_body = monster_body;
                 monster_new_body["hitpoints"] = monster_new_hitpoints;
-                ctx.replace(collection_, monster, monster_new_body);
+                ctx.replace(collection_, *monster, monster_new_body);
             }
             cout << "About to commit transaction" << endl;
         });

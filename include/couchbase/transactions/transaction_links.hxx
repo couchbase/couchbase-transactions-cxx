@@ -2,6 +2,7 @@
 
 #include <string>
 #include <folly/dynamic.h>
+#include <ostream>
 
 namespace couchbase
 {
@@ -36,6 +37,10 @@ namespace transactions
         [[nodiscard]] bool is_document_in_transaction() const;
         [[nodiscard]] bool is_document_being_removed() const;
         [[nodiscard]] bool has_staged_write() const;
+
+        friend std::ostream &operator<<(std::ostream &os, const transaction_links &links);
     };
+
+    std::ostream &operator<<(std::ostream &os, const transaction_links &links);
 } // namespace transactions
 } // namespace couchbase

@@ -40,7 +40,7 @@ static void get_callback(lcb_INSTANCE *, int, const lcb_RESPGET *resp)
         lcb_respget_key(resp, &data, &ndata);
         res->key = std::string(data, ndata);
         lcb_respget_value(resp, &data, &ndata);
-        res->value = folly::parseJson(std::string(data, ndata));
+        res->value.emplace(folly::parseJson(std::string(data, ndata)));
     }
 }
 
@@ -74,7 +74,7 @@ static void subdoc_callback(lcb_INSTANCE *, int, const lcb_RESPSUBDOC *resp)
         ndata = 0;
         lcb_respsubdoc_result_value(resp, idx, &data, &ndata);
         if (data) {
-            res->values[idx] = folly::parseJson(std::string(data, ndata));
+            res->values[idx].emplace(folly::parseJson(std::string(data, ndata)));
         }
     }
 }

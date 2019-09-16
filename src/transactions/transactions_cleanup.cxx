@@ -71,7 +71,7 @@ void tx::transactions_cleanup::lost_attempts_loop()
                 auto res = col->lookup_in(CLIENT_RECORD_DOC_ID, { lookup_in_spec::get(FIELD_CLIENTS).xattr() });
                 std::vector<std::string> expired_client_uids;
                 std::vector<std::string> active_client_uids;
-                for (auto &client : res.values[0].items()) {
+                for (auto &client : res.values[0]->items()) {
                     auto other_client_uid = client.first.asString();
                     auto cl = client.second;
                     uint64_t cas_ms = res.cas / 1000000;
@@ -114,7 +114,7 @@ void tx::transactions_cleanup::lost_attempts_loop()
                     col->mutate_in(atr_id, { mutate_in_spec::upsert("dummy", nullptr).xattr() });
                     result atr = col->lookup_in(atr_id, { lookup_in_spec::get(ATR_FIELD_ATTEMPTS).xattr() });
                     uint64_t cas_ms = atr.cas / 1000000;
-                    for (auto &kv : atr.values[0].items()) {
+                    for (auto &kv : atr.values[0]->items()) {
                         auto attempt_id = kv.first;
                         auto entry = kv.second;
                         std::string status = entry[ATR_FIELD_STATUS].asString();

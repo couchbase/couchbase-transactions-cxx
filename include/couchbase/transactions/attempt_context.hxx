@@ -22,9 +22,9 @@ namespace transactions
     class attempt_context
     {
       private:
-        transaction_context &transaction_ctx_;
+        transaction_context &txctx_;
         const configuration &config_;
-        std::string atr_id_;
+        std::optional<std::string> atr_id_;
         collection *atr_collection_;
         bool is_done_;
         attempt_state state_;
@@ -43,7 +43,7 @@ namespace transactions
          * @param id the document's ID
          * @return an TransactionDocument containing the document
          */
-        transaction_document get(collection *collection, const std::string &id);
+        std::optional<transaction_document> get(collection *collection, const std::string &id);
 
         /**
          * Mutates the specified document with new content, using the document's last TransactionDocument#cas().
@@ -101,6 +101,8 @@ namespace transactions
          */
         void commit();
         bool is_done();
+
+        const std::string &id();
     };
 } // namespace transactions
 } // namespace couchbase

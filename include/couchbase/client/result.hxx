@@ -19,8 +19,8 @@ class result
     uint8_t datatype;
     uint32_t flags;
     std::string key;
-    folly::dynamic value;
-    std::vector<folly::dynamic> values;
+    std::optional<folly::dynamic> value;
+    std::vector<std::optional<folly::dynamic>> values;
 };
 
 } // namespace couchbase
