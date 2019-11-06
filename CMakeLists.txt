@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.11)
 project(transactions_cxx)
 
 option(BUILD_DOC "Build documentation" ON)
@@ -16,7 +16,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake/Modules)
 
 
-set(transactions_BOOST_COMPONENTS system thread date_time log_setup log)
+set(transactions_BOOST_COMPONENTS log log_setup system thread date_time)
 if (BUILD_TESTING)
     list(APPEND transactions_BOOST_COMPONENTS unit_test_framework)
 endif ()
@@ -32,9 +32,7 @@ message(STATUS "Boost_INCLUDE_DIRS: ${Boost_INCLUDE_DIRS}")
 message(STATUS "Boost_LIBRARIES: ${Boost_LIBRARIES}")
 
 find_package(double-conversion REQUIRED)
-include_directories(BEFORE ${double-conversion_INCLUDE_DIRS})
-message(STATUS "double-conversion_INCLUDE_DIR: ${double-conversion_INCLUDE_DIRS}")
-message(STATUS "double-conversion_LIBRARIES: ${double-conversion_LIBRARIES}")
+find_package(glog REQUIRED)
 
 find_package(Folly REQUIRED)
 include_directories(BEFORE ${Folly_INCLUDE_DIR})
