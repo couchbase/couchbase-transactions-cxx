@@ -1,17 +1,19 @@
-#include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 
-#include <folly/json.h>
-
-#include <libcouchbase/couchbase.h>
-#include <couchbase/client/cluster.hxx>
 #include <couchbase/client/bucket.hxx>
+#include <couchbase/client/cluster.hxx>
+#include <couchbase/client/result.hxx>
+#include <libcouchbase/couchbase.h>
 
 namespace cb = couchbase;
 
 cb::cluster::cluster(std::string cluster_address, std::string user_name, std::string password)
-    : lcb_(nullptr), cluster_address_(std::move(cluster_address)), user_name_(std::move(user_name)), password_(std::move(password))
+  : lcb_(nullptr)
+  , cluster_address_(std::move(cluster_address))
+  , user_name_(std::move(user_name))
+  , password_(std::move(password))
 {
     connect();
 }
@@ -21,24 +23,26 @@ cb::cluster::~cluster()
     shutdown();
 }
 
-std::unique_ptr<cb::bucket> cb::cluster::open_bucket(const std::string &name)
+std::shared_ptr<cb::bucket>
+cb::cluster::open_bucket(const std::string& name)
 {
     connect();
     std::unique_lock<std::mutex> lock(mutex_);
-    auto bkt = std::make_unique<bucket>(lcb_, name);
+    auto bkt = std::make_shared<cb::bucket>(lcb_, name);
     // TODO: cache buckets
     lcb_ = nullptr;
     return bkt;
 }
 
-void cb::cluster::connect()
+void
+cb::cluster::connect()
 {
     std::unique_lock<std::mutex> lock(mutex_);
     if (lcb_ != nullptr) {
         return;
     }
     lcb_STATUS rc;
-    lcb_CREATEOPTS *opts;
+    lcb_CREATEOPTS* opts;
     lcb_createopts_create(&opts, LCB_TYPE_CLUSTER);
     lcb_createopts_connstr(opts, cluster_address_.c_str(), cluster_address_.size());
     rc = lcb_create(&lcb_, opts);
@@ -47,7 +51,7 @@ void cb::cluster::connect()
         throw std::runtime_error(std::string("failed to create libcouchbase instance: ") + lcb_strerror_short(rc));
     }
 
-    lcb_AUTHENTICATOR *auth = lcbauth_new();
+    lcb_AUTHENTICATOR* auth = lcbauth_new();
     lcbauth_set_mode(auth, LCBAUTH_MODE_RBAC);
     rc = lcbauth_add_pass(auth, user_name_.c_str(), password_.c_str(), LCBAUTH_F_CLUSTER);
     if (rc != LCB_SUCCESS) {
@@ -61,13 +65,14 @@ void cb::cluster::connect()
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to connect (sched) libcouchbase instance: ") + lcb_strerror_short(rc));
     }
-    rc = lcb_wait(lcb_);
+    rc = lcb_wait(lcb_, LCB_WAIT_DEFAULT);
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to connect (wait) libcouchbase instance: ") + lcb_strerror_short(rc));
     }
 }
 
-void cb::cluster::shutdown()
+void
+cb::cluster::shutdown()
 {
     if (lcb_ != nullptr) {
         lcb_destroy(lcb_);
@@ -76,27 +81,28 @@ void cb::cluster::shutdown()
 }
 
 extern "C" {
-static void http_callback(lcb_INSTANCE *, int, const lcb_RESPHTTP *resp)
+static void
+http_callback(lcb_INSTANCE*, int, const lcb_RESPHTTP* resp)
 {
-    cb::result *res = nullptr;
-    lcb_resphttp_cookie(resp, reinterpret_cast<void **>(&res));
+    cb::result* res = nullptr;
+    lcb_resphttp_cookie(resp, reinterpret_cast<void**>(&res));
     res->rc = lcb_resphttp_status(resp);
     if (res->rc == LCB_SUCCESS) {
-        const char *data = nullptr;
+        const char* data = nullptr;
         size_t ndata = 0;
         lcb_resphttp_body(resp, &data, &ndata);
-        std::string payload(data, ndata);
-        res->value = folly::parseJson(payload);
+        res->value = nlohmann::json::parse(data, data + ndata);
     }
 }
 }
 
-std::list<std::string> cb::cluster::buckets()
+std::list<std::string>
+cb::cluster::buckets()
 {
     connect();
     std::unique_lock<std::mutex> lock(mutex_);
     std::string path("/pools/default/buckets");
-    lcb_CMDHTTP *cmd;
+    lcb_CMDHTTP* cmd;
     lcb_cmdhttp_create(&cmd, lcb_HTTP_TYPE::LCB_HTTP_TYPE_MANAGEMENT);
     lcb_cmdhttp_method(cmd, lcb_HTTP_METHOD::LCB_HTTP_METHOD_GET);
     lcb_cmdhttp_path(cmd, path.data(), path.size());
@@ -104,13 +110,13 @@ std::list<std::string> cb::cluster::buckets()
     cb::result res;
     lcb_http(lcb_, &res, cmd);
     lcb_cmdhttp_destroy(cmd);
-    lcb_wait(lcb_);
+    lcb_wait(lcb_, LCB_WAIT_DEFAULT);
     if (res.rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to retrieve list of buckets: ") + lcb_strerror_short(res.rc));
     }
     std::list<std::string> names;
-    for (const auto &it : *res.value) {
-        names.push_back(it["name"].asString());
+    for (const auto& it : *res.value) {
+        names.push_back(it["name"].get<std::string>());
     }
     return names;
 }

@@ -20,11 +20,15 @@ namespace transactions
     class client_record
     {
       public:
-        client_record(cluster &cluster, const configuration &config);
+        client_record(cluster& cluster, const configuration& config)
+          : cluster_(cluster)
+          , config_(config)
+        {
+        }
 
       private:
-        cluster &cluster_;
-        const configuration &config_;
+        cluster& cluster_;
+        const configuration& config_;
     };
 } // namespace transactions
 } // namespace couchbase

@@ -4,7 +4,7 @@ namespace couchbase
 {
 namespace transactions
 {
-    enum durability_level {
+    enum class durability_level {
         /**
          * Durability settings are disabled.
          */
@@ -19,7 +19,7 @@ namespace transactions
          * Wait until each write is available in-memory on a majority of configured replicas, and also persisted to
          * disk on the master node, before continuing.
          */
-        MAJORITY_AND_PERSIST_ON_MASTER = 0x02,
+        MAJORITY_AND_PERSIST_TO_ACTIVE = 0x02,
 
         /**
          * Wait until each write is both available in-memory and persisted to disk on a majority of configured

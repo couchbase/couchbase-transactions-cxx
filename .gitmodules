@@ -1,3 +1,6 @@
 [submodule "deps/libcouchbase"]
 	path = deps/libcouchbase
 	url = git://github.com/couchbase/libcouchbase.git
+[submodule "deps/json"]
+	path = deps/json
+	url = git://github.com/nlohmann/json.git

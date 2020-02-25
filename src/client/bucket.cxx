@@ -3,25 +3,29 @@
 #include <libcouchbase/couchbase.h>
 
 #include <couchbase/client/bucket.hxx>
+#include <couchbase/client/collection.hxx>
 
 namespace cb = couchbase;
 
 extern "C" {
-static void open_callback(lcb_INSTANCE *instance, lcb_STATUS status)
+static void
+open_callback(lcb_INSTANCE* instance, lcb_STATUS status)
 {
-    lcb_STATUS *rc = (lcb_STATUS *)lcb_get_cookie(instance);
+    auto* rc = static_cast<lcb_STATUS*>(const_cast<void*>(lcb_get_cookie(instance)));
     *rc = status;
 }
 }
 
-cb::collection *cb::bucket::default_collection()
+cb::collection*
+cb::bucket::default_collection()
 {
-    collection *col = new collection(this, "", "");
+    auto* col = new collection(shared_from_this(), "", "");
     // cache collection
     return col;
 }
 
-cb::bucket::bucket(lcb_st *instance, const std::string &name) : lcb_(instance)
+cb::bucket::bucket(lcb_st* instance, const std::string& name)
+  : lcb_(instance)
 {
     lcb_STATUS rc;
 
@@ -31,7 +35,7 @@ cb::bucket::bucket(lcb_st *instance, const std::string &name) : lcb_(instance)
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to open bucket (sched): ") + lcb_strerror_short(rc));
     }
-    lcb_wait(lcb_);
+    lcb_wait(lcb_, LCB_WAIT_DEFAULT);
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to open bucket (wait): ") + lcb_strerror_short(rc));
     }

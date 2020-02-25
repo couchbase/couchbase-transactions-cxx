@@ -12,11 +12,25 @@ namespace transactions
     class configuration
     {
       public:
-        enum durability_level durability_level() const;
-        void durability_level(enum durability_level level);
+        enum durability_level durability_level() const
+        {
+            return level_;
+        }
 
-        int cleanup_window() const;
-        void cleanup_window(int ms);
+        void durability_level(enum durability_level level)
+        {
+            level_ = level;
+        }
+
+        int cleanup_window() const
+        {
+            return cleanup_window_;
+        }
+
+        void cleanup_window(int ms)
+        {
+            cleanup_window_ = ms;
+        }
 
       private:
         enum durability_level level_ { durability_level::MAJORITY };

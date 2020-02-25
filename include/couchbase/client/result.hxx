@@ -3,24 +3,19 @@
 #include <string>
 #include <vector>
 
+#include <boost/optional.hpp>
 #include <libcouchbase/couchbase.h>
-#include <folly/dynamic.h>
+#include <nlohmann/json.hpp>
 
 namespace couchbase
 {
-
-class result
-{
-  public:
-    result();
-
+struct result {
     lcb_STATUS rc;
     uint64_t cas;
     uint8_t datatype;
     uint32_t flags;
     std::string key;
-    std::optional<folly::dynamic> value;
-    std::vector<std::optional<folly::dynamic>> values;
+    boost::optional<nlohmann::json> value;
+    std::vector<boost::optional<nlohmann::json>> values;
 };
-
 } // namespace couchbase

@@ -1,31 +1,49 @@
 #pragma once
 
-#include <string>
 #include <mutex>
+#include <string>
 #include <vector>
 
-#include <couchbase/transactions/transaction_document.hxx>
 #include <couchbase/client/mutate_in_spec.hxx>
+#include <couchbase/transactions/transaction_document.hxx>
 
 namespace couchbase
 {
 namespace transactions
 {
-    enum staged_mutation_type { INSERT, REMOVE, REPLACE };
+    enum class staged_mutation_type { INSERT, REMOVE, REPLACE };
 
     class staged_mutation
     {
       private:
         transaction_document doc_;
         staged_mutation_type type_;
-        folly::dynamic content_;
+        nlohmann::json content_;
 
       public:
-        staged_mutation(transaction_document &doc, folly::dynamic content, staged_mutation_type type);
+        template<typename Content>
+        staged_mutation(transaction_document& doc, Content content, staged_mutation_type type)
+          : doc_(std::move(doc))
+          , content_(std::move(content))
+          , type_(type)
+        {
+        }
 
-        transaction_document &doc();
-        const staged_mutation_type &type() const;
-        const folly::dynamic &content() const;
+        transaction_document& doc()
+        {
+            return doc_;
+        }
+
+        [[nodiscard]] const staged_mutation_type& type() const
+        {
+            return type_;
+        }
+
+        template<typename Content>
+        const Content& content() const
+        {
+            return content_;
+        }
     };
 
     class staged_mutation_queue
@@ -36,13 +54,13 @@ namespace transactions
 
       public:
         bool empty();
-        void add(const staged_mutation &mutation);
-        void extract_to(const std::string &prefix, std::vector<couchbase::mutate_in_spec> &specs);
+        void add(const staged_mutation& mutation);
+        void extract_to(const std::string& prefix, std::vector<couchbase::mutate_in_spec>& specs);
         void commit();
 
-        staged_mutation *find_replace(collection *collection, const std::string &id);
-        staged_mutation *find_insert(collection *collection, const std::string &id);
-        staged_mutation *find_remove(collection *collection, const std::string &id);
+        staged_mutation* find_replace(collection* collection, const std::string& id);
+        staged_mutation* find_insert(collection* collection, const std::string& id);
+        staged_mutation* find_remove(collection* collection, const std::string& id);
     };
 } // namespace transactions
 } // namespace couchbase

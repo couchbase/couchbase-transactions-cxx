@@ -4,15 +4,16 @@
 
 #include <couchbase/client/cluster.hxx>
 
-#include <couchbase/transactions/configuration.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
+#include <couchbase/transactions/configuration.hxx>
+#include <couchbase/transactions/logging.hxx>
 #include <couchbase/transactions/transactions_cleanup.hxx>
 
 namespace couchbase
 {
 namespace transactions
 {
-    typedef std::function<void(attempt_context &)> logic;
+    typedef std::function<void(attempt_context&)> logic;
 
     /**
      * @mainpage
@@ -25,13 +26,30 @@ namespace transactions
     class transactions
     {
       public:
-        transactions(cluster &cluster, const configuration &config);
-        void run(const logic &logic);
-        void close();
+        transactions(cluster& cluster, const configuration& config)
+          : cluster_(cluster)
+          , config_(config)
+          , cleanup_(cluster_, config_)
+        {
+        }
+
+        void run(const logic& logic)
+        {
+            transaction_context overall;
+            attempt_context ctx(overall, config_);
+            LOG(overall, info) << "starting attempt " << overall.num_attempts() << "/" << overall.id() << "/" << ctx.id();
+            logic(ctx);
+            if (!ctx.is_done()) {
+                ctx.commit();
+            }
+        }
+        void close()
+        {
+        }
 
       private:
-        couchbase::cluster &cluster_;
-        const configuration &config_;
+        couchbase::cluster& cluster_;
+        const configuration& config_;
         transactions_cleanup cleanup_;
     };
 } // namespace transactions
