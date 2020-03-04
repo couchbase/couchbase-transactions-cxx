@@ -9,7 +9,7 @@ namespace transactions
     /**
      * The possible states for a transaction attempt.
      */
-    enum attempt_state {
+    enum class attempt_state {
         /**
          * The attempt finished very early.
          */
@@ -47,20 +47,39 @@ namespace transactions
     inline const char *attempt_state_name(attempt_state state)
     {
         switch (state) {
-            case NOT_STARTED:
+            case attempt_state::NOT_STARTED:
                 return "NOT_STARTED";
-            case PENDING:
+            case attempt_state::PENDING:
                 return "PENDING";
-            case ABORTED:
+            case attempt_state::ABORTED:
                 return "ABORTED";
-            case COMMITTED:
+            case attempt_state::COMMITTED:
                 return "COMMITTED";
-            case COMPLETED:
+            case attempt_state::COMPLETED:
                 return "COMPLETED";
-            case ROLLED_BACK:
+            case attempt_state::ROLLED_BACK:
                 return "ROLLED_BACK";
             default:
-                throw std::runtime_error("unknown attempt state: " + std::to_string(state));
+                throw std::runtime_error("unknown attempt state");
+        }
+    }
+
+    inline attempt_state attempt_state_value(const std::string& str)
+    {
+        if (str == "NOT_STARTED") {
+            return attempt_state::NOT_STARTED;
+        } else if (str == "PENDING") {
+            return attempt_state::PENDING;
+        } else if (str == "ABORTED") {
+            return attempt_state::ABORTED;
+        } else if (str == "COMMITTED") {
+            return attempt_state::COMMITTED;
+        } else if (str == "COMPLETED") {
+            return attempt_state::COMPLETED;
+        } else if (str == "ROLLED_BACK") {
+            return attempt_state::ROLLED_BACK;
+        } else {
+            throw std::runtime_error("unknown attempt state: " + str);
         }
     }
 } // namespace transactions

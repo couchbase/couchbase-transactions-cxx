@@ -8,7 +8,7 @@ namespace transactions
      * Gives additional information regarding a returned document's status.  The application is free to ignore any of them,
      * but may wish to take action on <code>AMBIGUOUS</code>.
      */
-    enum transaction_document_status {
+    enum class transaction_document_status {
 
         /**
          * The fetched document was not involved in a transaction.
@@ -43,5 +43,20 @@ namespace transactions
         AMBIGUOUS
     };
 
+    inline const char* transaction_document_status_name(transaction_document_status status)
+    {
+        switch (status) {
+            case transaction_document_status::NORMAL:
+                return "NORMAL";
+            case transaction_document_status::IN_TXN_COMMITTED:
+                return "IN_TXN_COMMITTED";
+            case transaction_document_status::IN_TXN_OTHER:
+                return "IN_TXN_OTHER";
+            case transaction_document_status::OWN_WRITE:
+                return "OWN_WRITE";
+            case transaction_document_status::AMBIGUOUS:
+                return "AMBIGUOUS";
+        }
+    }
 } // namespace transactions
 } // namespace couchbase

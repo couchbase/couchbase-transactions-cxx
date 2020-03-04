@@ -29,7 +29,6 @@ tx::staged_mutation_queue::extract_to(const std::string& prefix, std::vector<cou
 
     for (auto& mutation : queue_) {
         nlohmann::json doc{ { ATR_FIELD_PER_DOC_ID, mutation.doc().id() },
-                            { ATR_FIELD_PER_DOC_CAS, std::to_string(mutation.doc().cas()) },
                             { ATR_FIELD_PER_DOC_BUCKET, mutation.doc().collection_ref().bucket_name() },
                             { ATR_FIELD_PER_DOC_SCOPE, mutation.doc().collection_ref().scope() },
                             { ATR_FIELD_PER_DOC_COLLECTION, mutation.doc().collection_ref().name() } };

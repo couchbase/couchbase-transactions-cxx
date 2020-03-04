@@ -3,7 +3,8 @@
 std::ostream&
 couchbase::transactions::operator<<(std::ostream& os, const transaction_links& links)
 {
-    os << "transaction_links{atr: " << links.atr_id_ << ", atr_bkt: " << links.atr_bucket_name_ << ", atr_scp: " << links.atr_scope_name_
-       << ", atr_coll: " << links.atr_collection_name_ << ", ver: " << links.staged_version_ << "}";
+    os << "transaction_links{atr: " << links.atr_id_.value_or("none") << ", atr_bkt: " << links.atr_bucket_name_.value_or("none")
+       << ", atr_coll: " << links.atr_collection_name_.value_or("none") << ", txn_id: " << links.staged_transaction_id_.value_or("none")
+       << ", attempt_id: " << links.staged_attempt_id_.value_or("none") << "}";
     return os;
 }

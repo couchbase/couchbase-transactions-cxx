@@ -9,7 +9,7 @@ namespace transactions
     /**
      * Tunables for the transactions.
      */
-    class configuration
+    class transaction_config
     {
       public:
         enum durability_level durability_level() const
@@ -27,14 +27,15 @@ namespace transactions
             return cleanup_window_;
         }
 
-        void cleanup_window(int ms)
+        [[nodiscard]] std::chrono::nanoseconds transaction_expiration_time() const
         {
-            cleanup_window_ = ms;
+            return transaction_expiration_time_;
         }
 
       private:
         enum durability_level level_ { durability_level::MAJORITY };
         int cleanup_window_{ 120000 };
+        std::chrono::nanoseconds transaction_expiration_time_{ std::chrono::seconds(15) };
     };
 
 } // namespace transactions

@@ -4,6 +4,7 @@
 
 #include <unistd.h>
 
+#include <couchbase/client/cluster.hxx>
 #include <couchbase/client/collection.hxx>
 #include <couchbase/transactions/client_record.hxx>
 #include <couchbase/transactions/transaction_fields.hxx>
@@ -14,7 +15,7 @@
 
 namespace tx = couchbase::transactions;
 
-tx::transactions_cleanup::transactions_cleanup(couchbase::cluster& cluster, const tx::configuration& config)
+tx::transactions_cleanup::transactions_cleanup(couchbase::cluster& cluster, const tx::transaction_config& config)
   : cluster_(cluster)
   , config_(config)
   , client_uuid_(uid_generator::next())

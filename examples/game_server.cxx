@@ -146,7 +146,7 @@ int
 main(int argc, const char* argv[])
 {
     auto gen = uuids::random_generator()();
-    string cluster_address = "couchbase://localhost";
+    string cluster_address = "couchbase://192.168.1.101";
     string user_name = "Administrator";
     string password = "password";
     string bucket_name = "default";
@@ -168,7 +168,7 @@ main(int argc, const char* argv[])
     collection->upsert(monster_id, monster_data);
     cout << "Upserted sample monster document: " << monster_id << endl;
 
-    transactions::configuration configuration;
+    transactions::transaction_config configuration;
     configuration.durability_level(transactions::durability_level::MAJORITY);
     transactions::transactions transactions(cluster, configuration);
     GameServer game_server(transactions, collection);

@@ -12,4 +12,5 @@ class not_found_error : public std::runtime_error
     {
     }
 };
+
 } // namespace couchbase

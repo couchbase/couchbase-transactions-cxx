@@ -2,13 +2,18 @@
 
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include <boost/core/ignore_unused.hpp>
 
 #include <couchbase/client/collection.hxx>
 #include <couchbase/transactions/attempt_state.hxx>
-#include <couchbase/transactions/configuration.hxx>
+#include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/logging.hxx>
 #include <couchbase/transactions/staged_mutation.hxx>
+#include <couchbase/transactions/testing_hooks.hxx>
+#include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transaction_context.hxx>
 #include <couchbase/transactions/transaction_document.hxx>
 
@@ -16,6 +21,7 @@ namespace couchbase
 {
 namespace transactions
 {
+    class transactions;
     /**
      * Provides methods to allow an application's transaction logic to read, mutate, insert and delete documents, as well as commit or
      * rollback the transaction.
@@ -23,25 +29,31 @@ namespace transactions
     class attempt_context
     {
       private:
-        transaction_context& txctx_;
-        const configuration& config_;
+        transactions* parent_;
+        transaction_context& overall_;
+        const transaction_config& config_;
         boost::optional<std::string> atr_id_;
         collection* atr_collection_;
         bool is_done_;
         attempt_state state_;
-        std::string id_;
+        std::string attempt_id_;
         staged_mutation_queue staged_mutations_;
-
-        void init_atr_if_needed(collection* collection, const std::string& id);
+        testing_hooks hooks_;
+        std::chrono::nanoseconds start_time_server_{ 0 };
 
       public:
-        attempt_context(transaction_context& transaction_ctx, const configuration& config)
-          : txctx_(transaction_ctx)
+        attempt_context(transactions* parent,
+                        transaction_context& transaction_ctx,
+                        const transaction_config& config,
+                        testing_hooks hooks = {})
+          : parent_(parent)
+          , overall_(transaction_ctx)
           , config_(config)
           , state_(attempt_state::NOT_STARTED)
-          , id_(uid_generator::next())
+          , attempt_id_(uid_generator::next())
           , atr_collection_(nullptr)
           , is_done_(false)
+          , hooks_(std::move(hooks))
         {
         }
 
@@ -54,91 +66,110 @@ namespace transactions
          */
         boost::optional<transaction_document> get(collection* collection, const std::string& id)
         {
-            staged_mutation* mutation = staged_mutations_.find_replace(collection, id);
-            if (mutation == nullptr) {
-                mutation = staged_mutations_.find_insert(collection, id);
+            check_if_done();
+            check_expiry_pre_commit(STAGE_GET);
+
+            staged_mutation* own_write = check_for_own_write(collection, id);
+            if (own_write) {
+                LOG(overall_, info) << "found own-write of mutated doc " << id;
+                return transaction_document::create_from(
+                  own_write->doc(), own_write->content<const nlohmann::json&>(), transaction_document_status::OWN_WRITE);
             }
-            if (mutation) {
-                return transaction_document(*collection,
-                                            id,
-                                            mutation->content<nlohmann::json>(),
-                                            0,
-                                            transaction_document_status::OWN_WRITE,
-                                            transaction_links(mutation->doc().links()));
-            }
-            mutation = staged_mutations_.find_remove(collection, id);
-            if (mutation) {
-                throw std::runtime_error(std::string("not found"));
+            staged_mutation* own_remove = staged_mutations_.find_remove(collection, id);
+            if (own_remove) {
+                LOG(overall_, info) << "found own-write of removed doc " << id;
+                return {};
             }
 
-            boost::optional<transaction_document> out;
-            LOG(txctx_, trace) << "getting doc " << id;
+            hooks_.before_doc_get(this, id);
             const result& res = collection->lookup_in(id,
                                                       { lookup_in_spec::get(ATR_ID).xattr(),
-                                                        lookup_in_spec::get(STAGED_VERSION).xattr(),
+                                                        lookup_in_spec::get(TRANSACTION_ID).xattr(),
+                                                        lookup_in_spec::get(ATTEMPT_ID).xattr(),
                                                         lookup_in_spec::get(STAGED_DATA).xattr(),
                                                         lookup_in_spec::get(ATR_BUCKET_NAME).xattr(),
-                                                        lookup_in_spec::get(ATR_SCOPE_NAME).xattr(),
                                                         lookup_in_spec::get(ATR_COLL_NAME).xattr(),
+                                                        // For {BACKUP_FIELDS}
+                                                        lookup_in_spec::get(TRANSACTION_RESTORE_PREFIX_ONLY).xattr(),
+                                                        lookup_in_spec::get(TYPE).xattr(),
+                                                        lookup_in_spec::get("$document").xattr(),
                                                         lookup_in_spec::fulldoc_get() });
-            if (res.rc == LCB_SUCCESS) {
-                std::string atr_id = res.values[0]->get<std::string>();
-                std::string staged_version = res.values[1]->get<std::string>();
-                nlohmann::json staged_data = *res.values[2];
-                std::string atr_bucket_name = res.values[3]->get<std::string>();
-                std::string atr_scope_name = res.values[4]->get<std::string>();
-                std::string atr_coll_name = res.values[5]->get<std::string>();
-                nlohmann::json content = *res.values[6];
-
-                transaction_document doc(*collection,
-                                         id,
-                                         content,
-                                         res.cas,
-                                         transaction_document_status::NORMAL,
-                                         transaction_links(atr_id, atr_bucket_name, atr_scope_name, atr_coll_name, content, id));
+            if (res.rc == LCB_ERR_DOCUMENT_NOT_FOUND) {
+                return {};
+            } else if (res.rc == LCB_SUCCESS) {
+                transaction_document doc = transaction_document::create_from(*collection, id, res, transaction_document_status::NORMAL);
 
                 if (doc.links().is_document_in_transaction()) {
-                    const result& atr_res =
-                      collection->lookup_in(doc.links().atr_id(), { lookup_in_spec::get(ATR_FIELD_ATTEMPTS).xattr() });
-                    if (atr_res.rc != LCB_ERR_DOCUMENT_NOT_FOUND && atr_res.values[0]) {
-                        std::string err;
-                        const nlohmann::json& atr = *atr_res.values[0];
-                        const nlohmann::json& entry = atr[id_];
-                        if (entry == nullptr) {
-                            // Don't know if txn was committed or rolled back.  Should not happen as ATR record should stick around long
-                            // enough.
-                            doc.status(transaction_document_status::AMBIGUOUS);
-                            if (doc.content<nlohmann::json>().is_null()) {
-                                throw std::runtime_error(std::string("not found"));
+                    boost::optional<active_transaction_record> atr =
+                      active_transaction_record::get_atr(collection, doc.links().atr_id().value(), config_);
+                    if (atr.has_value()) {
+                        active_transaction_record& atr_doc = atr.value();
+                        boost::optional<atr_entry> entry;
+                        for (auto& e : atr_doc.entries()) {
+                            if (doc.links().staged_attempt_id().value() == e.attempt_id()) {
+                                entry.emplace(e);
+                                break;
+                            }
+                        }
+                        bool ignore_doc = false;
+                        auto content = doc.content<nlohmann::json>();
+                        auto status = doc.status();
+                        if (entry.has_value()) {
+                            if (doc.links().staged_attempt_id().has_value() && entry->attempt_id() == attempt_id_) {
+                                // Attempt is reading its own writes
+                                // This is here as backup, it should be returned from the in-memory cache instead
+                                content = doc.links().staged_content<nlohmann::json>();
+                                status = transaction_document_status::OWN_WRITE;
+                            } else {
+                                switch (entry->state()) {
+                                    case attempt_state::COMMITTED:
+                                        if (doc.links().is_document_being_removed()) {
+                                            ignore_doc = true;
+                                        } else {
+                                            content = doc.links().staged_content<nlohmann::json>();
+                                            status = transaction_document_status::IN_TXN_COMMITTED;
+                                        }
+                                        break;
+                                    default:
+                                        status = transaction_document_status::IN_TXN_OTHER;
+                                        if (doc.content<nlohmann::json>().empty()) {
+                                            // This document is being inserted, so should not be visible yet
+                                            ignore_doc = true;
+                                        }
+                                        break;
+                                }
                             }
                         } else {
-                            if (doc.links().staged_version().empty()) {
-                                if (entry["status"] == "COMMITTED") {
-                                    if (doc.links().is_document_being_removed()) {
-                                        throw std::runtime_error(std::string("not found"));
-                                    } else {
-                                        doc.content(doc.links().staged_content<nlohmann::json>());
-                                        doc.status(transaction_document_status::IN_TXN_COMMITTED);
-                                    }
-                                } else {
-                                    doc.status(transaction_document_status::IN_TXN_OTHER);
-                                    if (doc.content<nlohmann::json>().is_null()) {
-                                        throw std::runtime_error(std::string("not found"));
-                                    }
-                                }
-                            } else {
-                                doc.content(doc.links().staged_content<nlohmann::json>());
-                                doc.status(transaction_document_status::OWN_WRITE);
+                            // Don't know if transaction was committed or rolled back. Should not happen as ATR should stick around long
+                            // enough
+                            status = transaction_document_status::AMBIGUOUS;
+                            if (content.empty()) {
+                                // This document is being inserted, so should not be visible yet
+                                ignore_doc = true;
                             }
+                        }
+                        if (ignore_doc) {
+                            return {};
+                        } else {
+                            return transaction_document::create_from(doc, content, status);
+                        }
+                    } else {
+                        // failed to get the ATR
+                        if (doc.content<nlohmann::json>().empty()) {
+                            // this document is being inserted, so should not be visible yet
+                            return {};
+                        } else {
+                            doc.status(transaction_document_status::AMBIGUOUS);
+                            return doc;
                         }
                     }
                 }
-                LOG(txctx_, trace) << "completed get of " << doc;
-                out.emplace(doc);
-                return out;
+                return doc;
+            } else {
+                std::string what("got error while getting doc " + id + ": " + lcb_strerror_short(res.rc));
+                LOG(overall_, warning) << what;
+                throw client_error(what);
             }
-            LOG(txctx_, warning) << "got error while getting doc " << id << ": " << lcb_strerror_short(res.rc);
-            return out;
         }
 
         /**
@@ -160,44 +191,39 @@ namespace transactions
         template<typename Content>
         transaction_document replace(collection* collection, const transaction_document& document, const Content& content)
         {
-            init_atr_if_needed(collection, document.id());
+            check_if_done();
+            check_expiry_pre_commit(STAGE_REPLACE);
+            check_and_handle_blocking_transactions(document);
+            select_atr_if_needed(collection, document.id());
+            set_atr_pending_if_first_mutation(collection);
 
-            if (staged_mutations_.empty()) {
-                std::string prefix(ATR_FIELD_ATTEMPTS + "." + id_ + ".");
-                const result& res = collection->mutate_in(
-                  atr_id_.value(),
-                  {
-                    mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
-                    mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "${Mutation.CAS}").xattr().expand_macro(),
-                    mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, 15).xattr(),
-                    mutate_in_spec::fulldoc_upsert(nlohmann::json::object()),
-                  },
-                  durability(config_));
-                if (res.rc != LCB_SUCCESS) {
-                    throw std::runtime_error(std::string("failed to set ATR to pending state: ") + lcb_strerror_short(res.rc));
+            hooks_.before_staged_replace(this, document.id());
+            LOG(overall_, trace) << "about to replace doc " << document.id() << " with cas " << document.cas();
+            std::vector<mutate_in_spec> specs = {
+                mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
+                mutate_in_spec::upsert(ATTEMPT_ID, attempt_id_).xattr(),
+                mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr(),
+                mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
+                mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr(),
+                mutate_in_spec::upsert(TYPE, "replace").xattr(),
+            };
+            if (document.metadata().has_value()) {
+                if (document.metadata()->cas().has_value()) {
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()));
+                }
+                if (document.metadata()->revid().has_value()) {
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->revid().value()));
+                }
+                if (document.metadata()->exptime().has_value()) {
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->exptime().value()));
                 }
             }
-
-            LOG(txctx_, trace) << "replacing doc " << document.id();
-            const result& res = collection->mutate_in(document.id(),
-                                                      {
-                                                        mutate_in_spec::upsert(STAGED_VERSION, id_).xattr().create_path(),
-                                                        mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr(),
-                                                        mutate_in_spec::upsert(STAGED_DATA, content).xattr(),
-                                                        mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
-                                                        mutate_in_spec::upsert(ATR_SCOPE_NAME, collection->scope()).xattr(),
-                                                        mutate_in_spec::upsert(ATR_COLL_NAME, collection->name()).xattr(),
-                                                      },
-                                                      durability(config_));
+            specs.emplace_back(mutate_in_spec::fulldoc_upsert(content));
+            const result& res = collection->mutate_in(document.id(), specs, durability(config_));
 
             if (res.rc == LCB_SUCCESS) {
-                transaction_document out(
-                  *collection,
-                  document.id(),
-                  document.content<nlohmann::json>(),
-                  res.cas,
-                  transaction_document_status::NORMAL,
-                  transaction_links(atr_id_.value(), collection->bucket_name(), collection->scope(), collection->name(), content, id_));
+                transaction_document out = document;
+                out.cas(res.cas);
                 staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::REPLACE));
                 return out;
             }
@@ -221,33 +247,29 @@ namespace transactions
         template<typename Content>
         transaction_document insert(collection* collection, const std::string& id, const Content& content)
         {
-            init_atr_if_needed(collection, id);
+            check_if_done();
+            check_expiry_pre_commit(STAGE_INSERT);
+            select_atr_if_needed(collection, id);
+            set_atr_pending_if_first_mutation(collection);
 
-            if (staged_mutations_.empty()) {
-                std::string prefix(ATR_FIELD_ATTEMPTS + "." + id_ + ".");
-                collection->mutate_in(
-                  id,
-                  {
-                    mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
-                    mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "${Mutation.CAS}").xattr().expand_macro(),
-                    mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, 15).xattr(),
-                    mutate_in_spec::fulldoc_upsert(nlohmann::json::object()),
-                  },
-                  durability(config_));
-            }
-
-            LOG(txctx_, trace) << "inserting doc " << id;
-            const result& res = collection->mutate_in(id,
-                                                      {
-                                                        mutate_in_spec::upsert(STAGED_VERSION, id_).xattr().create_path(),
-                                                        mutate_in_spec::insert(ATR_ID, atr_id_.value()).xattr(),
-                                                        mutate_in_spec::insert(STAGED_DATA, content).xattr(),
-                                                        mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
-                                                        mutate_in_spec::insert(ATR_SCOPE_NAME, collection->scope()).xattr(),
-                                                        mutate_in_spec::insert(ATR_COLL_NAME, collection->name()).xattr(),
-                                                        mutate_in_spec::fulldoc_insert(nlohmann::json::object()),
-                                                      },
-                                                      durability(config_));
+            hooks_.before_staged_insert(this, id);
+            LOG(overall_, info) << "about to insert staged doc " << id;
+            check_expiry_during_commit_or_rollback(STAGE_CREATE_STAGED_INSERT);
+            const result& res = collection->mutate_in(
+              id,
+              {
+                mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
+                mutate_in_spec::insert(ATTEMPT_ID, attempt_id_).xattr(),
+                mutate_in_spec::insert(ATR_ID, atr_id_.value()).xattr(),
+                mutate_in_spec::insert(STAGED_DATA, content).xattr(),
+                mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
+                mutate_in_spec::insert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr().create_path(),
+                mutate_in_spec::insert(TYPE, "insert").xattr(),
+                mutate_in_spec::fulldoc_insert(nlohmann::json::object()),
+              },
+              durability(config_));
+            LOG(overall_, info) << "inserted doc " << id << " CAS=" << res.cas << ", rc=" << lcb_strerror_short(res.rc);
+            hooks_.after_staged_insert_complete(this, id);
             if (res.rc == LCB_SUCCESS) {
                 transaction_document out(
                   *collection,
@@ -255,11 +277,14 @@ namespace transactions
                   content,
                   res.cas,
                   transaction_document_status::NORMAL,
-                  transaction_links(atr_id_.value(), collection->bucket_name(), collection->scope(), collection->name(), content, id_));
+                  transaction_links(
+                    atr_id_.value(), collection->bucket_name(), collection->scope(), collection->name(), content, attempt_id_));
                 staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::INSERT));
                 return out;
             }
-            throw std::runtime_error(std::string("failed to insert the document: ") + lcb_strerror_short(res.rc));
+            // TODO: RETRY-ERR-AMBIG
+            // TODO: handle document already exists
+            throw client_error(std::string("failed to insert the document: ") + lcb_strerror_short(res.rc));
         }
 
         /**
@@ -275,39 +300,45 @@ namespace transactions
          */
         void remove(collection* collection, transaction_document& document)
         {
-            init_atr_if_needed(collection, document.id());
+            check_if_done();
+            check_expiry_pre_commit(STAGE_REMOVE);
+            select_atr_if_needed(collection, document.id());
+            set_atr_pending_if_first_mutation(collection);
 
-            if (staged_mutations_.empty()) {
-                std::string prefix(ATR_FIELD_ATTEMPTS + "." + id_ + ".");
-                collection->mutate_in(
-                  document.id(),
-                  {
-                    mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
-                    mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, "${Mutation.CAS}").xattr().expand_macro(),
-                    mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, 15).xattr(),
-                    mutate_in_spec::fulldoc_upsert(nlohmann::json::object()),
-                  },
-                  durability(config_));
+            hooks_.before_staged_remove(this, document.id());
+            LOG(overall_, info) << "about to remove remove doc " << document.id() << " with cas " << document.cas();
+            std::vector<mutate_in_spec> specs = {
+                mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
+                mutate_in_spec::upsert(ATTEMPT_ID, attempt_id_).xattr(),
+                mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr(),
+                mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
+                mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr(),
+                mutate_in_spec::upsert(TYPE, "remove").xattr(),
+            };
+            if (document.metadata().has_value()) {
+                if (document.metadata()->cas().has_value()) {
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()));
+                }
+                if (document.metadata()->revid().has_value()) {
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->revid().value()));
+                }
+                if (document.metadata()->exptime().has_value()) {
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->exptime().value()));
+                }
             }
-
-            LOG(txctx_, trace) << "removing doc " << document.id();
-            const result& res = collection->mutate_in(document.id(),
-                                                      {
-                                                        mutate_in_spec::upsert(STAGED_VERSION, id_).xattr().create_path(),
-                                                        mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr(),
-                                                        mutate_in_spec::upsert(STAGED_DATA, STAGED_DATA_REMOVED_VALUE).xattr(),
-                                                        mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
-                                                        mutate_in_spec::upsert(ATR_SCOPE_NAME, collection->scope()).xattr(),
-                                                        mutate_in_spec::upsert(ATR_COLL_NAME, collection->name()).xattr(),
-                                                      },
-                                                      durability(config_));
+            specs.emplace_back(mutate_in_spec::upsert(STAGED_DATA, REMOVE_SENTINEL));
+            const result& res = collection->mutate_in(document.id(), specs, durability(config_));
+            LOG(overall_, info) << "removed doc " << document.id() << " CAS=" << res.cas << ", rc=" << lcb_strerror_short(res.rc);
+            hooks_.after_staged_remove_complete(this, document.id());
             if (res.rc == LCB_SUCCESS) {
                 document.cas(res.cas);
+                // TODO: overwriting insert
                 staged_mutations_.add(staged_mutation(document, "", staged_mutation_type::REMOVE));
                 return;
             }
             throw std::runtime_error(std::string("failed to remove the document: ") + lcb_strerror_short(res.rc));
         }
+
         /**
          * Commits the transaction.  All staged replaces, inserts and removals will be written.
          *
@@ -317,20 +348,35 @@ namespace transactions
          */
         void commit()
         {
-            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id_ + ".");
-            std::vector<mutate_in_spec> specs({
-              mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMMITTED)).xattr(),
-              mutate_in_spec::upsert(prefix + ATR_FIELD_START_COMMIT, "${Mutation.CAS}").xattr().expand_macro(),
-            });
-            staged_mutations_.extract_to(prefix, specs);
-            const result& res = atr_collection_->mutate_in(atr_id_.value(), specs);
-            if (res.rc == LCB_SUCCESS) {
-                std::vector<transaction_document> docs;
-                staged_mutations_.commit();
-                is_done_ = true;
-                state_ = attempt_state::COMMITTED;
+            LOG(overall_, info) << "commit " << attempt_id_;
+            check_expiry_pre_commit(STAGE_BEFORE_COMMIT);
+            if (atr_collection_ && atr_id_.has_value() && !is_done_) {
+                std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id_ + ".");
+                std::vector<mutate_in_spec> specs({
+                  mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMMITTED)).xattr(),
+                  mutate_in_spec::upsert(prefix + ATR_FIELD_START_COMMIT, "${Mutation.CAS}").xattr().expand_macro(),
+                });
+                staged_mutations_.extract_to(prefix, specs);
+                const result& res = atr_collection_->mutate_in(atr_id_.value(), specs);
+                if (res.rc == LCB_SUCCESS) {
+                    std::vector<transaction_document> docs;
+                    staged_mutations_.commit();
+                    is_done_ = true;
+                    state_ = attempt_state::COMMITTED;
+                } else {
+                    throw std::runtime_error(std::string("failed to commit transaction: ") + attempt_id_ + ": " +
+                                             lcb_strerror_short(res.rc));
+                }
             } else {
-                throw std::runtime_error(std::string("failed to commit transaction: ") + id_ + ": " + lcb_strerror_short(res.rc));
+                // no mutation, no need to commit
+                if (!is_done_) {
+                    LOG(overall_, info) << "calling commit on attempt that has got no mutations, skipping";
+                    is_done_ = true;
+                    state_ = attempt_state::COMPLETED;
+                    return;
+                } else {
+                    throw attempt_exception("calling commit on attempt that is already completed");
+                }
             }
         }
 
@@ -341,11 +387,11 @@ namespace transactions
 
         [[nodiscard]] const std::string& id()
         {
-            return id_;
+            return attempt_id_;
         }
 
       private:
-        static lcb_DURABILITY_LEVEL durability(const configuration& config)
+        static lcb_DURABILITY_LEVEL durability(const transaction_config& config)
         {
             switch (config.durability_level()) {
                 case durability_level::NONE:
@@ -359,6 +405,154 @@ namespace transactions
             }
             throw std::runtime_error("unknown durability");
         }
+
+        bool expiry_overtime_mode_{ false };
+
+        void check_expiry_pre_commit(std::string stage)
+        {
+            if (has_expired_client_side(stage)) {
+                LOG(overall_, info) << attempt_id_ << " has expired in stage " << stage
+                                    << ", entering expiry-overtime mode - will make one attempt to rollback";
+
+                // [EXP-ROLLBACK] Combo of setting this mode and throwing AttemptExpired will result in a attempt to rollback, which will
+                // ignore expiries, and bail out if anything fails
+                expiry_overtime_mode_ = true;
+                throw attempt_expired("Attempt has expired in stage " + stage);
+            }
+        }
+
+        // The timing of this call is important.
+        // Should be done before doOnNext, which tests often make throw an exception.
+        // In fact, needs to be done without relying on any onNext signal.  What if the operation times out instead.
+        void check_expiry_during_commit_or_rollback(const std::string& stage)
+        {
+            // [EXP-COMMIT-OVERTIME]
+            if (!expiry_overtime_mode_) {
+                if (has_expired_client_side(stage)) {
+                    LOG(overall_, info) << attempt_id_ << " has expired in stage " << stage
+                                        << ", entering expiry-overtime mode (one attempt to complete commit)";
+                    expiry_overtime_mode_ = true;
+                }
+            } else {
+                LOG(overall_, info) << attempt_id_ << " ignoring expiry in stage " << stage << " as in expiry-overtime mode";
+            }
+        }
+
+        void set_atr_pending_if_first_mutation(collection* collection)
+        {
+            if (staged_mutations_.empty()) {
+                std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id_ + ".");
+                if (!atr_id_.has_value()) {
+                    throw std::domain_error("ATR ID is not initialized");
+                }
+                hooks_.before_atr_pending(this);
+                const result& res = collection->mutate_in(
+                  atr_id_.value(),
+                  {
+                    mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
+                    mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, mutate_in_macro::CAS).xattr().expand_macro(),
+                    mutate_in_spec::insert(
+                      prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
+                      std::chrono::duration_cast<std::chrono::milliseconds>(config_.transaction_expiration_time()).count())
+                      .xattr(),
+                    mutate_in_spec::fulldoc_upsert(nlohmann::json::object()),
+                  },
+                  durability(config_));
+                switch (res.rc) {
+                    case LCB_SUCCESS:
+                        LOG(overall_, info) << "set ATR " << collection->bucket_name() << "/" << collection->name() << "/"
+                                            << atr_id_.value() << " to Pending, got CAS (start time) " << res.cas;
+                        start_time_server_ = std::chrono::nanoseconds(res.cas);
+                        hooks_.after_atr_pending(this);
+                        check_expiry_during_commit_or_rollback(STAGE_ATR_PENDING);
+                        break;
+                    case LCB_ERR_VALUE_TOO_LARGE:
+                        // TODO: Handle "active transaction record is full" condition
+                        /* fallthrough */
+                    default:
+                        std::string what("got error while setting ATR " + atr_id_.value() + ": " + lcb_strerror_short(res.rc));
+                        LOG(overall_, warning) << what;
+                        throw client_error(what);
+                }
+            }
+        }
+
+        bool has_expired_client_side(std::string place)
+        {
+            bool over = overall_.has_expired_client_side(config_);
+            bool hook = hooks_.has_expired_client_side_hook(this, place);
+            if (over) {
+                LOG(overall_, info) << attempt_id_ << " expired in " << place;
+            }
+            if (hook) {
+                LOG(overall_, info) << attempt_id_ << " fake expiry in " << place;
+            }
+            return over || hook;
+        }
+
+        staged_mutation* check_for_own_write(collection* collection, const std::string& id)
+        {
+            staged_mutation* own_replace = staged_mutations_.find_replace(collection, id);
+            if (own_replace) {
+                return own_replace;
+            }
+            staged_mutation* own_insert = staged_mutations_.find_insert(collection, id);
+            if (own_insert) {
+                return own_insert;
+            }
+            return nullptr;
+        }
+
+        void check_atr_entry_for_blocking_document(const transaction_document& doc);
+
+        /**
+         * Don't get blocked by lost transactions (see [BLOCKING] in the RFC)
+         *
+         * @param doc
+         */
+        void check_and_handle_blocking_transactions(const transaction_document& doc)
+        {
+            // The main reason to require doc to be fetched inside the transaction is so we can detect this on the client side
+            if (doc.links().has_staged_write()) {
+                // Check not just writing the same doc twice in the same transaction
+                // NOTE: we check the transaction rather than attempt id. This is to handle [RETRY-ERR-AMBIG-REPLACE].
+                if (doc.links().staged_transaction_id().value() == overall_.transaction_id()) {
+                    LOG(overall_, info) << "doc " << doc.id() << " has been written by this transaction, ok to continue";
+                } else {
+                    // Note that it is essential not to get blocked permanently here. Blocker could be a crashed pending transaction, in
+                    // which case the lost cleanup thread cannot do anything (it does not know which docs are in a pending transaction).
+                    auto elapsed_since_start_of_txn = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::system_clock::now() - overall_.start_time_client());
+                    if (elapsed_since_start_of_txn.count() < 1000) {
+                        LOG(overall_, info) << "doc " << doc.id() << " is in another transaction " << doc.links().staged_attempt_id().get()
+                                            << ", just retrying as only " << elapsed_since_start_of_txn.count() << "ms since start";
+                        throw document_already_in_transaction("TODO");
+                    } else {
+                        // The blocking transaction has been blocking for a suspiciosly long time. Time to start checking if it is expired
+                        if (doc.links().atr_id().has_value() && doc.links().atr_bucket_name().has_value()) {
+                            LOG(overall_, info) << "doc " << doc.id() << " is in another transaction "
+                                                << doc.links().staged_attempt_id().get() << ", after " << elapsed_since_start_of_txn.count()
+                                                << "ms since start, so checking ATR entry " << doc.links().atr_bucket_name().value() << "/"
+                                                << doc.links().atr_collection_name().value_or("") << "/" << doc.links().atr_id().value();
+                            check_atr_entry_for_blocking_document(doc);
+                        } else {
+                            LOG(overall_, info) << "doc " << doc.id() << " is in another transaction "
+                                                << doc.links().staged_attempt_id().get() << ", after " << elapsed_since_start_of_txn.count()
+                                                << "ms but cannot check ATR - probablu a bug, so proceeding to overwrite";
+                        }
+                    }
+                }
+            }
+        }
+
+        void check_if_done()
+        {
+            if (is_done_) {
+                throw std::domain_error("Cannot perform operations after transaction has been committed or rolled back");
+            }
+        }
+
+        void select_atr_if_needed(collection* collection, const std::string& id);
     };
 } // namespace transactions
 } // namespace couchbase

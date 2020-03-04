@@ -12,6 +12,13 @@ class collection;
 
 enum class mutate_in_spec_type { MUTATE_IN_UPSERT, MUTATE_IN_INSERT, MUTATE_IN_FULLDOC_INSERT, MUTATE_IN_FULLDOC_UPSERT, REMOVE };
 
+namespace mutate_in_macro
+{
+    static const std::string CAS = "${Mutation.CAS}";
+    static const std::string SEQ_NO = "${Mutation.seqno}";
+    static const std::string VALUE_CRC_32C = "${Mutation.value_crc32c}";
+}; // namespace mutate_in_macro
+
 class mutate_in_spec
 {
     friend collection;

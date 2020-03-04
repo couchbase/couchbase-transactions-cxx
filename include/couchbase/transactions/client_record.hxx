@@ -1,7 +1,7 @@
 #pragma once
 
 #include <couchbase/client/cluster.hxx>
-#include <couchbase/transactions/configuration.hxx>
+#include <couchbase/transactions/transaction_config.hxx>
 
 namespace couchbase
 {
@@ -20,7 +20,7 @@ namespace transactions
     class client_record
     {
       public:
-        client_record(cluster& cluster, const configuration& config)
+        client_record(cluster& cluster, const transaction_config& config)
           : cluster_(cluster)
           , config_(config)
         {
@@ -28,7 +28,7 @@ namespace transactions
 
       private:
         cluster& cluster_;
-        const configuration& config_;
+        const transaction_config& config_;
     };
 } // namespace transactions
 } // namespace couchbase
