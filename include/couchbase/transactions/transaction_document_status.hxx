@@ -57,6 +57,7 @@ namespace transactions
             case transaction_document_status::AMBIGUOUS:
                 return "AMBIGUOUS";
         }
+        return "UNKNOWN";
     }
 } // namespace transactions
 } // namespace couchbase
