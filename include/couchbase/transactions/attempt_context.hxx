@@ -67,7 +67,7 @@ namespace transactions
         boost::optional<transaction_document> get(collection* collection, const std::string& id)
         {
             check_if_done();
-            check_expiry_pre_commit(STAGE_GET);
+            check_expiry_pre_commit(STAGE_GET, id);
 
             staged_mutation* own_write = check_for_own_write(collection, id);
             if (own_write) {
@@ -192,7 +192,7 @@ namespace transactions
         transaction_document replace(collection* collection, const transaction_document& document, const Content& content)
         {
             check_if_done();
-            check_expiry_pre_commit(STAGE_REPLACE);
+            check_expiry_pre_commit(STAGE_REPLACE, document.id());
             check_and_handle_blocking_transactions(document);
             select_atr_if_needed(collection, document.id());
             set_atr_pending_if_first_mutation(collection);
@@ -248,13 +248,13 @@ namespace transactions
         transaction_document insert(collection* collection, const std::string& id, const Content& content)
         {
             check_if_done();
-            check_expiry_pre_commit(STAGE_INSERT);
+            check_expiry_pre_commit(STAGE_INSERT, id);
             select_atr_if_needed(collection, id);
             set_atr_pending_if_first_mutation(collection);
 
             hooks_.before_staged_insert(this, id);
             spdlog::info("about to insert staged doc {}", id);
-            check_expiry_during_commit_or_rollback(STAGE_CREATE_STAGED_INSERT);
+            check_expiry_during_commit_or_rollback(STAGE_CREATE_STAGED_INSERT, id);
             const result& res = collection->mutate_in(
               id,
               {
@@ -301,7 +301,7 @@ namespace transactions
         void remove(collection* collection, transaction_document& document)
         {
             check_if_done();
-            check_expiry_pre_commit(STAGE_REMOVE);
+            check_expiry_pre_commit(STAGE_REMOVE, document.id());
             select_atr_if_needed(collection, document.id());
             set_atr_pending_if_first_mutation(collection);
 
@@ -349,7 +349,7 @@ namespace transactions
         void commit()
         {
             spdlog::info("commit {}", attempt_id_);
-            check_expiry_pre_commit(STAGE_BEFORE_COMMIT);
+            check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {});
             if (atr_collection_ && atr_id_.has_value() && !is_done_) {
                 std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id_ + ".");
                 std::vector<mutate_in_spec> specs({
@@ -408,9 +408,9 @@ namespace transactions
 
         bool expiry_overtime_mode_{ false };
 
-        void check_expiry_pre_commit(std::string stage)
+        void check_expiry_pre_commit(std::string stage, boost::optional<std::string> doc_id)
         {
-            if (has_expired_client_side(stage)) {
+            if (has_expired_client_side(stage, std::move(doc_id))) {
                 spdlog::info(
                   "{} has expired in stage {}, entering expiry-overtime mode - will make one attempt to rollback", attempt_id_, stage);
 
@@ -424,11 +424,11 @@ namespace transactions
         // The timing of this call is important.
         // Should be done before doOnNext, which tests often make throw an exception.
         // In fact, needs to be done without relying on any onNext signal.  What if the operation times out instead.
-        void check_expiry_during_commit_or_rollback(const std::string& stage)
+        void check_expiry_during_commit_or_rollback(const std::string& stage, boost::optional<std::string> doc_id)
         {
             // [EXP-COMMIT-OVERTIME]
             if (!expiry_overtime_mode_) {
-                if (has_expired_client_side(stage)) {
+                if (has_expired_client_side(stage, std::move(doc_id))) {
                     spdlog::info(
                       "{} has expired in stage {}, entering expiry-overtime mode (one attempt to complete commit)", attempt_id_, stage);
                     expiry_overtime_mode_ = true;
@@ -467,7 +467,7 @@ namespace transactions
                                      res.cas);
                         start_time_server_ = std::chrono::nanoseconds(res.cas);
                         hooks_.after_atr_pending(this);
-                        check_expiry_during_commit_or_rollback(STAGE_ATR_PENDING);
+                        check_expiry_during_commit_or_rollback(STAGE_ATR_PENDING, {});
                         break;
                     case LCB_ERR_VALUE_TOO_LARGE:
                         // TODO: Handle "active transaction record is full" condition
@@ -480,10 +480,10 @@ namespace transactions
             }
         }
 
-        bool has_expired_client_side(std::string place)
+        bool has_expired_client_side(std::string place, boost::optional<std::string> doc_id)
         {
             bool over = overall_.has_expired_client_side(config_);
-            bool hook = hooks_.has_expired_client_side_hook(this, place);
+            bool hook = hooks_.has_expired_client_side_hook(this, place, doc_id);
             if (over) {
                 spdlog::info("{} expired in {}", attempt_id_, place);
             }
