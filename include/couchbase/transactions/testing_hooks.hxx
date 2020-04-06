@@ -55,13 +55,13 @@ namespace transactions
      * about your use-case: we are always open to adding good ideas into the transactions library.
      */
     struct testing_hooks {
-
         std::function<int(attempt_context*)> before_atr_commit = noop_1;
         std::function<int(attempt_context*)> after_atr_commit = noop_1;
         std::function<int(attempt_context*, const std::string&)> before_doc_committed = noop_2;
         std::function<int(attempt_context*, const std::string&)> before_removing_doc_during_staged_insert = noop_2;
         std::function<int(attempt_context*, const std::string&)> before_rollback_delete_inserted = noop_2;
         std::function<int(attempt_context*, const std::string&)> after_doc_committed_before_saving_cas = noop_2;
+        std::function<int(attempt_context*, const std::string&)> after_doc_committed = noop_2;
         std::function<int(attempt_context*, const std::string&)> before_staged_insert = noop_2;
         std::function<int(attempt_context*, const std::string&)> before_staged_remove = noop_2;
         std::function<int(attempt_context*, const std::string&)> before_staged_replace = noop_2;
