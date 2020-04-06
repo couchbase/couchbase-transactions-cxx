@@ -11,4 +11,7 @@ Checks: |-
   portability-*,
   readability-*,
   boost-*,
-  cppcoreguidelines-*
+  cppcoreguidelines-*,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -fuchsia-*
