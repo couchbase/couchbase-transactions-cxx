@@ -42,12 +42,12 @@ include_directories(include deps/libcouchbase/include ${PROJECT_BINARY_DIR}/deps
 file(GLOB_RECURSE client_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/client/*.hxx)
 file(GLOB_RECURSE client_src_FILES ${PROJECT_SOURCE_DIR}/src/client/*.cxx)
 add_library(client_cxx SHARED ${client_include_FILES} ${client_src_FILES})
-target_link_libraries(client_cxx nlohmann_json::nlohmann_json)
+target_link_libraries(client_cxx nlohmann_json::nlohmann_json ${Boost_LIBRARIES} couchbase)
 
 file(GLOB_RECURSE transactions_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/transactions/*.hxx)
 file(GLOB_RECURSE transactions_src_FILES ${PROJECT_SOURCE_DIR}/src/transactions/*.cxx)
 add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions_src_FILES})
-target_link_libraries(transactions_cxx nlohmann_json::nlohmann_json)
+target_link_libraries(transactions_cxx ${CMAKE_THREAD_LIBS_INIT} nlohmann_json::nlohmann_json ${Boost_LIBRARIES} client_cxx)
 
 if(BUILD_DOC)
     find_package(Doxygen)
