@@ -29,7 +29,7 @@ class cluster
     ~cluster();
 
     std::list<std::string> buckets();
-    std::shared_ptr<bucket> open_bucket(const std::string& name);
+    std::shared_ptr<bucket> bucket(const std::string& name);
     void shutdown();
 };
 } // namespace couchbase

@@ -21,8 +21,6 @@ class collection
     std::shared_ptr<bucket> bucket_;
     std::string bucket_name_;
 
-    explicit collection(std::shared_ptr<bucket> bucket, std::string scope, std::string name);
-
     template<typename Content>
     result store(lcb_STORE_OPERATION operation, const std::string& id, const Content& value, uint64_t cas, lcb_DURABILITY_LEVEL level)
     {
@@ -47,6 +45,8 @@ class collection
     }
 
   public:
+    explicit collection(std::shared_ptr<bucket> bucket, std::string scope, std::string name);
+
     result get(const std::string& id, uint32_t expiry = 0)
     {
         lcb_CMDGET* cmd;

@@ -24,7 +24,7 @@ cb::cluster::~cluster()
 }
 
 std::shared_ptr<cb::bucket>
-cb::cluster::open_bucket(const std::string& name)
+cb::cluster::bucket(const std::string& name)
 {
     connect();
     std::unique_lock<std::mutex> lock(mutex_);

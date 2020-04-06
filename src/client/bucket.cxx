@@ -1,4 +1,7 @@
 #include <iostream>
+#include <memory>
+
+#include <boost/algorithm/string/split.hpp>
 
 #include <libcouchbase/couchbase.h>
 
@@ -16,12 +19,24 @@ open_callback(lcb_INSTANCE* instance, lcb_STATUS status)
 }
 }
 
-cb::collection*
+std::shared_ptr<cb::collection>
 cb::bucket::default_collection()
 {
-    auto* col = new collection(shared_from_this(), "", "");
-    // cache collection
-    return col;
+    return std::make_shared<cb::collection>(shared_from_this(), "", "");
+}
+
+std::shared_ptr<cb::collection>
+cb::bucket::collection(const std::string& collection)
+{
+    std::vector<std::string> splits;
+    boost::split(splits, collection, ".");
+    std::string scope_name("_default");
+    std::string collection_name("_default");
+    if (splits.size() == 2) {
+        scope_name = splits[0];
+        collection_name = splits[1];
+    }
+    return std::make_shared<cb::collection>(shared_from_this(), scope_name, collection_name);
 }
 
 cb::bucket::bucket(lcb_st* instance, const std::string& name)

@@ -66,7 +66,7 @@ tx::transactions_cleanup::lost_attempts_loop()
     auto names = cluster_.buckets();
     std::list<std::thread> workers;
     for (const auto& name : names) {
-        auto bkt = cluster_.open_bucket(name);
+        auto bkt = cluster_.bucket(name);
         auto uid = client_uuid_;
         auto config = config_;
         workers.emplace_back([&]() {

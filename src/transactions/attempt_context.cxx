@@ -25,5 +25,5 @@ void
 couchbase::transactions::attempt_context::check_atr_entry_for_blocking_document(const couchbase::transactions::transaction_document& doc)
 {
     // FIXME:
-    // collection = parent_->cleanup().cluster().open_bucket(doc.links().atr_bucket_name().value());
+    // collection = parent_->cleanup().cluster().bucket(doc.links().atr_bucket_name().value());
 }

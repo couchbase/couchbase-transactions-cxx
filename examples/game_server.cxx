@@ -153,7 +153,7 @@ main(int argc, const char* argv[])
 
     cluster cluster(cluster_address, user_name, password);
 
-    auto bucket = cluster.open_bucket(bucket_name);
+    auto bucket = cluster.bucket(bucket_name);
     collection* collection = bucket->default_collection();
 
     string player_id = "player_data";
