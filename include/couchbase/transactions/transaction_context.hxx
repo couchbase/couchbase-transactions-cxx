@@ -4,8 +4,6 @@
 #include <string>
 #include <vector>
 
-#include <boost/log/sources/logger.hpp>
-
 #include <couchbase/transactions/transaction_attempt.hxx>
 #include <couchbase/transactions/uid_generator.hxx>
 
@@ -33,11 +31,6 @@ namespace transactions
             return attempts_.size();
         }
 
-        [[nodiscard]] boost::log::sources::logger_mt& logger()
-        {
-            return logger_;
-        }
-
         [[nodiscard]] bool has_expired_client_side(const transaction_config& config)
         {
             const auto& now = std::chrono::system_clock::now();
@@ -45,12 +38,13 @@ namespace transactions
             auto expired_millis = std::chrono::duration_cast<std::chrono::milliseconds>(expired_nanos);
             bool is_expired = expired_nanos > config.transaction_expiration_time();
             if (is_expired) {
-                LOG(*this, info) << "has expired client side (now=" << now.time_since_epoch().count()
-                                 << "ns, start=" << start_time_client_.time_since_epoch().count()
-                                 << "ns, deferred_elapsed=" << deferred_elapsed_.count() << "ns, expired=" << expired_nanos.count()
-                                 << "ns (" << expired_millis.count() << "ms), config="
-                                 << std::chrono::duration_cast<std::chrono::milliseconds>(config.transaction_expiration_time()).count()
-                                 << "ms)";
+                spdlog::info("has expired client side (now={}ns, start={}ns, deferred_elapsed={}ns, expired={}ns ({}ms), config={}ms)",
+                             now.time_since_epoch().count(),
+                             start_time_client_.time_since_epoch().count(),
+                             deferred_elapsed_.count(),
+                             expired_nanos.count(),
+                             expired_millis.count(),
+                             std::chrono::duration_cast<std::chrono::milliseconds>(config.transaction_expiration_time()).count());
             }
             return is_expired;
         }
@@ -73,7 +67,6 @@ namespace transactions
         const std::chrono::nanoseconds deferred_elapsed_;
 
         std::vector<transaction_attempt> attempts_;
-        boost::log::sources::logger_mt logger_;
     };
 } // namespace transactions
 } // namespace couchbase

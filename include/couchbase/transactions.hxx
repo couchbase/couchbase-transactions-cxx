@@ -37,7 +37,7 @@ namespace transactions
         {
             transaction_context overall;
             attempt_context ctx(this, overall, config_);
-            LOG(overall, info) << "starting attempt " << overall.num_attempts() << "/" << overall.transaction_id() << "/" << ctx.id();
+            spdlog::info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.id());
             logic(ctx);
             if (!ctx.is_done()) {
                 ctx.commit();

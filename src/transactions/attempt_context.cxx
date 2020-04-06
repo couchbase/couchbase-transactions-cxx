@@ -17,8 +17,7 @@ tx::attempt_context::select_atr_if_needed(couchbase::collection* collection, con
         atr_id_.emplace(atr_ids::atr_id_for_vbucket(vbucket_id));
         atr_collection_ = collection;
         state_ = attempt_state::PENDING;
-        LOG(overall_, info) << "first mutated doc in transaction is \"" << id << "\" on vbucket " << vbucket_id << ", so using atr \""
-                            << atr_id_.value() << "\"";
+        spdlog::info("first mutated doc in transaction is \"{}\" on vbucket {}, so using atr \"{}\"", id, vbucket_id, atr_id_.value());
     }
 }
 

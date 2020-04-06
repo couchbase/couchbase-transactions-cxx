@@ -17,37 +17,39 @@ add_subdirectory(deps/libcouchbase)
 
 add_subdirectory(deps/json)
 
-set(transactions_BOOST_COMPONENTS
-    log
-    log_setup
-    system
-    thread
-    date_time)
-if(BUILD_TESTING)
-    list(APPEND transactions_BOOST_COMPONENTS unit_test_framework)
-endif()
-
 find_package(Threads)
 set(Boost_USE_MULTITHREADED ON)
-set(Boost_USE_STATIC_LIBS ON)
+set(Boost_USE_STATIC_LIBS OFF)
 include(FindBoost)
-find_package(Boost REQUIRED COMPONENTS ${transactions_BOOST_COMPONENTS})
+find_package(Boost REQUIRED COMPONENTS system thread date_time)
 include_directories(BEFORE ${Boost_INCLUDE_DIRS})
 
 message(STATUS "Boost_INCLUDE_DIRS: ${Boost_INCLUDE_DIRS}")
 message(STATUS "Boost_LIBRARIES: ${Boost_LIBRARIES}")
+
+find_package(spdlog REQUIRED)
 
 include_directories(include deps/libcouchbase/include ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated)
 
 file(GLOB_RECURSE client_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/client/*.hxx)
 file(GLOB_RECURSE client_src_FILES ${PROJECT_SOURCE_DIR}/src/client/*.cxx)
 add_library(client_cxx SHARED ${client_include_FILES} ${client_src_FILES})
-target_link_libraries(client_cxx nlohmann_json::nlohmann_json ${Boost_LIBRARIES} couchbase)
+target_link_libraries(client_cxx
+                      ${CMAKE_THREAD_LIBS_INIT}
+                      nlohmann_json::nlohmann_json
+                      spdlog::spdlog
+                      ${Boost_LIBRARIES}
+                      couchbase)
 
 file(GLOB_RECURSE transactions_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/transactions/*.hxx)
 file(GLOB_RECURSE transactions_src_FILES ${PROJECT_SOURCE_DIR}/src/transactions/*.cxx)
 add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions_src_FILES})
-target_link_libraries(transactions_cxx ${CMAKE_THREAD_LIBS_INIT} nlohmann_json::nlohmann_json ${Boost_LIBRARIES} client_cxx)
+target_link_libraries(transactions_cxx
+                      ${CMAKE_THREAD_LIBS_INIT}
+                      nlohmann_json::nlohmann_json
+                      spdlog::spdlog
+                      ${Boost_LIBRARIES}
+                      client_cxx)
 
 if(BUILD_DOC)
     find_package(Doxygen)
