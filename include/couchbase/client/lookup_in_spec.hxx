@@ -1,6 +1,5 @@
 #pragma once
 
-#include <libcouchbase/couchbase.h>
 #include <string>
 
 namespace couchbase
@@ -24,11 +23,7 @@ class lookup_in_spec
         return lookup_in_spec(lookup_in_spec_type::LOOKUP_IN_FULLDOC_GET);
     }
 
-    lookup_in_spec& xattr()
-    {
-        flags_ |= LCB_SUBDOCSPECS_F_XATTRPATH;
-        return *this;
-    }
+    lookup_in_spec& xattr();
 
   private:
     lookup_in_spec_type type_;

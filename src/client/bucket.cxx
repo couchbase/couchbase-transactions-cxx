@@ -1,4 +1,3 @@
-#include <iostream>
 #include <memory>
 
 #include <boost/algorithm/string/split.hpp>
@@ -29,7 +28,7 @@ std::shared_ptr<cb::collection>
 cb::bucket::collection(const std::string& collection)
 {
     std::vector<std::string> splits;
-    boost::split(splits, collection, ".");
+    boost::split(splits, collection, [](char c) { return c == '.'; });
     std::string scope_name("_default");
     std::string collection_name("_default");
     if (splits.size() == 2) {

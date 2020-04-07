@@ -112,7 +112,7 @@ cb::cluster::buckets()
     lcb_cmdhttp_destroy(cmd);
     lcb_wait(lcb_, LCB_WAIT_DEFAULT);
     if (res.rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to retrieve list of buckets: ") + lcb_strerror_short(res.rc));
+        throw std::runtime_error(std::string("failed to retrieve list of buckets: ") + res.strerror());
     }
     std::list<std::string> names;
     for (const auto& it : *res.value) {

@@ -20,21 +20,7 @@ namespace transactions
       public:
         static boost::optional<active_transaction_record> get_atr(collection* collection,
                                                                   const std::string& atr_id,
-                                                                  const transaction_config& config)
-        {
-            result res = collection->lookup_in(atr_id,
-                                               {
-                                                 lookup_in_spec::get(ATR_FIELD_ATTEMPTS).xattr(),
-                                               });
-            if (res.rc == LCB_ERR_DOCUMENT_NOT_FOUND) {
-                return {};
-            } else if (res.rc == LCB_SUCCESS) {
-                nlohmann::json attempts = *res.values[0];
-                return map_to_atr(collection, atr_id, res, attempts);
-            } else {
-                throw client_error("got error while getting ATR " + atr_id + ": " + lcb_strerror_short(res.rc));
-            }
-        }
+                                                                  const transaction_config& config);
 
         /**
          * ${Mutation.CAS} is written by kvengine with 'macroToString(htonll(info.cas))'.  Discussed this with KV team and, though there is
@@ -124,5 +110,6 @@ namespace transactions
         const uint64_t cas_ns_;
         const std::vector<atr_entry> entries_;
     };
+
 } // namespace transactions
 } // namespace couchbase

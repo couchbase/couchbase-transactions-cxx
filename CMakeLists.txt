@@ -29,7 +29,7 @@ message(STATUS "Boost_LIBRARIES: ${Boost_LIBRARIES}")
 
 find_package(spdlog REQUIRED)
 
-include_directories(include deps/libcouchbase/include ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated)
+include_directories(include ${PROJECT_SOURCE_DIR}/deps/libcouchbase/include ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated)
 
 file(GLOB_RECURSE client_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/client/*.hxx)
 file(GLOB_RECURSE client_src_FILES ${PROJECT_SOURCE_DIR}/src/client/*.cxx)

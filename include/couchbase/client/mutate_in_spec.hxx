@@ -4,8 +4,6 @@
 
 #include <nlohmann/json.hpp>
 
-#include <libcouchbase/couchbase.h>
-
 namespace couchbase
 {
 class collection;
@@ -53,23 +51,11 @@ class mutate_in_spec
         return mutate_in_spec(mutate_in_spec_type::REMOVE, path, "");
     }
 
-    mutate_in_spec& xattr()
-    {
-        flags_ |= LCB_SUBDOCSPECS_F_XATTRPATH;
-        return *this;
-    }
+    mutate_in_spec& xattr();
 
-    mutate_in_spec& create_path()
-    {
-        flags_ |= LCB_SUBDOCSPECS_F_MKINTERMEDIATES;
-        return *this;
-    }
+    mutate_in_spec& create_path();
 
-    mutate_in_spec& expand_macro()
-    {
-        flags_ |= LCB_SUBDOCSPECS_F_XATTR_MACROVALUES;
-        return *this;
-    }
+    mutate_in_spec& expand_macro();
 
   private:
     mutate_in_spec_type type_;

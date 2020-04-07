@@ -94,9 +94,9 @@ namespace transactions
                                                         lookup_in_spec::get(TYPE).xattr(),
                                                         lookup_in_spec::get("$document").xattr(),
                                                         lookup_in_spec::fulldoc_get() });
-            if (res.rc == LCB_ERR_DOCUMENT_NOT_FOUND) {
+            if (res.is_not_found()) {
                 return {};
-            } else if (res.rc == LCB_SUCCESS) {
+            } else if (res.is_success()) {
                 transaction_document doc = transaction_document::create_from(*collection, id, res, transaction_document_status::NORMAL);
 
                 if (doc.links().is_document_in_transaction()) {
@@ -166,7 +166,7 @@ namespace transactions
                 }
                 return doc;
             } else {
-                std::string what(fmt::format("got error while getting doc {}: {}", id, lcb_strerror_short(res.rc)));
+                std::string what(fmt::format("got error while getting doc {}: {}", id, res.strerror()));
                 spdlog::warn(what);
                 throw client_error(what);
             }
@@ -221,13 +221,13 @@ namespace transactions
             specs.emplace_back(mutate_in_spec::fulldoc_upsert(content));
             const result& res = collection->mutate_in(document.id(), specs, durability(config_));
 
-            if (res.rc == LCB_SUCCESS) {
+            if (res.is_success()) {
                 transaction_document out = document;
                 out.cas(res.cas);
                 staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::REPLACE));
                 return out;
             }
-            throw std::runtime_error(std::string("failed to replace the document: ") + lcb_strerror_short(res.rc));
+            throw std::runtime_error(std::string("failed to replace the document: ") + res.strerror());
         }
 
         /**
@@ -268,9 +268,9 @@ namespace transactions
                 mutate_in_spec::fulldoc_insert(nlohmann::json::object()),
               },
               durability(config_));
-            spdlog::info("inserted doc {} CAS={}, rc={}", id, res.cas, lcb_strerror_short(res.rc));
+            spdlog::info("inserted doc {} CAS={}, rc={}", id, res.cas, res.strerror());
             hooks_.after_staged_insert_complete(this, id);
-            if (res.rc == LCB_SUCCESS) {
+            if (res.is_success()) {
                 transaction_document out(
                   *collection,
                   id,
@@ -284,7 +284,7 @@ namespace transactions
             }
             // TODO: RETRY-ERR-AMBIG
             // TODO: handle document already exists
-            throw client_error(std::string("failed to insert the document: ") + lcb_strerror_short(res.rc));
+            throw client_error(std::string("failed to insert the document: ") + res.strerror());
         }
 
         /**
@@ -328,15 +328,15 @@ namespace transactions
             }
             specs.emplace_back(mutate_in_spec::upsert(STAGED_DATA, REMOVE_SENTINEL));
             const result& res = collection->mutate_in(document.id(), specs, durability(config_));
-            spdlog::info("removed doc {} CAS={}, rc={}", document.id(), res.cas, lcb_strerror_short(res.rc));
+            spdlog::info("removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
             hooks_.after_staged_remove_complete(this, document.id());
-            if (res.rc == LCB_SUCCESS) {
+            if (res.is_success()) {
                 document.cas(res.cas);
                 // TODO: overwriting insert
                 staged_mutations_.add(staged_mutation(document, "", staged_mutation_type::REMOVE));
                 return;
             }
-            throw std::runtime_error(std::string("failed to remove the document: ") + lcb_strerror_short(res.rc));
+            throw std::runtime_error(std::string("failed to remove the document: ") + res.strerror());
         }
 
         /**
@@ -358,14 +358,13 @@ namespace transactions
                 });
                 staged_mutations_.extract_to(prefix, specs);
                 const result& res = atr_collection_->mutate_in(atr_id_.value(), specs);
-                if (res.rc == LCB_SUCCESS) {
+                if (res.is_success()) {
                     std::vector<transaction_document> docs;
                     staged_mutations_.commit();
                     is_done_ = true;
                     state_ = attempt_state::COMMITTED;
                 } else {
-                    throw std::runtime_error(std::string("failed to commit transaction: ") + attempt_id_ + ": " +
-                                             lcb_strerror_short(res.rc));
+                    throw std::runtime_error(std::string("failed to commit transaction: ") + attempt_id_ + ": " + res.strerror());
                 }
             } else {
                 // no mutation, no need to commit
@@ -391,17 +390,17 @@ namespace transactions
         }
 
       private:
-        static lcb_DURABILITY_LEVEL durability(const transaction_config& config)
+        static couchbase::durability_level durability(const transaction_config& config)
         {
             switch (config.durability_level()) {
                 case durability_level::NONE:
-                    return LCB_DURABILITYLEVEL_NONE;
+                    return couchbase::durability_level::none;
                 case durability_level::MAJORITY:
-                    return LCB_DURABILITYLEVEL_MAJORITY;
+                    return couchbase::durability_level::majority;
                 case durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE:
-                    return LCB_DURABILITYLEVEL_MAJORITY_AND_PERSIST_TO_ACTIVE;
+                    return couchbase::durability_level::majority_and_persist_to_active;
                 case durability_level::PERSIST_TO_MAJORITY:
-                    return LCB_DURABILITYLEVEL_PERSIST_TO_MAJORITY;
+                    return couchbase::durability_level::persist_to_majority;
             }
             throw std::runtime_error("unknown durability");
         }
@@ -458,22 +457,19 @@ namespace transactions
                     mutate_in_spec::fulldoc_upsert(nlohmann::json::object()),
                   },
                   durability(config_));
-                switch (res.rc) {
-                    case LCB_SUCCESS:
-                        spdlog::info("set ATR {}/{}/{} to Pending, got CAS (start time) {}",
-                                     collection->bucket_name(),
-                                     collection->name(),
-                                     atr_id_.value(),
-                                     res.cas);
-                        start_time_server_ = std::chrono::nanoseconds(res.cas);
-                        hooks_.after_atr_pending(this);
-                        check_expiry_during_commit_or_rollback(STAGE_ATR_PENDING, {});
-                        break;
-                    case LCB_ERR_VALUE_TOO_LARGE:
-                        // TODO: Handle "active transaction record is full" condition
-                        /* fallthrough */
-                    default:
-                        std::string what(fmt::format("got error while setting atr {}: {}", atr_id_.value(), lcb_strerror_short(res.rc)));
+                if (res.is_success()) {
+                    spdlog::info("set ATR {}/{}/{} to Pending, got CAS (start time) {}",
+                                 collection->bucket_name(),
+                                 collection->name(),
+                                 atr_id_.value(),
+                                 res.cas);
+                    start_time_server_ = std::chrono::nanoseconds(res.cas);
+                    hooks_.after_atr_pending(this);
+                    check_expiry_during_commit_or_rollback(STAGE_ATR_PENDING, {});
+                } else if (res.is_value_too_large()) {
+                    // TODO: Handle "active transaction record is full" condition
+                } else {
+                        std::string what(fmt::format("got error while setting atr {}: {}", atr_id_.value(), res.strerror()));
                         spdlog::warn(what);
                         throw client_error(what);
                 }
