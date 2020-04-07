@@ -10,7 +10,7 @@
 namespace tx = couchbase::transactions;
 
 void
-tx::attempt_context::select_atr_if_needed(couchbase::collection* collection, const std::string& id)
+tx::attempt_context::select_atr_if_needed(std::shared_ptr<couchbase::collection> collection, const std::string& id)
 {
     if (atr_id_) {
         int vbucket_id = atr_ids::vbucket_for_key(id);

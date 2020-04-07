@@ -6,7 +6,7 @@ namespace couchbase
 {
 namespace transactions
 {
-    boost::optional<active_transaction_record> active_transaction_record::get_atr(collection* collection,
+    boost::optional<active_transaction_record> active_transaction_record::get_atr(std::shared_ptr<collection> collection,
                                                                                   const std::string& atr_id,
                                                                                   const transaction_config& config)
     {

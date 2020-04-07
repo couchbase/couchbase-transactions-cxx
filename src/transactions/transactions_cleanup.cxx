@@ -102,7 +102,7 @@ tx::transactions_cleanup::lost_attempts_loop()
                                   .create_path()
                                   .expand_macro());
                 specs.push_back(mutate_in_spec::upsert(std::string(FIELD_CLIENTS) + "." + uid + "." + FIELD_EXPIRES,
-                                                       config.cleanup_window() / 2 + SAFETY_MARGIN_EXPIRY_MS)
+                                                       config.cleanup_window().count() / 2 + SAFETY_MARGIN_EXPIRY_MS)
                                   .xattr()
                                   .create_path());
                 for (auto idx = 0; idx < std::min(expired_client_uids.size(), (size_t)14); idx++) {

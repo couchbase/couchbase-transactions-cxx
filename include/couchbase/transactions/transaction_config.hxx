@@ -22,20 +22,42 @@ namespace transactions
             level_ = level;
         }
 
-        int cleanup_window() const
+        [[nodiscard]] std::chrono::milliseconds cleanup_window() const
         {
             return cleanup_window_;
         }
 
-        [[nodiscard]] std::chrono::nanoseconds transaction_expiration_time() const
+        template<typename T>
+        void cleanup_window(T duration)
         {
-            return transaction_expiration_time_;
+            cleanup_window_ = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+        }
+
+        [[nodiscard]] std::chrono::nanoseconds expiration_time() const
+        {
+            return expiration_time_;
+        }
+
+        void cleanup_lost_attempts(bool value) {
+            cleanup_lost_attempts_ = value;
+        }
+
+        void cleanup_client_attempts(bool value) {
+            cleanup_client_attempts_ = value;
+        }
+
+        template<typename T>
+        void expiration_time(T duration)
+        {
+            expiration_time_ = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
         }
 
       private:
         enum durability_level level_ { durability_level::MAJORITY };
-        int cleanup_window_{ 120000 };
-        std::chrono::nanoseconds transaction_expiration_time_{ std::chrono::seconds(15) };
+        std::chrono::milliseconds cleanup_window_{ 120000 };
+        std::chrono::nanoseconds expiration_time_{ std::chrono::seconds(15) };
+        bool cleanup_lost_attempts_ { true };
+        bool cleanup_client_attempts_ { true };
     };
 
 } // namespace transactions

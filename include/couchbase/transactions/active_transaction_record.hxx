@@ -18,7 +18,7 @@ namespace transactions
     class active_transaction_record
     {
       public:
-        static boost::optional<active_transaction_record> get_atr(collection* collection,
+        static boost::optional<active_transaction_record> get_atr(std::shared_ptr<collection> collection,
                                                                   const std::string& atr_id,
                                                                   const transaction_config& config);
 
@@ -62,7 +62,7 @@ namespace transactions
             return std::move(records);
         }
 
-        static active_transaction_record map_to_atr(collection* collection,
+        static active_transaction_record map_to_atr(std::shared_ptr<collection> collection,
                                                     const std::string& atr_id,
                                                     result& res,
                                                     nlohmann::json& attempts)
@@ -91,7 +91,7 @@ namespace transactions
             return active_transaction_record(atr_id, collection, res.cas, std::move(entries));
         }
 
-        active_transaction_record(std::string id, collection* collection, uint64_t cas, std::vector<atr_entry> entries)
+        active_transaction_record(std::string id, std::shared_ptr<collection> collection, uint64_t cas, std::vector<atr_entry> entries)
           : id_(std::move(id))
           , collection_(collection)
           , cas_ns_(cas)
@@ -106,7 +106,7 @@ namespace transactions
 
       private:
         const std::string id_;
-        collection* collection_;
+        std::shared_ptr<collection> collection_;
         const uint64_t cas_ns_;
         const std::vector<atr_entry> entries_;
     };

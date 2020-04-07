@@ -83,10 +83,10 @@ class GameServer
 {
   private:
     transactions::transactions& transactions_;
-    collection* collection_;
+    std::shared_ptr<collection> collection_;
 
   public:
-    GameServer(transactions::transactions& transactions, collection* collection)
+    GameServer(transactions::transactions& transactions, std::shared_ptr<collection> collection)
       : transactions_(transactions)
       , collection_(collection)
     {
@@ -154,7 +154,7 @@ main(int argc, const char* argv[])
     cluster cluster(cluster_address, user_name, password);
 
     auto bucket = cluster.bucket(bucket_name);
-    collection* collection = bucket->default_collection();
+    auto collection = bucket->default_collection();
 
     string player_id = "player_data";
     Player player_data{ 14248, 23832, "player", 141, true, "Jane", uuids::to_string(uuids::uuid{ gen }) };

@@ -36,7 +36,7 @@ namespace transactions
             const auto& now = std::chrono::system_clock::now();
             auto expired_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(now - start_time_client_) + deferred_elapsed_;
             auto expired_millis = std::chrono::duration_cast<std::chrono::milliseconds>(expired_nanos);
-            bool is_expired = expired_nanos > config.transaction_expiration_time();
+            bool is_expired = expired_nanos > config.expiration_time();
             if (is_expired) {
                 spdlog::info("has expired client side (now={}ns, start={}ns, deferred_elapsed={}ns, expired={}ns ({}ms), config={}ms)",
                              now.time_since_epoch().count(),
@@ -44,7 +44,7 @@ namespace transactions
                              deferred_elapsed_.count(),
                              expired_nanos.count(),
                              expired_millis.count(),
-                             std::chrono::duration_cast<std::chrono::milliseconds>(config.transaction_expiration_time()).count());
+                             std::chrono::duration_cast<std::chrono::milliseconds>(config.expiration_time()).count());
             }
             return is_expired;
         }

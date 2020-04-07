@@ -50,7 +50,7 @@ tx::staged_mutation_queue::extract_to(const std::string& prefix, std::vector<cou
 }
 
 tx::staged_mutation*
-tx::staged_mutation_queue::find_replace(couchbase::collection* collection, const std::string& id)
+tx::staged_mutation_queue::find_replace(std::shared_ptr<couchbase::collection> collection, const std::string& id)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
@@ -64,7 +64,7 @@ tx::staged_mutation_queue::find_replace(couchbase::collection* collection, const
 }
 
 tx::staged_mutation*
-tx::staged_mutation_queue::find_insert(couchbase::collection* collection, const std::string& id)
+tx::staged_mutation_queue::find_insert(std::shared_ptr<couchbase::collection> collection, const std::string& id)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
@@ -78,7 +78,7 @@ tx::staged_mutation_queue::find_insert(couchbase::collection* collection, const 
 }
 
 tx::staged_mutation*
-tx::staged_mutation_queue::find_remove(couchbase::collection* collection, const std::string& id)
+tx::staged_mutation_queue::find_remove(std::shared_ptr<couchbase::collection> collection, const std::string& id)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto& item : queue_) {

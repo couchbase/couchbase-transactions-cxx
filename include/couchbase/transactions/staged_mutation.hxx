@@ -58,9 +58,9 @@ namespace transactions
         void extract_to(const std::string& prefix, std::vector<couchbase::mutate_in_spec>& specs);
         void commit();
 
-        staged_mutation* find_replace(collection* collection, const std::string& id);
-        staged_mutation* find_insert(collection* collection, const std::string& id);
-        staged_mutation* find_remove(collection* collection, const std::string& id);
+        staged_mutation* find_replace(std::shared_ptr<collection> collection, const std::string& id);
+        staged_mutation* find_insert(std::shared_ptr<collection> collection, const std::string& id);
+        staged_mutation* find_remove(std::shared_ptr<collection> collection, const std::string& id);
     };
 } // namespace transactions
 } // namespace couchbase

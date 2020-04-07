@@ -33,7 +33,7 @@ namespace transactions
         transaction_context& overall_;
         const transaction_config& config_;
         boost::optional<std::string> atr_id_;
-        collection* atr_collection_;
+        std::shared_ptr<collection> atr_collection_;
         bool is_done_;
         attempt_state state_;
         std::string attempt_id_;
@@ -64,7 +64,7 @@ namespace transactions
          * @param id the document's ID
          * @return an TransactionDocument containing the document
          */
-        boost::optional<transaction_document> get(collection* collection, const std::string& id)
+        boost::optional<transaction_document> get(std::shared_ptr<collection> collection, const std::string& id)
         {
             check_if_done();
             check_expiry_pre_commit(STAGE_GET, id);
@@ -189,7 +189,7 @@ namespace transactions
          * @return the document, updated with its new CAS value.
          */
         template<typename Content>
-        transaction_document replace(collection* collection, const transaction_document& document, const Content& content)
+        transaction_document replace(std::shared_ptr<collection> collection, const transaction_document& document, const Content& content)
         {
             check_if_done();
             check_expiry_pre_commit(STAGE_REPLACE, document.id());
@@ -245,7 +245,7 @@ namespace transactions
          * @return the doc, updated with its new CAS value and ID, and converted to a TransactionDocument
          */
         template<typename Content>
-        transaction_document insert(collection* collection, const std::string& id, const Content& content)
+        transaction_document insert(std::shared_ptr<collection> collection, const std::string& id, const Content& content)
         {
             check_if_done();
             check_expiry_pre_commit(STAGE_INSERT, id);
@@ -298,7 +298,7 @@ namespace transactions
          *
          * @param document the document to be removed
          */
-        void remove(collection* collection, transaction_document& document)
+        void remove(std::shared_ptr<couchbase::collection> collection, transaction_document& document)
         {
             check_if_done();
             check_expiry_pre_commit(STAGE_REMOVE, document.id());
@@ -437,7 +437,7 @@ namespace transactions
             }
         }
 
-        void set_atr_pending_if_first_mutation(collection* collection)
+        void set_atr_pending_if_first_mutation(std::shared_ptr<collection> collection)
         {
             if (staged_mutations_.empty()) {
                 std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id_ + ".");
@@ -450,9 +450,8 @@ namespace transactions
                   {
                     mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
                     mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, mutate_in_macro::CAS).xattr().expand_macro(),
-                    mutate_in_spec::insert(
-                      prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
-                      std::chrono::duration_cast<std::chrono::milliseconds>(config_.transaction_expiration_time()).count())
+                    mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
+                                           std::chrono::duration_cast<std::chrono::milliseconds>(config_.expiration_time()).count())
                       .xattr(),
                     mutate_in_spec::fulldoc_upsert(nlohmann::json::object()),
                   },
@@ -469,9 +468,9 @@ namespace transactions
                 } else if (res.is_value_too_large()) {
                     // TODO: Handle "active transaction record is full" condition
                 } else {
-                        std::string what(fmt::format("got error while setting atr {}: {}", atr_id_.value(), res.strerror()));
-                        spdlog::warn(what);
-                        throw client_error(what);
+                    std::string what(fmt::format("got error while setting atr {}: {}", atr_id_.value(), res.strerror()));
+                    spdlog::warn(what);
+                    throw client_error(what);
                 }
             }
         }
@@ -489,7 +488,7 @@ namespace transactions
             return over || hook;
         }
 
-        staged_mutation* check_for_own_write(collection* collection, const std::string& id)
+        staged_mutation* check_for_own_write(std::shared_ptr<collection> collection, const std::string& id)
         {
             staged_mutation* own_replace = staged_mutations_.find_replace(collection, id);
             if (own_replace) {
@@ -558,7 +557,7 @@ namespace transactions
             }
         }
 
-        void select_atr_if_needed(collection* collection, const std::string& id);
+        void select_atr_if_needed(std::shared_ptr<collection> collection, const std::string& id);
     };
 } // namespace transactions
 } // namespace couchbase
