@@ -8,11 +8,11 @@
 #include <boost/core/ignore_unused.hpp>
 
 #include <couchbase/client/collection.hxx>
+#include <couchbase/transactions/attempt_context_testing_hooks.hxx>
 #include <couchbase/transactions/attempt_state.hxx>
 #include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/logging.hxx>
 #include <couchbase/transactions/staged_mutation.hxx>
-#include <couchbase/transactions/testing_hooks.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transaction_context.hxx>
 #include <couchbase/transactions/transaction_document.hxx>
@@ -38,14 +38,13 @@ namespace transactions
         attempt_state state_;
         std::string attempt_id_;
         staged_mutation_queue staged_mutations_;
-        testing_hooks hooks_;
+        attempt_context_testing_hooks hooks_;
         std::chrono::nanoseconds start_time_server_{ 0 };
 
       public:
         attempt_context(transactions* parent,
                         transaction_context& transaction_ctx,
-                        const transaction_config& config,
-                        testing_hooks hooks = {})
+                        const transaction_config& config)
           : parent_(parent)
           , overall_(transaction_ctx)
           , config_(config)
@@ -53,7 +52,7 @@ namespace transactions
           , attempt_id_(uid_generator::next())
           , atr_collection_(nullptr)
           , is_done_(false)
-          , hooks_(std::move(hooks))
+          , hooks_(config.attempt_context_hooks())
         {
         }
 

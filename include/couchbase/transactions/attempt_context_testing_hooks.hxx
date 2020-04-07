@@ -54,7 +54,7 @@ namespace transactions
      * Hooks purely for testing purposes.  If you're an end-user looking at these for any reason, then please contact us first
      * about your use-case: we are always open to adding good ideas into the transactions library.
      */
-    struct testing_hooks {
+    struct attempt_context_testing_hooks {
         std::function<int(attempt_context*)> before_atr_commit = noop_1;
         std::function<int(attempt_context*)> after_atr_commit = noop_1;
         std::function<int(attempt_context*, const std::string&)> before_doc_committed = noop_2;
