@@ -436,6 +436,15 @@ namespace transactions
             }
         }
 
+        void insure_atr_exists(std::shared_ptr<collection> collection) {
+            // TODO: use exists here when collection supports it
+            result res = collection->get(atr_id_.value());
+            // just upsert an empty doc for now
+            if (res.is_success()) {
+                return;
+            }
+            collection->upsert(atr_id_.value(), nlohmann::json::object());
+        }
         void set_atr_pending_if_first_mutation(std::shared_ptr<collection> collection)
         {
             if (staged_mutations_.empty()) {
@@ -443,7 +452,9 @@ namespace transactions
                 if (!atr_id_.has_value()) {
                     throw std::domain_error("ATR ID is not initialized");
                 }
+                insure_atr_exists(collection);
                 hooks_.before_atr_pending(this);
+                spdlog::info("updating atr {}", atr_id_.value());
                 const result& res = collection->mutate_in(
                   atr_id_.value(),
                   {
@@ -451,8 +462,7 @@ namespace transactions
                     mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, mutate_in_macro::CAS).xattr().expand_macro(),
                     mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
                                            std::chrono::duration_cast<std::chrono::milliseconds>(config_.expiration_time()).count())
-                      .xattr(),
-                    mutate_in_spec::fulldoc_upsert(nlohmann::json::object()),
+                      .xattr()
                   },
                   durability(config_));
                 if (res.is_success()) {

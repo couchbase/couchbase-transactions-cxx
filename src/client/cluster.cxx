@@ -28,7 +28,7 @@ cb::cluster::bucket(const std::string& name)
 {
     connect();
     std::unique_lock<std::mutex> lock(mutex_);
-    auto bkt = std::make_shared<cb::bucket>(lcb_, name);
+    auto bkt = bucket::create(lcb_, name);
     // TODO: cache buckets
     lcb_ = nullptr;
     return bkt;

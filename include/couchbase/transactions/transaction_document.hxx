@@ -44,6 +44,7 @@ namespace transactions
           , links_(std::move(links))
           , status_(status)
           , metadata_(std::move(metadata))
+          , value_(std::move(content))
         {
         }
 
@@ -128,7 +129,7 @@ namespace transactions
                 revid_from_doc = doc["revid"].get<std::string>();
                 exptime_from_doc = doc["exptime"].get<uint32_t>();
             }
-            nlohmann::json content = res.values[9]->get<std::string>();
+            nlohmann::json content = res.values[9].get();
 
             transaction_links links(atr_id,
                                     atr_bucket_name,

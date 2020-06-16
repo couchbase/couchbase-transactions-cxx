@@ -146,7 +146,7 @@ int
 main(int argc, const char* argv[])
 {
     auto gen = uuids::random_generator()();
-    string cluster_address = "couchbase://192.168.1.101";
+    string cluster_address = "couchbase://10.143.210.101";
     string user_name = "Administrator";
     string password = "password";
     string bucket_name = "default";
@@ -172,7 +172,15 @@ main(int argc, const char* argv[])
     configuration.durability_level(transactions::durability_level::MAJORITY);
     transactions::transactions transactions(cluster, configuration);
     GameServer game_server(transactions, collection);
-    game_server.player_hits_monster(uuids::to_string(uuids::uuid{ gen }), rand() % 8000, player_id, monster_id);
+    bool monster_exists = true;
+    while (monster_exists) {
+        cout << "Monster exists -- lets hit it!" << endl;
+        game_server.player_hits_monster(uuids::to_string(uuids::uuid{ gen }), rand() % 8000, player_id, monster_id);
+        auto result = collection->get(monster_id);
+        monster_exists = result.is_success();
+    }
+    cout << "Monster killed" << endl;
+
     transactions.close();
 
     cluster.shutdown();
