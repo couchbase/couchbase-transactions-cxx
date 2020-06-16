@@ -10,6 +10,7 @@
 #include <couchbase/transactions/transaction_fields.hxx>
 #include <couchbase/transactions/transactions_cleanup.hxx>
 #include <couchbase/transactions/uid_generator.hxx>
+#include <couchbase/transactions/logging.hxx>
 
 #include "atr_ids.hxx"
 
@@ -69,8 +70,8 @@ tx::transactions_cleanup::lost_attempts_loop()
         auto bkt = cluster_.bucket(name);
         auto uid = client_uuid_;
         auto config = config_;
+        auto col = bkt->default_collection();
         workers.emplace_back([&]() {
-            auto col = bkt->default_collection();
             while (running) {
                 col->mutate_in(CLIENT_RECORD_DOC_ID,
                                {

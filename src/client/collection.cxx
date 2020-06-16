@@ -1,4 +1,5 @@
 #include <utility>
+#include <spdlog/spdlog.h>
 
 #include <couchbase/client/bucket.hxx>
 #include <couchbase/client/collection.hxx>
@@ -69,12 +70,18 @@ subdoc_callback(lcb_INSTANCE*, int, const lcb_RESPSUBDOC* resp)
 
     size_t len = lcb_respsubdoc_result_size(resp);
     res->values.reserve(len);
+    spdlog::info("subdoc_callback: got {} results for {}", len, res->key);
     for (size_t idx = 0; idx < len; idx++) {
         data = nullptr;
         ndata = 0;
         lcb_respsubdoc_result_value(resp, idx, &data, &ndata);
+        spdlog::info("got {} length data for {}", ndata, idx);
+        auto itr = res->values.begin() + idx;
         if (data) {
-            res->values[idx].emplace(nlohmann::json::parse(data, data + ndata));
+            res->values.emplace(itr, nlohmann::json::parse(data, data + ndata));
+        } else {
+            spdlog::info("writing null for results[{}]", idx);
+            res->values.emplace(itr, boost::none);
         }
     }
 }
@@ -212,11 +219,11 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
                   ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size(), spec.value_.data(), spec.value_.size());
                 break;
             case mutate_in_spec_type::MUTATE_IN_FULLDOC_UPSERT:
-                lcb_subdocspecs_dict_upsert(ops, idx++, spec.flags_, nullptr, 0, spec.value_.data(), spec.value_.size());
+                lcb_subdocspecs_replace(ops, idx++, spec.flags_, nullptr, 0, spec.value_.data(), spec.value_.size());
                 lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
                 break;
             case mutate_in_spec_type::MUTATE_IN_FULLDOC_INSERT:
-                lcb_subdocspecs_dict_upsert(ops, idx++, spec.flags_, nullptr, 0, spec.value_.data(), spec.value_.size());
+                lcb_subdocspecs_replace(ops, idx++, spec.flags_, nullptr, 0, spec.value_.data(), spec.value_.size());
                 lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_INSERT);
                 break;
             case mutate_in_spec_type::REMOVE:
