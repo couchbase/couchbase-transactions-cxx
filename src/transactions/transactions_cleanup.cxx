@@ -21,7 +21,8 @@ tx::transactions_cleanup::transactions_cleanup(couchbase::cluster& cluster, cons
   , config_(config)
   , client_uuid_(uid_generator::next())
 {
-    lost_attempts_thr = std::thread(std::bind(&transactions_cleanup::lost_attempts_loop, this));
+    // TODO: re-enable after fixing the loop
+    //lost_attempts_thr = std::thread(std::bind(&transactions_cleanup::lost_attempts_loop, this));
 }
 
 static uint64_t
@@ -183,5 +184,6 @@ tx::transactions_cleanup::lost_attempts_loop()
 tx::transactions_cleanup::~transactions_cleanup()
 {
     running = false;
-    lost_attempts_thr.join();
+    // TODO: re-enable after fixing the loop
+    // lost_attempts_thr.join();
 }

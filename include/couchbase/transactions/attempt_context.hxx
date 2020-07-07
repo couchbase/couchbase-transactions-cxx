@@ -270,14 +270,25 @@ namespace transactions
             spdlog::info("inserted doc {} CAS={}, rc={}", id, res.cas, res.strerror());
             hooks_.after_staged_insert_complete(this, id);
             if (res.is_success()) {
-                transaction_document out(
-                  *collection,
-                  id,
-                  content,
-                  res.cas,
-                  transaction_document_status::NORMAL,
-                  transaction_links(
-                    atr_id_.value(), collection->bucket_name(), collection->scope(), collection->name(), content, attempt_id_));
+                // TODO: clean this up (do most of this in transactions_document(...))
+                transaction_links links(atr_id_,
+                                        collection->bucket_name(),
+                                        collection->scope(),
+                                        collection->name(),
+                                        overall_.transaction_id(),
+                                        attempt_id_,
+                                        nlohmann::json(content),
+                                        boost::none,
+                                        boost::none,
+                                        boost::none,
+                                        std::string("insert"));
+                transaction_document out(id,
+                                         content,
+                                         res.cas,
+                                         *collection,
+                                         links,
+                                         transaction_document_status::NORMAL,
+                                         boost::none);
                 staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::INSERT));
                 return out;
             }
