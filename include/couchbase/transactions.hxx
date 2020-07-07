@@ -55,7 +55,7 @@ namespace transactions
 
       private:
         couchbase::cluster& cluster_;
-        const transaction_config& config_;
+        transaction_config config_;
         transactions_cleanup cleanup_;
     };
 } // namespace transactions
