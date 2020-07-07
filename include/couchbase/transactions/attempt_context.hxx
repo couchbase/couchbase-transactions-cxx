@@ -270,14 +270,7 @@ namespace transactions
             spdlog::info("inserted doc {} CAS={}, rc={}", id, res.cas, res.strerror());
             hooks_.after_staged_insert_complete(this, id);
             if (res.is_success()) {
-                transaction_document out(
-                  *collection,
-                  id,
-                  content,
-                  res.cas,
-                  transaction_document_status::NORMAL,
-                  transaction_links(
-                    atr_id_.value(), collection->bucket_name(), collection->scope(), collection->name(), content, attempt_id_));
+                transaction_document out = transaction_document::create_from(*collection, id, res, transaction_document_status::NORMAL);
                 staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::INSERT));
                 return out;
             }
