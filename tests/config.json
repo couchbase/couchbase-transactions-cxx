@@ -1,0 +1,6 @@
+{
+    "connection_string": "couchbase://10.143.202.101",
+    "username": "Administrator",
+    "password": "password"
+}
+
