@@ -1,12 +1,10 @@
 #include <memory>
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
 #include "couchbase/client/cluster.hxx"
 #include "couchbase/client/collection.hxx"
 #include "client_env.h"
 
 using namespace couchbase;
-using ::testing::Mock;
 
 static std::string bucket_name = std::string("default");
 static nlohmann::json content = nlohmann::json::parse("{\"some\":\"thing\"}");
@@ -23,7 +21,7 @@ static void upsert_random_doc(std::shared_ptr<couchbase::collection>& coll, std:
     ASSERT_EQ(result.rc, 0);
     ASSERT_FALSE(result.is_not_found());
     ASSERT_FALSE(result.is_value_too_large());
-    EXPECT_THAT(result.strerror(), testing::HasSubstr("LCB_SUCCESS"));
+    ASSERT_TRUE(result.strerror().find("LCB_SUCCESS") != std::string::npos);
     ASSERT_EQ(result.key, id);
     ASSERT_FALSE(result.value.has_value());
 }
@@ -73,7 +71,7 @@ TEST(SimpleClientCollectionTests, CanInsert) {
     ASSERT_EQ(result.rc, 0);
     ASSERT_FALSE(result.is_not_found());
     ASSERT_FALSE(result.is_value_too_large());
-    EXPECT_THAT(result.strerror(), testing::HasSubstr("LCB_SUCCESS"));
+    ASSERT_TRUE(result.strerror().find("LCB_SUCCESS") != std::string::npos);
     ASSERT_EQ(result.key, id);
     ASSERT_FALSE(result.value.has_value());
 }
@@ -93,7 +91,7 @@ TEST(SimpleClientCollectionTests, CanGet) {
     ASSERT_TRUE(get_res.is_success());
     ASSERT_FALSE(get_res.is_not_found());
     ASSERT_FALSE(get_res.is_value_too_large());
-    EXPECT_THAT(get_res.strerror(), testing::HasSubstr("LCB_SUCCESS"));
+    ASSERT_TRUE(get_res.strerror().find("LCB_SUCCESS") != std::string::npos);
     ASSERT_NE(get_res.cas, 0);
     ASSERT_EQ(get_res.key, id);
     ASSERT_EQ(get_res.rc, 0);
@@ -110,7 +108,7 @@ TEST(SimpleClientCollectionTests, CanGetDocNotFound) {
     ASSERT_FALSE(res.is_success());
     ASSERT_TRUE(res.is_not_found());
     ASSERT_FALSE(res.is_value_too_large());
-    EXPECT_THAT(res.strerror(), testing::HasSubstr("DOCUMENT_NOT_FOUND"));
+    ASSERT_TRUE(res.strerror().find("LCB_SUCCESS") == std::string::npos);
     ASSERT_TRUE(res.key.empty());
     ASSERT_EQ(res.rc, 301);
 }

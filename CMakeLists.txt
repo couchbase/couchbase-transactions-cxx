@@ -3,25 +3,25 @@ cmake_minimum_required(VERSION 3.9)
 # ============= BEGIN GTEST ============================================
 
 # Download and unpack googletest at configure time
-configure_file(CMakeLists.txt.in ${CMAKE_CURRENT_BINARY_DIR}/googletest-download/CMakeLists.txt)
-execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/googletest-download"
-)
-execute_process(COMMAND "${CMAKE_COMMAND}" --build .
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/googletest-download"
-)
-
-set (CMAKE_CXX_STANDARD 11)
-
+#configure_file(CMakeLists.txt.in ${CMAKE_CURRENT_BINARY_DIR}/googletest-download/CMakeLists.txt)
+#execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
+#    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/googletest-download"
+#)
+#execute_process(COMMAND "${CMAKE_COMMAND}" --build .
+#    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/googletest-download"
+#)
+#
+#set (CMAKE_CXX_STANDARD 11)
+#
 # Prevent GoogleTest from overriding our compiler/linker options
 # when building with Visual Studio
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+#set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
 # Add googletest directly to our build. This adds the following targets:
 # gtest, gtest_main, gmock and gmock_main
-add_subdirectory("${CMAKE_CURRENT_BINARY_DIR}/googletest-src"
-                 "${CMAKE_CURRENT_BINARY_DIR}/googletest-build"
-)
+#add_subdirectory("${CMAKE_CURRENT_BINARY_DIR}/googletest-src"
+#                 "${CMAKE_CURRENT_BINARY_DIR}/googletest-build"
+#)
 # ============= END GTEST ============================================
 # ============= BEGIN DEPS ==========================================
 project(transactions_cxx)
@@ -38,8 +38,9 @@ set(LCB_BUILD_LIBEV OFF)
 set(LCB_BUILD_LIBUV OFF)
 set(LCB_EMBED_PLUGIN_LIBEVENT ON)
 set(LCB_STATIC_LIBEVENT ON)
-add_subdirectory(deps/libcouchbase)
 
+add_subdirectory(deps/libcouchbase)
+add_subdirectory(deps/libcouchbase/contrib/gtest-1.8.1)
 add_subdirectory(deps/json)
 
 find_package(Threads)
@@ -104,5 +105,5 @@ endif()
 file(GLOB CLIENT_TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/client/*_t.cpp")
 include_directories(${GTEST_INCLUDE_DIRS})
 add_executable(client_tests ${CLIENT_TEST_SOURCES})
-target_link_libraries(client_tests client_cxx gtest gmock)
+target_link_libraries(client_tests client_cxx gtest)
 
