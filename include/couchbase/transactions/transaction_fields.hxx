@@ -26,6 +26,7 @@ namespace transactions
     static const std::string ATR_FIELD_PER_DOC_BUCKET = "bkt";
     static const std::string ATR_FIELD_PER_DOC_SCOPE = "scp";
     static const std::string ATR_FIELD_PER_DOC_COLLECTION = "col";
+    static const std::string ATR_FIELD_TRANSACTION_ID = "tid";
 
     // Fields inside regular docs that are part of a transaction
     static const std::string TRANSACTION_INTERFACE_PREFIX_ONLY = "txn";

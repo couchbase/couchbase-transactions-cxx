@@ -16,7 +16,9 @@ tx::attempt_context::select_atr_if_needed(std::shared_ptr<couchbase::collection>
         int vbucket_id = atr_ids::vbucket_for_key(id);
         atr_id_.emplace(atr_ids::atr_id_for_vbucket(vbucket_id));
         atr_collection_ = collection;
-        state_ = attempt_state::PENDING;
+        overall_.atr_collection(collection->name());
+        overall_.atr_id(*atr_id_);
+        attempt_state(attempt_state::PENDING);
         spdlog::info("first mutated doc in transaction is \"{}\" on vbucket {}, so using atr \"{}\"", id, vbucket_id, atr_id_.value());
     }
 }

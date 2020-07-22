@@ -8,6 +8,7 @@
 #include <boost/core/ignore_unused.hpp>
 
 #include <couchbase/client/collection.hxx>
+#include <couchbase/client/exceptions.hxx>
 #include <couchbase/transactions/attempt_context_testing_hooks.hxx>
 #include <couchbase/transactions/attempt_state.hxx>
 #include <couchbase/transactions/exceptions.hxx>
@@ -35,8 +36,6 @@ namespace transactions
         boost::optional<std::string> atr_id_;
         std::shared_ptr<collection> atr_collection_;
         bool is_done_;
-        attempt_state state_;
-        std::string attempt_id_;
         staged_mutation_queue staged_mutations_;
         attempt_context_testing_hooks hooks_;
         std::chrono::nanoseconds start_time_server_{ 0 };
@@ -48,12 +47,13 @@ namespace transactions
           : parent_(parent)
           , overall_(transaction_ctx)
           , config_(config)
-          , state_(attempt_state::NOT_STARTED)
-          , attempt_id_(uid_generator::next())
           , atr_collection_(nullptr)
           , is_done_(false)
           , hooks_(config.attempt_context_hooks())
         {
+            // put a new transaction_attempt in the context...
+            overall_.add_attempt();
+            spdlog::trace("added new attempt id {} state {}", attempt_id(), attempt_state());
         }
 
         /**
@@ -63,7 +63,19 @@ namespace transactions
          * @param id the document's ID
          * @return an TransactionDocument containing the document
          */
-        boost::optional<transaction_document> get(std::shared_ptr<collection> collection, const std::string& id)
+        // TODO: this should return TransactionGetResult
+        transaction_document get(std::shared_ptr<collection> collection, const std::string& id) {
+            auto result = get_optional(collection, id);
+            if (result) {
+                return result.get();
+            }
+            spdlog::error("Document with id {} not found", id);
+            // TODO: revisit this when re-working exceptions
+            throw new couchbase::document_not_found_error("Document not found");
+        }
+
+        // TODO: this should return boost::optional::<TransactionGetResult>
+        boost::optional<transaction_document> get_optional(std::shared_ptr<collection> collection, const std::string& id)
         {
             check_if_done();
             check_expiry_pre_commit(STAGE_GET, id);
@@ -114,7 +126,7 @@ namespace transactions
                         auto content = doc.content<nlohmann::json>();
                         auto status = doc.status();
                         if (entry.has_value()) {
-                            if (doc.links().staged_attempt_id().has_value() && entry->attempt_id() == attempt_id_) {
+                            if (doc.links().staged_attempt_id().has_value() && entry->attempt_id() == attempt_id()) {
                                 // Attempt is reading its own writes
                                 // This is here as backup, it should be returned from the in-memory cache instead
                                 content = doc.links().staged_content<nlohmann::json>();
@@ -187,6 +199,7 @@ namespace transactions
          * @param content the content to replace the doc with.
          * @return the document, updated with its new CAS value.
          */
+        // TODO: this should return a TransactionGetResult
         template<typename Content>
         transaction_document replace(std::shared_ptr<collection> collection, const transaction_document& document, const Content& content)
         {
@@ -197,10 +210,10 @@ namespace transactions
             set_atr_pending_if_first_mutation(collection);
 
             hooks_.before_staged_replace(this, document.id());
-            spdlog::trace("about to replace doc {} with cas {}", document.id(), document.cas());
+            spdlog::trace("about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
             std::vector<mutate_in_spec> specs = {
                 mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                mutate_in_spec::upsert(ATTEMPT_ID, attempt_id_).xattr(),
+                mutate_in_spec::upsert(ATTEMPT_ID, attempt_id()).xattr(),
                 mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr(),
                 mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
                 mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr(),
@@ -217,13 +230,14 @@ namespace transactions
                     specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->exptime().value()));
                 }
             }
-            specs.emplace_back(mutate_in_spec::fulldoc_upsert(content));
+
             const result& res = collection->mutate_in(document.id(), specs, durability(config_));
 
             if (res.is_success()) {
                 transaction_document out = document;
                 out.cas(res.cas);
                 staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::REPLACE));
+                add_mutation_token();
                 return out;
             }
             throw std::runtime_error(std::string("failed to replace the document: ") + res.strerror());
@@ -243,6 +257,7 @@ namespace transactions
          * @param content the content to insert
          * @return the doc, updated with its new CAS value and ID, and converted to a TransactionDocument
          */
+        // TODO: this should return a TransactionGetResult
         template<typename Content>
         transaction_document insert(std::shared_ptr<collection> collection, const std::string& id, const Content& content)
         {
@@ -258,7 +273,7 @@ namespace transactions
               id,
               {
                 mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                mutate_in_spec::insert(ATTEMPT_ID, attempt_id_).xattr(),
+                mutate_in_spec::insert(ATTEMPT_ID, attempt_id()).xattr(),
                 mutate_in_spec::insert(ATR_ID, atr_id_.value()).xattr(),
                 mutate_in_spec::insert(STAGED_DATA, content).xattr(),
                 mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
@@ -276,7 +291,7 @@ namespace transactions
                                         collection->scope(),
                                         collection->name(),
                                         overall_.transaction_id(),
-                                        attempt_id_,
+                                        attempt_id(),
                                         nlohmann::json(content),
                                         boost::none,
                                         boost::none,
@@ -290,6 +305,7 @@ namespace transactions
                                          transaction_document_status::NORMAL,
                                          boost::none);
                 staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::INSERT));
+                add_mutation_token();
                 return out;
             }
             // TODO: RETRY-ERR-AMBIG
@@ -319,7 +335,7 @@ namespace transactions
             spdlog::info("about to remove remove doc {} with cas {}", document.id(), document.cas());
             std::vector<mutate_in_spec> specs = {
                 mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                mutate_in_spec::upsert(ATTEMPT_ID, attempt_id_).xattr(),
+                mutate_in_spec::upsert(ATTEMPT_ID, attempt_id()).xattr(),
                 mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr(),
                 mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
                 mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr(),
@@ -344,9 +360,12 @@ namespace transactions
                 document.cas(res.cas);
                 // TODO: overwriting insert
                 staged_mutations_.add(staged_mutation(document, "", staged_mutation_type::REMOVE));
-                return;
+                add_mutation_token();
+            } else {
+                auto msg = std::string("failed to remove document: ") + res.strerror();
+                spdlog::error(msg);
+                throw std::runtime_error(msg);
             }
-            throw std::runtime_error(std::string("failed to remove the document: ") + res.strerror());
         }
 
         /**
@@ -358,10 +377,10 @@ namespace transactions
          */
         void commit()
         {
-            spdlog::info("commit {}", attempt_id_);
+            spdlog::info("commit {}", attempt_id());
             check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {});
             if (atr_collection_ && atr_id_.has_value() && !is_done_) {
-                std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id_ + ".");
+                std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
                 std::vector<mutate_in_spec> specs({
                   mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMMITTED)).xattr(),
                   mutate_in_spec::upsert(prefix + ATR_FIELD_START_COMMIT, "${Mutation.CAS}").xattr().expand_macro(),
@@ -371,22 +390,40 @@ namespace transactions
                 if (res.is_success()) {
                     std::vector<transaction_document> docs;
                     staged_mutations_.commit();
-                    is_done_ = true;
-                    state_ = attempt_state::COMMITTED;
+                    // if this succeeds, set ATR to COMPLETED
+                    std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
+                    std::vector<mutate_in_spec> specs({
+                        mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMPLETED)).xattr(),
+                        mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
+                    });
+                    const result& atr_res = atr_collection_->mutate_in(atr_id_.value(), specs);
+                    if (atr_res.is_success()) {
+                        is_done_ = true;
+                        spdlog::trace("setting attempt state COMPLETED for attempt {}", atr_id_.value());
+                        attempt_state(attempt_state::COMPLETED);
+                    } else {
+                        // TODO: recheck this, but I believe this is fine, we should log it and cleanup later
+                        spdlog::error("seting COMPLETED on attempt {} for ATR {} failed!", attempt_id(), atr_id_.value());
+                    }
+
                 } else {
-                    throw std::runtime_error(std::string("failed to commit transaction: ") + attempt_id_ + ": " + res.strerror());
+                    throw std::runtime_error(std::string("failed to commit transaction: ") + attempt_id() + ": " + res.strerror());
                 }
             } else {
                 // no mutation, no need to commit
                 if (!is_done_) {
                     spdlog::info("calling commit on attempt that has got no mutations, skipping");
                     is_done_ = true;
-                    state_ = attempt_state::COMPLETED;
                     return;
                 } else {
                     throw attempt_exception("calling commit on attempt that is already completed");
                 }
             }
+        }
+        void rollback() {
+            // not yet implemented
+            spdlog::warn("rollback not yet implemented");
+            is_done_ = true;
         }
 
         [[nodiscard]] bool is_done()
@@ -394,9 +431,38 @@ namespace transactions
             return is_done_;
         }
 
-        [[nodiscard]] const std::string& id()
+        [[nodiscard]] const std::string& attempt_id()
         {
-            return attempt_id_;
+            return overall_.current_attempt().id;
+        }
+
+        [[nodiscard]] const attempt_state attempt_state()
+        {
+            return overall_.current_attempt().state;
+        }
+
+        void attempt_state(enum attempt_state s) {
+            overall_.current_attempt().state = s;
+        }
+
+        void add_mutation_token() {
+            overall_.current_attempt().add_mutation_token();
+        }
+
+        [[nodiscard]] const std::string atr_id() {
+            return overall_.atr_id();
+        }
+
+        void atr_id(const std::string& atr_id) {
+            overall_.atr_id(atr_id);
+        }
+
+        [[nodiscard]] const std::string atr_collection() {
+            return overall_.atr_collection();
+        }
+
+        void atr_collection_name(const std::string& coll) {
+            overall_.atr_collection(coll);
         }
 
       private:
@@ -421,7 +487,7 @@ namespace transactions
         {
             if (has_expired_client_side(stage, std::move(doc_id))) {
                 spdlog::info(
-                  "{} has expired in stage {}, entering expiry-overtime mode - will make one attempt to rollback", attempt_id_, stage);
+                  "{} has expired in stage {}, entering expiry-overtime mode - will make one attempt to rollback", attempt_id(), stage);
 
                 // [EXP-ROLLBACK] Combo of setting this mode and throwing AttemptExpired will result in a attempt to rollback, which will
                 // ignore expiries, and bail out if anything fails
@@ -439,11 +505,11 @@ namespace transactions
             if (!expiry_overtime_mode_) {
                 if (has_expired_client_side(stage, std::move(doc_id))) {
                     spdlog::info(
-                      "{} has expired in stage {}, entering expiry-overtime mode (one attempt to complete commit)", attempt_id_, stage);
+                      "{} has expired in stage {}, entering expiry-overtime mode (one attempt to complete commit)", attempt_id(), stage);
                     expiry_overtime_mode_ = true;
                 }
             } else {
-                spdlog::info("{} ignoring expiry in stage {}  as in expiry-overtime mode", attempt_id_, stage);
+                spdlog::info("{} ignoring expiry in stage {}  as in expiry-overtime mode", attempt_id(), stage);
             }
         }
 
@@ -459,7 +525,7 @@ namespace transactions
         void set_atr_pending_if_first_mutation(std::shared_ptr<collection> collection)
         {
             if (staged_mutations_.empty()) {
-                std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id_ + ".");
+                std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
                 if (!atr_id_.has_value()) {
                     throw std::domain_error("ATR ID is not initialized");
                 }
@@ -469,6 +535,7 @@ namespace transactions
                 const result& res = collection->mutate_in(
                   atr_id_.value(),
                   {
+                    mutate_in_spec::insert(prefix + ATR_FIELD_TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
                     mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
                     mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, mutate_in_macro::CAS).xattr().expand_macro(),
                     mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
@@ -500,10 +567,10 @@ namespace transactions
             bool over = overall_.has_expired_client_side(config_);
             bool hook = hooks_.has_expired_client_side_hook(this, place, doc_id);
             if (over) {
-                spdlog::info("{} expired in {}", attempt_id_, place);
+                spdlog::info("{} expired in {}", attempt_id(), place);
             }
             if (hook) {
-                spdlog::info("{} fake expiry in {}", attempt_id_, place);
+                spdlog::info("{} fake expiry in {}", attempt_id(), place);
             }
             return over || hook;
         }

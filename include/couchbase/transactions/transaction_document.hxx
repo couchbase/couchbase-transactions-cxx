@@ -21,15 +21,23 @@ namespace transactions
       private:
         collection& collection_;
         nlohmann::json value_;
-        const std::string id_;
+        std::string id_;
         uint64_t cas_;
-        const transaction_links links_;
+        transaction_links links_;
         transaction_document_status status_;
 
         /** This is needed for provide {BACKUP-FIELDS}.  It is only needed from the get to the staged mutation, hence Optional. */
         const boost::optional<document_metadata> metadata_;
 
       public:
+        template<typename Content>
+        transaction_document(const transaction_document& doc) :
+            collection_(doc.collection_),
+            value_(doc.value_),
+            id_(doc.id_),
+            links_(doc.links_),
+            status_(doc.status_) {}
+
         template<typename Content>
         transaction_document(std::string id,
                              Content content,
@@ -145,6 +153,20 @@ namespace transactions
             document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc);
             return transaction_document(std::move(id), content, res.cas, collection, links, status, boost::make_optional(md));
         }
+
+        // TODO: make a swap function, use that here and copy constructor
+        template<typename Content>
+        transaction_document& operator=(const transaction_document& other) {
+            if (this != &other) {
+                this->collection_ = other.collection_;
+                this->value_ = other.value_;
+                this->id_ = other.id_;
+                this->links_ = other.links_;
+                this->status_ = other.status_;
+            }
+            return *this;
+        }
+
 
         collection& collection_ref()
         {

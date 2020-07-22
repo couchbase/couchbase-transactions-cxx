@@ -30,7 +30,20 @@ namespace transactions
         {
             return attempts_.size();
         }
-
+        [[nodiscard]] std::vector<transaction_attempt> attempts() const
+        {
+            return attempts_;
+        }
+        [[nodiscard]] transaction_attempt& current_attempt() {
+            if (attempts_.empty()) {
+                throw new std::runtime_error("transaction context has no attempts yet");
+            }
+            return attempts_.back();
+        }
+        void add_attempt() {
+            transaction_attempt attempt{};
+            attempts_.push_back(attempt);
+        }
         [[nodiscard]] bool has_expired_client_side(const transaction_config& config)
         {
             const auto& now = std::chrono::system_clock::now();
@@ -54,6 +67,20 @@ namespace transactions
             return start_time_client_;
         }
 
+        [[nodiscard]] const std::string atr_id() {
+            return atr_id_;
+        }
+
+        void atr_id(const std::string& id) {
+            atr_id_ = id;
+        }
+        [[nodiscard]] std::string atr_collection() {
+            return atr_collection_;
+        }
+        void atr_collection(const std::string& coll) {
+            atr_collection_ = coll;
+        }
+
       private:
         std::string transaction_id_;
 
@@ -67,6 +94,10 @@ namespace transactions
         const std::chrono::nanoseconds deferred_elapsed_;
 
         std::vector<transaction_attempt> attempts_;
+
+        std::string atr_id_;
+
+        std::string atr_collection_;
     };
 } // namespace transactions
 } // namespace couchbase

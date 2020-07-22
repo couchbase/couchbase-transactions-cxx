@@ -1,5 +1,5 @@
 #include <utility>
-
+#include <spdlog/spdlog.h>
 #include <couchbase/transactions/staged_mutation.hxx>
 #include <couchbase/transactions/transaction_fields.hxx>
 
@@ -103,6 +103,9 @@ tx::staged_mutation_queue::commit()
                 break;
             case staged_mutation_type::INSERT:
             case staged_mutation_type::REPLACE:
+                // TODO: check and handle expiry, check for overtime mode, etc...
+
+                // move staged content into doc
                 item.doc().collection_ref().mutate_in(item.doc().id(),
                                                       {
                                                         mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),

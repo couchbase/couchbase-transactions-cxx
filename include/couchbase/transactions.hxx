@@ -8,6 +8,7 @@
 #include <couchbase/transactions/logging.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transactions_cleanup.hxx>
+#include <couchbase/transactions/transaction_result.hxx>
 
 namespace couchbase
 {
@@ -33,15 +34,21 @@ namespace transactions
         {
         }
 
-        void run(const logic& logic)
+        transaction_result run(const logic& logic)
         {
             transaction_context overall;
             attempt_context ctx(this, overall, config_);
-            spdlog::info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.id());
+            spdlog::info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.attempt_id());
             logic(ctx);
             if (!ctx.is_done()) {
                 ctx.commit();
             }
+            return transaction_result{overall.transaction_id(),
+                                      overall.atr_id(),
+                                      overall.atr_collection(),
+                                      overall.attempts(),
+                                      overall.current_attempt().state == attempt_state::COMPLETED};
+
         }
 
         void close()

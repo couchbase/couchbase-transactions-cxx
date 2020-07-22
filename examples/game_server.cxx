@@ -101,7 +101,7 @@ class GameServer
     {
         transactions_.run([&](transactions::attempt_context& ctx) {
             auto monster = ctx.get(collection_, monster_id);
-            const Monster& monster_body = monster->content<Monster>();
+            const Monster& monster_body = monster.content<Monster>();
 
             int monster_hitpoints = monster_body.hitpoints;
             int monster_new_hitpoints = monster_hitpoints - damage_;
@@ -113,9 +113,9 @@ class GameServer
 
             if (monster_new_hitpoints <= 0) {
                 // Monster is killed. The remove is just for demoing, and a more realistic examples would set a "dead" flag or similar.
-                ctx.remove(collection_, *monster);
+                ctx.remove(collection_, monster);
 
-                const Player& player_body = player->content<Player>();
+                const Player& player_body = player.content<Player>();
 
                 // the player earns experience for killing the monster
                 int experience_for_killing_monster = monster_body.experience_when_killed;
@@ -129,13 +129,13 @@ class GameServer
                 Player player_new_body = player_body;
                 player_new_body.experience = player_new_experience;
                 player_new_body.level = player_new_level;
-                ctx.replace(collection_, *player, player_new_body);
+                ctx.replace(collection_, player, player_new_body);
             } else {
                 cout << "Monster " << monster_id << " is damaged but alive" << endl;
 
                 Monster monster_new_body = monster_body;
                 monster_new_body.hitpoints = monster_new_hitpoints;
-                ctx.replace(collection_, *monster, monster_new_body);
+                ctx.replace(collection_, monster, monster_new_body);
             }
             cout << "About to commit transaction" << endl;
         });

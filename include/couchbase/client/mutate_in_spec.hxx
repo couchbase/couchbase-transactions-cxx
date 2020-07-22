@@ -48,7 +48,7 @@ class mutate_in_spec
 
     static mutate_in_spec remove(const std::string& path)
     {
-        return mutate_in_spec(mutate_in_spec_type::REMOVE, path, "");
+        return mutate_in_spec(mutate_in_spec_type::REMOVE, path, std::string(""));
     }
 
     mutate_in_spec& xattr();

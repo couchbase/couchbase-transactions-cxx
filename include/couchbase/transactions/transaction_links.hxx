@@ -17,20 +17,20 @@ namespace transactions
     class transaction_links
     {
       private:
-        const boost::optional<std::string> atr_id_;
-        const boost::optional<std::string> atr_bucket_name_;
-        const boost::optional<std::string> atr_scope_name_;
-        const boost::optional<std::string> atr_collection_name_;
+        boost::optional<std::string> atr_id_;
+        boost::optional<std::string> atr_bucket_name_;
+        boost::optional<std::string> atr_scope_name_;
+        boost::optional<std::string> atr_collection_name_;
         // id of the transaction that has staged content
-        const boost::optional<std::string> staged_transaction_id_;
-        const boost::optional<std::string> staged_attempt_id_;
-        const boost::optional<nlohmann::json> staged_content_;
+        boost::optional<std::string> staged_transaction_id_;
+        boost::optional<std::string> staged_attempt_id_;
+        boost::optional<nlohmann::json> staged_content_;
 
         // for {BACKUP_FIELDS}
-        const boost::optional<std::string> cas_pre_txn_;
-        const boost::optional<std::string> revid_pre_txn_;
-        const boost::optional<uint32_t> exptime_pre_txn_;
-        const boost::optional<std::string> op_;
+        boost::optional<std::string> cas_pre_txn_;
+        boost::optional<std::string> revid_pre_txn_;
+        boost::optional<uint32_t> exptime_pre_txn_;
+        boost::optional<std::string> op_;
 
       public:
         transaction_links() = default;
