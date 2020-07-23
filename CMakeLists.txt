@@ -118,8 +118,10 @@ if(BUILD_EXAMPLES)
 endif()
 #========== END EXAMPLES =========================================================================
 #========== BEGIN TESTS ==========================================================================
+
 file(GLOB CLIENT_TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/client/*_t.cpp")
-include_directories(${GTEST_INCLUDE_DIRS})
+# super fragile - lets try to do better
+include_directories(${CURRENT_CMAKE_BINARY_DIR}/deps/libcouchbase/contrib/gtest-1.8.1)
 add_executable(client_tests ${CLIENT_TEST_SOURCES})
 target_link_libraries(client_tests client_cxx gtest)
 
