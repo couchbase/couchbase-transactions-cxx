@@ -23,7 +23,22 @@ cmake_minimum_required(VERSION 3.9)
 #                 "${CMAKE_CURRENT_BINARY_DIR}/googletest-build"
 #)
 # ============= END GTEST ============================================
-# ============= BEGIN DEPS ==========================================
+# ============= BEGIN EXTERNAL DEPS ==================================
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+configure_file(CMakeLists.txt.in ${CMAKE_CURRENT_BINARY_DIR}/spdlog-download/CMakeLists.txt)
+
+execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
+                WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/spdlog-download"
+)
+execute_process(COMMAND "${CMAKE_COMMAND}" --build .
+                WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/spdlog-download"
+)
+
+add_subdirectory("${CMAKE_CURRENT_BINARY_DIR}/spdlog-src"
+                 "${CMAKE_CURRENT_BINARY_DIR}/spdlog-build"
+)
+# ============= END EXTERNAL DEPS ====================================
+# ============= BEGIN DEPS ===========================================
 project(transactions_cxx)
 set(CMAKE_CXX_STANDARD 11)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
@@ -53,10 +68,11 @@ include_directories(BEFORE ${Boost_INCLUDE_DIRS})
 message(STATUS "Boost_INCLUDE_DIRS: ${Boost_INCLUDE_DIRS}")
 message(STATUS "Boost_LIBRARIES: ${Boost_LIBRARIES}")
 
-find_package(spdlog REQUIRED)
 #============ END DEPS =======================================================
 #============ BEGIN CLIENT ===================================================
-include_directories(include ${PROJECT_SOURCE_DIR}/deps/libcouchbase/include ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated)
+include_directories(include ${PROJECT_SOURCE_DIR}/deps/libcouchbase/include
+                            ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated
+			    ${CMAKE_CURRENT_BINARY_DIR}/spdlog-src/include)
 
 file(GLOB_RECURSE client_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/client/*.hxx)
 file(GLOB_RECURSE client_src_FILES ${PROJECT_SOURCE_DIR}/src/client/*.cxx)
@@ -64,7 +80,7 @@ add_library(client_cxx SHARED ${client_include_FILES} ${client_src_FILES})
 target_link_libraries(client_cxx
                       ${CMAKE_THREAD_LIBS_INIT}
                       nlohmann_json::nlohmann_json
-                      spdlog::spdlog
+                      spdlog
                       ${Boost_LIBRARIES}
                       couchbase)
 #============ END CLIENT ====================================================================
@@ -75,7 +91,7 @@ add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions
 target_link_libraries(transactions_cxx
                       ${CMAKE_THREAD_LIBS_INIT}
                       nlohmann_json::nlohmann_json
-                      spdlog::spdlog
+                      spdlog
                       ${Boost_LIBRARIES}
                       client_cxx)
 # =========== END TRANSACTIONS ================================================================

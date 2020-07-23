@@ -23,7 +23,7 @@ static void upsert_random_doc(std::shared_ptr<couchbase::collection>& coll, std:
     ASSERT_FALSE(result.is_value_too_large());
     ASSERT_TRUE(result.strerror().find("LCB_SUCCESS") != std::string::npos);
     ASSERT_EQ(result.key, id);
-    ASSERT_FALSE(result.value.has_value());
+    ASSERT_FALSE(result.value);
 }
 
 TEST(SimpleClientClusterTests, ClusterConnect) {
@@ -73,7 +73,7 @@ TEST(SimpleClientCollectionTests, CanInsert) {
     ASSERT_FALSE(result.is_value_too_large());
     ASSERT_TRUE(result.strerror().find("LCB_SUCCESS") != std::string::npos);
     ASSERT_EQ(result.key, id);
-    ASSERT_FALSE(result.value.has_value());
+    ASSERT_FALSE(result.value);
 }
 
 TEST(SimpleClientCollectionTests, CanUpsert) {
@@ -95,7 +95,7 @@ TEST(SimpleClientCollectionTests, CanGet) {
     ASSERT_NE(get_res.cas, 0);
     ASSERT_EQ(get_res.key, id);
     ASSERT_EQ(get_res.rc, 0);
-    ASSERT_TRUE(get_res.value.has_value());
+    ASSERT_TRUE(get_res.value);
     ASSERT_EQ(get_res.value.get(), content);
 }
 
@@ -153,7 +153,7 @@ TEST(SimpleClientCollectionTests, CanLookupIn) {
     ASSERT_FALSE(res.is_not_found());
     ASSERT_FALSE(res.is_value_too_large());
     ASSERT_EQ(res.key, id);
-    ASSERT_FALSE(res.value.has_value());
+    ASSERT_FALSE(res.value);
     ASSERT_FALSE(res.values.empty());
     ASSERT_EQ(res.values[0]->get<std::string>(), std::string("thing"));
     ASSERT_EQ(res.values[1]->get<nlohmann::json>(), ::content);
@@ -169,7 +169,7 @@ TEST(SimpleClientCollectionTests, CanMutateIn) {
     ASSERT_TRUE(res.is_success());
     res = coll->get(id);
     ASSERT_TRUE(res.is_success());
-    ASSERT_TRUE(res.value.has_value());
+    ASSERT_TRUE(res.value);
     ASSERT_EQ(res.value->get<nlohmann::json>(), nlohmann::json::parse("{\"some\":\"other thing\", \"another\":\"field\"}"));
 }
 

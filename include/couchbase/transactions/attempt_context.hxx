@@ -133,7 +133,7 @@ namespace transactions
                                 status = transaction_document_status::OWN_WRITE;
                             } else {
                                 switch (entry->state()) {
-                                    case attempt_state::COMMITTED:
+                                    case couchbase::transactions::attempt_state::COMMITTED:
                                         if (doc.links().is_document_being_removed()) {
                                             ignore_doc = true;
                                         } else {
@@ -382,7 +382,7 @@ namespace transactions
             if (atr_collection_ && atr_id_.has_value() && !is_done_) {
                 std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
                 std::vector<mutate_in_spec> specs({
-                  mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMMITTED)).xattr(),
+                  mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::COMMITTED)).xattr(),
                   mutate_in_spec::upsert(prefix + ATR_FIELD_START_COMMIT, "${Mutation.CAS}").xattr().expand_macro(),
                 });
                 staged_mutations_.extract_to(prefix, specs);
@@ -393,14 +393,14 @@ namespace transactions
                     // if this succeeds, set ATR to COMPLETED
                     std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
                     std::vector<mutate_in_spec> specs({
-                        mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMPLETED)).xattr(),
+                        mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::COMPLETED)).xattr(),
                         mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
                     });
                     const result& atr_res = atr_collection_->mutate_in(atr_id_.value(), specs);
                     if (atr_res.is_success()) {
                         is_done_ = true;
                         spdlog::trace("setting attempt state COMPLETED for attempt {}", atr_id_.value());
-                        attempt_state(attempt_state::COMPLETED);
+                        attempt_state(couchbase::transactions::attempt_state::COMPLETED);
                     } else {
                         // TODO: recheck this, but I believe this is fine, we should log it and cleanup later
                         spdlog::error("seting COMPLETED on attempt {} for ATR {} failed!", attempt_id(), atr_id_.value());
@@ -436,12 +436,12 @@ namespace transactions
             return overall_.current_attempt().id;
         }
 
-        [[nodiscard]] const attempt_state attempt_state()
+        [[nodiscard]] const couchbase::transactions::attempt_state attempt_state()
         {
             return overall_.current_attempt().state;
         }
 
-        void attempt_state(enum attempt_state s) {
+        void attempt_state(couchbase::transactions::attempt_state s) {
             overall_.current_attempt().state = s;
         }
 
@@ -536,7 +536,7 @@ namespace transactions
                   atr_id_.value(),
                   {
                     mutate_in_spec::insert(prefix + ATR_FIELD_TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                    mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING)).xattr().create_path(),
+                    mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::PENDING)).xattr().create_path(),
                     mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, mutate_in_macro::CAS).xattr().expand_macro(),
                     mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
                                            std::chrono::duration_cast<std::chrono::milliseconds>(config_.expiration_time()).count())

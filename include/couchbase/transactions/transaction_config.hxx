@@ -66,7 +66,7 @@ namespace transactions
         }
 
       private:
-        enum durability_level level_ { durability_level::MAJORITY };
+        enum couchbase::transactions::durability_level level_ { couchbase::transactions::durability_level::MAJORITY };
         std::chrono::milliseconds cleanup_window_{ 120000 };
         std::chrono::nanoseconds expiration_time_{ std::chrono::seconds(15) };
         bool cleanup_lost_attempts_{ true };
