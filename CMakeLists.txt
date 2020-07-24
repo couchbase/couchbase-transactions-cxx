@@ -57,7 +57,7 @@ set(LCB_EMBED_PLUGIN_LIBEVENT ON CACHE INTERNAL "")
 set(LCB_STATIC_LIBEVENT ON CACHE INTERNAL "")
 
 add_subdirectory(deps/libcouchbase)
-#add_subdirectory(deps/libcouchbase/contrib/gtest-1.8.1)
+add_subdirectory(deps/libcouchbase/contrib/gtest-1.8.1)
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 add_subdirectory(deps/json)
 
