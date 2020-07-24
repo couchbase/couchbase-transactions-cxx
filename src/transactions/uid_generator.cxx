@@ -9,5 +9,6 @@ namespace tx = couchbase::transactions;
 
 std::string tx::uid_generator::next()
 {
-    return uuids::to_string(uuids::uuid{ uuids::random_generator()() });
+    static auto generator = uuids::random_generator();
+    return uuids::to_string(generator());
 }

@@ -26,6 +26,8 @@ cmake_minimum_required(VERSION 3.9)
 # ============= BEGIN EXTERNAL DEPS ==================================
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(JSON_BuildTests OFF)
+set(ALLOW_DUPLICATE_CUSTOM_TARGETS TRUE)
+
 configure_file(CMakeLists.txt.in ${CMAKE_CURRENT_BINARY_DIR}/spdlog-download/CMakeLists.txt)
 
 execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
