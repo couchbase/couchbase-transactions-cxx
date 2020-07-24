@@ -98,39 +98,39 @@ namespace transactions
 
             boost::optional<std::string> op;
 
-            if (res.values[0].has_value()) {
+            if (res.values[0]) {
                 atr_id = res.values[0]->get<std::string>();
             }
-            if (res.values[1].has_value()) {
+            if (res.values[1]) {
                 transaction_id = res.values[1]->get<std::string>();
             }
-            if (res.values[2].has_value()) {
+            if (res.values[2]) {
                 attempt_id = res.values[2]->get<std::string>();
             }
-            if (res.values[3].has_value()) {
+            if (res.values[3]) {
                 staged_content = res.values[3]->get<std::string>();
             }
-            if (res.values[4].has_value()) {
+            if (res.values[4]) {
                 atr_bucket_name = res.values[3]->get<std::string>();
             }
-            if (res.values[5].has_value()) {
+            if (res.values[5]) {
                 std::string name = res.values[3]->get<std::string>();
                 std::vector<std::string> splits;
                 boost::split(splits, name, [](char c) { return c == '.'; });
                 atr_scope_name = splits[0];
                 atr_collection_name = splits[1];
             }
-            if (res.values[6].has_value()) {
+            if (res.values[6]) {
                 nlohmann::json restore = *res.values[6];
                 cas_pre_txn = restore["CAS"].get<std::string>();
                 // only present in 6.5+
                 revid_pre_txn = restore["revid"].get<std::string>();
                 exptime_pre_txn = restore["exptime"].get<uint32_t>();
             }
-            if (res.values[7].has_value()) {
+            if (res.values[7]) {
                 op = res.values[7]->get<std::string>();
             }
-            if (res.values[8].has_value()) {
+            if (res.values[8]) {
                 nlohmann::json doc = *res.values[8];
                 cas_from_doc = doc["CAS"].get<std::string>();
                 // only present in 6.5+

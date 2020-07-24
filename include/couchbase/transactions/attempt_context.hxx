@@ -113,7 +113,7 @@ namespace transactions
                 if (doc.links().is_document_in_transaction()) {
                     boost::optional<active_transaction_record> atr =
                       active_transaction_record::get_atr(collection, doc.links().atr_id().value(), config_);
-                    if (atr.has_value()) {
+                    if (atr) {
                         active_transaction_record& atr_doc = atr.value();
                         boost::optional<atr_entry> entry;
                         for (auto& e : atr_doc.entries()) {
@@ -125,8 +125,8 @@ namespace transactions
                         bool ignore_doc = false;
                         auto content = doc.content<nlohmann::json>();
                         auto status = doc.status();
-                        if (entry.has_value()) {
-                            if (doc.links().staged_attempt_id().has_value() && entry->attempt_id() == attempt_id()) {
+                        if (entry) {
+                            if (doc.links().staged_attempt_id() && entry->attempt_id() == attempt_id()) {
                                 // Attempt is reading its own writes
                                 // This is here as backup, it should be returned from the in-memory cache instead
                                 content = doc.links().staged_content<nlohmann::json>();
@@ -219,14 +219,14 @@ namespace transactions
                 mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr(),
                 mutate_in_spec::upsert(TYPE, "replace").xattr(),
             };
-            if (document.metadata().has_value()) {
-                if (document.metadata()->cas().has_value()) {
+            if (document.metadata()) {
+                if (document.metadata()->cas()) {
                     specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()));
                 }
-                if (document.metadata()->revid().has_value()) {
+                if (document.metadata()->revid()) {
                     specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->revid().value()));
                 }
-                if (document.metadata()->exptime().has_value()) {
+                if (document.metadata()->exptime()) {
                     specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->exptime().value()));
                 }
             }
@@ -341,14 +341,14 @@ namespace transactions
                 mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr(),
                 mutate_in_spec::upsert(TYPE, "remove").xattr(),
             };
-            if (document.metadata().has_value()) {
-                if (document.metadata()->cas().has_value()) {
+            if (document.metadata()) {
+                if (document.metadata()->cas()) {
                     specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()));
                 }
-                if (document.metadata()->revid().has_value()) {
+                if (document.metadata()->revid()) {
                     specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->revid().value()));
                 }
-                if (document.metadata()->exptime().has_value()) {
+                if (document.metadata()->exptime()) {
                     specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->exptime().value()));
                 }
             }
@@ -379,7 +379,7 @@ namespace transactions
         {
             spdlog::info("commit {}", attempt_id());
             check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {});
-            if (atr_collection_ && atr_id_.has_value() && !is_done_) {
+            if (atr_collection_ && atr_id_ && !is_done_) {
                 std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
                 std::vector<mutate_in_spec> specs({
                   mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::COMMITTED)).xattr(),
@@ -526,7 +526,7 @@ namespace transactions
         {
             if (staged_mutations_.empty()) {
                 std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
-                if (!atr_id_.has_value()) {
+                if (!atr_id_) {
                     throw std::domain_error("ATR ID is not initialized");
                 }
                 insure_atr_exists(collection);
@@ -616,7 +616,7 @@ namespace transactions
                         throw document_already_in_transaction("TODO");
                     } else {
                         // The blocking transaction has been blocking for a suspiciosly long time. Time to start checking if it is expired
-                        if (doc.links().atr_id().has_value() && doc.links().atr_bucket_name().has_value()) {
+                        if (doc.links().atr_id() && doc.links().atr_bucket_name()) {
                             spdlog::info("doc {} is in another transaction {}, after {}ms since start, so checking ATR entry {}/{}/{}",
                                          doc.id(),
                                          doc.links().staged_attempt_id().get(),

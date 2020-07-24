@@ -25,6 +25,7 @@ cmake_minimum_required(VERSION 3.9)
 # ============= END GTEST ============================================
 # ============= BEGIN EXTERNAL DEPS ==================================
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(JSON_BuildTests OFF)
 configure_file(CMakeLists.txt.in ${CMAKE_CURRENT_BINARY_DIR}/spdlog-download/CMakeLists.txt)
 
 execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
@@ -76,6 +77,7 @@ include_directories(include ${PROJECT_SOURCE_DIR}/deps/libcouchbase/include
 
 file(GLOB_RECURSE client_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/client/*.hxx)
 file(GLOB_RECURSE client_src_FILES ${PROJECT_SOURCE_DIR}/src/client/*.cxx)
+add_definitions(-DBOOST_UUID_RANDOM_GENERATOR_COMPAT)
 add_library(client_cxx SHARED ${client_include_FILES} ${client_src_FILES})
 target_link_libraries(client_cxx
                       ${CMAKE_THREAD_LIBS_INIT}

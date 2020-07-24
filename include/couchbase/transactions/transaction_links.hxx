@@ -64,7 +64,7 @@ namespace transactions
          */
         [[nodiscard]] bool is_document_in_transaction() const
         {
-            return atr_id_.has_value();
+            return !!(atr_id_);
         }
 
         [[nodiscard]] bool is_document_being_removed() const
@@ -74,7 +74,7 @@ namespace transactions
 
         [[nodiscard]] bool has_staged_write() const
         {
-            return staged_attempt_id_.has_value();
+            return !!(staged_attempt_id_);
         }
 
         [[nodiscard]] boost::optional<std::string> atr_id() const
