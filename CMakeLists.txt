@@ -25,7 +25,6 @@ cmake_minimum_required(VERSION 3.9)
 # ============= END GTEST ============================================
 # ============= BEGIN EXTERNAL DEPS ==================================
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(JSON_BuildTests OFF)
 set(ALLOW_DUPLICATE_CUSTOM_TARGETS TRUE)
 
 configure_file(CMakeLists.txt.in ${CMAKE_CURRENT_BINARY_DIR}/spdlog-download/CMakeLists.txt)
@@ -50,15 +49,16 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/
 option(BUILD_DOC "Build documentation" ON)
 option(BUILD_EXAMPLES "Build examples" ON)
 
-set(LCB_NO_TESTS ON)
-set(LCB_NO_TOOLS ON)
-set(LCB_BUILD_LIBEV OFF)
-set(LCB_BUILD_LIBUV OFF)
-set(LCB_EMBED_PLUGIN_LIBEVENT ON)
-set(LCB_STATIC_LIBEVENT ON)
+set(LCB_NO_TESTS ON CACHE INTERNAL "")
+set(LCB_NO_TOOLS ON CACHE INTERNAL "")
+set(LCB_BUILD_LIBEV OFF CACHE INTERNAL "")
+set(LCB_BUILD_LIBUV OFF CACHE INTERNAL "")
+set(LCB_EMBED_PLUGIN_LIBEVENT ON CACHE INTERNAL "")
+set(LCB_STATIC_LIBEVENT ON CACHE INTERNAL "")
 
 add_subdirectory(deps/libcouchbase)
-add_subdirectory(deps/libcouchbase/contrib/gtest-1.8.1)
+#add_subdirectory(deps/libcouchbase/contrib/gtest-1.8.1)
+set(JSON_BuildTests OFF CACHE INTERNAL "")
 add_subdirectory(deps/json)
 
 find_package(Threads)
