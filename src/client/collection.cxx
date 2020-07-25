@@ -1,4 +1,5 @@
 #include <utility>
+#include <cassert>
 #include <spdlog/spdlog.h>
 
 #include <couchbase/client/bucket.hxx>
@@ -96,6 +97,7 @@ cb::collection::collection(std::shared_ptr<bucket> bucket, std::string scope, st
   , scope_(std::move(scope))
   , name_(std::move(name))
 {
+    assert(bucket_->lcb_);
     lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_STORE, reinterpret_cast<lcb_RESPCALLBACK>(store_callback));
     lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_GET, reinterpret_cast<lcb_RESPCALLBACK>(get_callback));
     lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_REMOVE, reinterpret_cast<lcb_RESPCALLBACK>(remove_callback));
@@ -150,6 +152,7 @@ couchbase::store_impl(couchbase::collection* collection,
     lcb_cmdstore_collection(cmd, collection->scope_.data(), collection->scope_.size(), collection->name_.data(), collection->name_.size());
     lcb_cmdstore_durability(cmd, convert_durability(level));
     result res;
+    assert(collection->lcb());
     lcb_STATUS rc = lcb_store(collection->lcb(), reinterpret_cast<void*>(&res), cmd);
     lcb_cmdstore_destroy(cmd);
     if (rc != LCB_SUCCESS) {
@@ -171,6 +174,7 @@ couchbase::collection::get(const std::string& id, uint32_t expiry)
     }
     lcb_STATUS rc;
     result res;
+    assert(bucket_->lcb_);
     rc = lcb_get(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
     lcb_cmdget_destroy(cmd);
     if (rc != LCB_SUCCESS) {
@@ -191,6 +195,7 @@ couchbase::collection::remove(const std::string& id, uint64_t cas, couchbase::du
     lcb_cmdremove_durability(cmd, convert_durability(level));
     lcb_STATUS rc;
     result res;
+    assert(bucket_->lcb_);
     rc = lcb_remove(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
     lcb_cmdremove_destroy(cmd);
     if (rc != LCB_SUCCESS) {
@@ -239,6 +244,7 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
     lcb_cmdsubdoc_durability(cmd, convert_durability(level));
     lcb_STATUS rc;
     result res;
+    assert(bucket_->lcb_);
     rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
     lcb_cmdsubdoc_destroy(cmd);
     lcb_subdocspecs_destroy(ops);
@@ -273,6 +279,7 @@ couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_sp
     lcb_cmdsubdoc_specs(cmd, ops);
     lcb_STATUS rc;
     result res;
+    assert(bucket_->lcb_);
     rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
     lcb_cmdsubdoc_destroy(cmd);
     lcb_subdocspecs_destroy(ops);

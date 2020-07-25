@@ -45,7 +45,9 @@ couchbase::result::to_string() const
     if (!values.empty()) {
         os << "[";
         for(auto& v: values) {
-            os << v->dump() << ",";
+            if (v) {
+                os << v->dump() << ",";
+            }
         }
         os << "[";
     }
