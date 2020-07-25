@@ -21,6 +21,7 @@ store_callback(lcb_INSTANCE*, int, const lcb_RESPSTORE* resp)
     size_t ndata = 0;
     lcb_respstore_key(resp, &data, &ndata);
     res->key = std::string(data, ndata);
+    spdlog::trace(res->to_string());
 }
 
 static void
@@ -41,6 +42,7 @@ get_callback(lcb_INSTANCE*, int, const lcb_RESPGET* resp)
         lcb_respget_value(resp, &data, &ndata);
         res->value.emplace(nlohmann::json::parse(data, data + ndata));
     }
+    spdlog::trace(res->to_string());
 }
 
 static void
@@ -54,6 +56,7 @@ remove_callback(lcb_INSTANCE*, int, const lcb_RESPREMOVE* resp)
     size_t ndata = 0;
     lcb_respremove_key(resp, &data, &ndata);
     res->key = std::string(data, ndata);
+    spdlog::trace(res->to_string());
 }
 
 static void
@@ -84,6 +87,7 @@ subdoc_callback(lcb_INSTANCE*, int, const lcb_RESPSUBDOC* resp)
             res->values.emplace(itr, boost::none);
         }
     }
+    spdlog::trace(res->to_string());
 }
 }
 

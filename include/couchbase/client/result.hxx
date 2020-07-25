@@ -21,5 +21,6 @@ struct result {
     [[nodiscard]] bool is_not_found() const;
     [[nodiscard]] bool is_success() const;
     [[nodiscard]] bool is_value_too_large() const;
+    [[nodiscard]] std::string to_string() const;
 };
 } // namespace couchbase
