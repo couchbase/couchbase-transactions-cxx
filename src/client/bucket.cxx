@@ -21,7 +21,7 @@ open_callback(lcb_INSTANCE* instance, lcb_STATUS status)
 std::shared_ptr<cb::collection>
 cb::bucket::default_collection()
 {
-    return std::make_shared<cb::collection>(shared_from_this(), "", "");
+    return std::make_shared<cb::collection>(shared_from_this(), "_default", "_default");
 }
 
 std::shared_ptr<cb::collection>

@@ -176,8 +176,8 @@ TEST(SimpleClientCollectionTests, CanMutateIn) {
 TEST(SimpleClientCollectionTests, CanGetBucketNameEtc) {
     auto coll = ClientTestEnvironment::get_default_collection(::bucket_name);
     ASSERT_EQ(coll->bucket_name(), ::bucket_name);
-    ASSERT_TRUE(coll->name().empty());
-    ASSERT_TRUE(coll->scope().empty());
+    ASSERT_EQ(std::string("_default"), coll->name());
+    ASSERT_EQ(std::string("_default"), coll->scope());
 }
 
 int main(int argc, char* argv[]) {
