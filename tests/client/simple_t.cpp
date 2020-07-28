@@ -73,24 +73,28 @@ class SimpleClientCollectionTests : public ::testing::Test {
 
         // for now, lets do this in hopes we avoid CCBC-1300
         int retries = 0;
-        while (++retries < 5 ) {
+        while (++retries < NUM_RETRIES ) {
+            std::cerr << "attempting to upsert (" << retries << " of " << NUM_RETRIES << " attempts)" << std::endl;
             auto result = _coll->upsert(_id, content);
             if (result.rc == 0) {
                 return;
-            } else if (result.rc != 1040) {
-                FAIL() << "got unexpected result {} when upserting" << result.to_string();
+            } else if (result.rc != 201 && result.rc != 1040 && result.rc != 1031) {
+                FAIL() << "got unexpected result when upserting" << result.to_string();
             } else {
-                std::cerr << "upsert got {}, retrying in 3 seconds..." << std::endl;
-                std::this_thread::sleep_for(std::chrono::seconds(3));
+                std::cerr << "upsert got " << result.to_string() << ", retrying in " << DELAY_SECONDS << " seconds..." << std::endl;
+                std::this_thread::sleep_for(std::chrono::seconds(DELAY_SECONDS));
             }
         }
-        FAIL() << "tried 5 times, waiting 3 sec between, stil getting 1031";
+        FAIL() << "tried " << NUM_RETRIES << " times, waiting " << DELAY_SECONDS <<"sec between, bucket still not ready";
     }
 
     void TearDown() override {
+        std::cerr << "tearing down, removing " << _id << std::endl;
         _coll->remove(_id);
     }
 
+    const int NUM_RETRIES {10};
+    const int DELAY_SECONDS {6};
     std::shared_ptr<couchbase::collection> _coll;
     std::shared_ptr<couchbase::bucket> _bucket;
     std::string _id;
@@ -109,12 +113,12 @@ TEST_F(SimpleClientCollectionTests, CanInsert) {
 }
 
 TEST_F(SimpleClientCollectionTests, CanUpsert) {
-    upsert_random_doc(_coll, _id);
+    std::string id;
+    upsert_random_doc(_coll, id);
 }
 
 TEST_F(SimpleClientCollectionTests, CanGet) {
     // Of course, this depends on being able to upsert as well
-    upsert_random_doc(_coll, _id);
     auto get_res = _coll->get(_id);
     ASSERT_TRUE(get_res.is_success());
     ASSERT_FALSE(get_res.is_not_found());
@@ -140,7 +144,6 @@ TEST_F(SimpleClientCollectionTests, CanGetDocNotFound) {
 
 TEST_F(SimpleClientCollectionTests, CanRemove) {
     // Of course, this depends on being able to upsert as well
-    upsert_random_doc(_coll, _id);
     auto res = _coll->remove(_id);
     ASSERT_TRUE(res.is_success());
     res = _coll->get(_id);
@@ -153,7 +156,6 @@ TEST_F(SimpleClientCollectionTests, CanRemove) {
 
 TEST_F(SimpleClientCollectionTests, CanReplace) {
     // Of course, this depends on being able to upsert and get.
-    upsert_random_doc(_coll, _id);
     auto cas = _coll->get(_id).cas;
     auto new_content = nlohmann::json::parse("{\"some\":\"thing else\"}");
     auto res = _coll->replace(_id, new_content, cas);
@@ -166,7 +168,6 @@ TEST_F(SimpleClientCollectionTests, CanReplace) {
 
 TEST_F(SimpleClientCollectionTests, CanLookupIn) {
     // also depends on upsert
-    upsert_random_doc(_coll, _id);
     auto res = _coll->lookup_in(_id, {couchbase::lookup_in_spec::get("some"), lookup_in_spec::fulldoc_get()});
     ASSERT_TRUE(res.is_success());
     ASSERT_FALSE(res.is_not_found());
@@ -180,7 +181,6 @@ TEST_F(SimpleClientCollectionTests, CanLookupIn) {
 
 TEST_F(SimpleClientCollectionTests, CanMutateIn) {
     // also depends on upsert and get.
-    upsert_random_doc(_coll, _id);
     auto res = _coll->mutate_in(_id, {couchbase::mutate_in_spec::upsert(std::string("some"), std::string("other thing")),
                                     couchbase::mutate_in_spec::insert(std::string("another"), std::string("field"))});
     ASSERT_TRUE(res.is_success());
