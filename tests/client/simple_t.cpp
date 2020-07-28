@@ -77,7 +77,7 @@ class SimpleClientCollectionTests : public ::testing::Test {
             auto result = _coll->upsert(_id, content);
             if (result.rc == 0) {
                 return;
-            } else if (result.rc != 1031) {
+            } else if (result.rc != 1040) {
                 FAIL() << "got unexpected result {} when upserting" << result.to_string();
             } else {
                 std::cerr << "upsert got {}, retrying in 3 seconds..." << std::endl;
