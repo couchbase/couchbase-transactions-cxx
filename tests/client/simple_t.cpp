@@ -1,4 +1,8 @@
 #include <memory>
+#include <cstdio>
+#include <chrono>
+#include <thread>
+
 #include <gtest/gtest.h>
 #include "couchbase/client/cluster.hxx"
 #include "couchbase/client/collection.hxx"
@@ -59,14 +63,42 @@ TEST(SimpleClientBucketTests, CanGetDefaultCollection) {
     auto coll = b->default_collection();
     ASSERT_TRUE(coll.get() != nullptr);
 }
+class SimpleClientCollectionTests : public ::testing::Test {
 
-TEST(SimpleClientCollectionTests, CanInsert) {
+  protected:
+    void SetUp() override {
+        _bucket = ClientTestEnvironment::get_cluster()->bucket("default");
+        _coll = _bucket->default_collection();
+        _id = ClientTestEnvironment::get_uuid();
+
+        // for now, lets do this in hopes we avoid CCBC-1300
+        int retries = 0;
+        while (++retries < 5 ) {
+            auto result = _coll->upsert(_id, content);
+            if (result.rc == 0) {
+                return;
+            } else if (result.rc != 1031) {
+                FAIL() << "got unexpected result {} when upserting" << result.to_string();
+            } else {
+                std::cerr << "upsert got {}, retrying in 3 seconds..." << std::endl;
+                std::this_thread::sleep_for(std::chrono::seconds(3));
+            }
+        }
+        FAIL() << "tried 5 times, waiting 3 sec between, stil getting 1031";
+    }
+
+    void TearDown() override {
+        _coll->remove(_id);
+    }
+
+    std::shared_ptr<couchbase::collection> _coll;
+    std::shared_ptr<couchbase::bucket> _bucket;
+    std::string _id;
+};
+TEST_F(SimpleClientCollectionTests, CanInsert) {
     auto id = ClientTestEnvironment::get_uuid();
     auto content = nlohmann::json::parse("{\"some\":\"thing\"}");
-    auto c = ClientTestEnvironment::get_cluster();
-    auto b = c->bucket("default");
-    auto coll = b->default_collection();
-    auto result = coll->insert(id, content);
+    auto result = _coll->insert(id, content);
     ASSERT_TRUE(result.is_success());
     ASSERT_EQ(result.rc, 0);
     ASSERT_FALSE(result.is_not_found());
@@ -76,35 +108,28 @@ TEST(SimpleClientCollectionTests, CanInsert) {
     ASSERT_FALSE(result.value);
 }
 
-TEST(SimpleClientCollectionTests, CanUpsert) {
-    std::string id;
-    auto coll = ClientTestEnvironment::get_default_collection(::bucket_name);
-    upsert_random_doc(coll, id);
+TEST_F(SimpleClientCollectionTests, CanUpsert) {
+    upsert_random_doc(_coll, _id);
 }
 
-TEST(SimpleClientCollectionTests, CanGet) {
+TEST_F(SimpleClientCollectionTests, CanGet) {
     // Of course, this depends on being able to upsert as well
-    std::string id;
-    auto coll = ClientTestEnvironment::get_default_collection(::bucket_name);
-    upsert_random_doc(coll, id);
-    auto get_res = coll->get(id);
+    upsert_random_doc(_coll, _id);
+    auto get_res = _coll->get(_id);
     ASSERT_TRUE(get_res.is_success());
     ASSERT_FALSE(get_res.is_not_found());
     ASSERT_FALSE(get_res.is_value_too_large());
     ASSERT_TRUE(get_res.strerror().find("LCB_SUCCESS") != std::string::npos);
     ASSERT_NE(get_res.cas, 0);
-    ASSERT_EQ(get_res.key, id);
+    ASSERT_EQ(get_res.key, _id);
     ASSERT_EQ(get_res.rc, 0);
     ASSERT_TRUE(get_res.value);
     ASSERT_EQ(get_res.value.get(), content);
 }
 
-TEST(SimpleClientCollectionTests, CanGetDocNotFound) {
+TEST_F(SimpleClientCollectionTests, CanGetDocNotFound) {
     auto id = ClientTestEnvironment::get_uuid();
-    auto c = ClientTestEnvironment::get_cluster();
-    auto b = c->bucket("default");
-    auto coll = b->default_collection();
-    auto res = coll->get(id);
+    auto res = _coll->get(id);
     ASSERT_FALSE(res.is_success());
     ASSERT_TRUE(res.is_not_found());
     ASSERT_FALSE(res.is_value_too_large());
@@ -113,14 +138,12 @@ TEST(SimpleClientCollectionTests, CanGetDocNotFound) {
     ASSERT_EQ(res.rc, 301);
 }
 
-TEST(SimpleClientCollectionTests, CanRemove) {
+TEST_F(SimpleClientCollectionTests, CanRemove) {
     // Of course, this depends on being able to upsert as well
-    std::string id;
-    auto coll = ClientTestEnvironment::get_default_collection(::bucket_name);
-    upsert_random_doc(coll, id);
-    auto res = coll->remove(id);
+    upsert_random_doc(_coll, _id);
+    auto res = _coll->remove(_id);
     ASSERT_TRUE(res.is_success());
-    res = coll->get(id);
+    res = _coll->get(_id);
     ASSERT_FALSE(res.is_success());
     ASSERT_TRUE(res.is_not_found());
     ASSERT_FALSE(res.is_value_too_large());
@@ -128,56 +151,49 @@ TEST(SimpleClientCollectionTests, CanRemove) {
     ASSERT_EQ(res.rc, 301);
 }
 
-TEST(SimpleClientCollectionTests, CanReplace) {
+TEST_F(SimpleClientCollectionTests, CanReplace) {
     // Of course, this depends on being able to upsert and get.
-    std::string id;
-    auto coll = ClientTestEnvironment::get_default_collection(::bucket_name);
-    upsert_random_doc(coll, id);
-    auto cas = coll->get(id).cas;
+    upsert_random_doc(_coll, _id);
+    auto cas = _coll->get(_id).cas;
     auto new_content = nlohmann::json::parse("{\"some\":\"thing else\"}");
-    auto res = coll->replace(id, new_content, cas);
+    auto res = _coll->replace(_id, new_content, cas);
     ASSERT_TRUE(res.is_success());
-    res = coll->get(id);
+    res = _coll->get(_id);
     ASSERT_TRUE(res.is_success());
     ASSERT_NE(res.cas, cas);
     ASSERT_EQ(res.value->get<nlohmann::json>(), new_content);
 }
 
-TEST(SimpleClientCollectionTests, CanLookupIn) {
+TEST_F(SimpleClientCollectionTests, CanLookupIn) {
     // also depends on upsert
-    std::string id;
-    auto coll = ClientTestEnvironment::get_default_collection(::bucket_name);
-    upsert_random_doc(coll, id);
-    auto res = coll->lookup_in(id, {couchbase::lookup_in_spec::get("some"), lookup_in_spec::fulldoc_get()});
+    upsert_random_doc(_coll, _id);
+    auto res = _coll->lookup_in(_id, {couchbase::lookup_in_spec::get("some"), lookup_in_spec::fulldoc_get()});
     ASSERT_TRUE(res.is_success());
     ASSERT_FALSE(res.is_not_found());
     ASSERT_FALSE(res.is_value_too_large());
-    ASSERT_EQ(res.key, id);
+    ASSERT_EQ(res.key, _id);
     ASSERT_FALSE(res.value);
     ASSERT_FALSE(res.values.empty());
     ASSERT_EQ(res.values[0]->get<std::string>(), std::string("thing"));
     ASSERT_EQ(res.values[1]->get<nlohmann::json>(), ::content);
 }
 
-TEST(SimpleClientCollectionTests, CanMutateIn) {
+TEST_F(SimpleClientCollectionTests, CanMutateIn) {
     // also depends on upsert and get.
-    std::string id;
-    auto coll = ClientTestEnvironment::get_default_collection(::bucket_name);
-    upsert_random_doc(coll, id);
-    auto res = coll->mutate_in(id, {couchbase::mutate_in_spec::upsert(std::string("some"), std::string("other thing")),
+    upsert_random_doc(_coll, _id);
+    auto res = _coll->mutate_in(_id, {couchbase::mutate_in_spec::upsert(std::string("some"), std::string("other thing")),
                                     couchbase::mutate_in_spec::insert(std::string("another"), std::string("field"))});
     ASSERT_TRUE(res.is_success());
-    res = coll->get(id);
+    res = _coll->get(_id);
     ASSERT_TRUE(res.is_success());
     ASSERT_TRUE(res.value);
     ASSERT_EQ(res.value->get<nlohmann::json>(), nlohmann::json::parse("{\"some\":\"other thing\", \"another\":\"field\"}"));
 }
 
-TEST(SimpleClientCollectionTests, CanGetBucketNameEtc) {
-    auto coll = ClientTestEnvironment::get_default_collection(::bucket_name);
-    ASSERT_EQ(coll->bucket_name(), ::bucket_name);
-    ASSERT_EQ(std::string("_default"), coll->name());
-    ASSERT_EQ(std::string("_default"), coll->scope());
+TEST_F(SimpleClientCollectionTests, CanGetBucketNameEtc) {
+    ASSERT_EQ(_coll->bucket_name(), ::bucket_name);
+    ASSERT_EQ(std::string("_default"), _coll->name());
+    ASSERT_EQ(std::string("_default"), _coll->scope());
 }
 
 int main(int argc, char* argv[]) {
