@@ -179,7 +179,7 @@ namespace transactions
             } else {
                 std::string what(fmt::format("got error while getting doc {}: {}", id, res.strerror()));
                 spdlog::warn(what);
-                throw client_error(what);
+                throw error_wrapper(FAIL_OTHER, what);
             }
         }
 
@@ -221,13 +221,13 @@ namespace transactions
             };
             if (document.metadata()) {
                 if (document.metadata()->cas()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()));
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).xattr());
                 }
                 if (document.metadata()->revid()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->revid().value()));
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->revid().value()).xattr());
                 }
                 if (document.metadata()->exptime()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->exptime().value()));
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->exptime().value()).xattr());
                 }
             }
 
@@ -240,7 +240,7 @@ namespace transactions
                 add_mutation_token();
                 return out;
             }
-            throw std::runtime_error(std::string("failed to replace the document: ") + res.strerror());
+            throw error_wrapper(FAIL_OTHER, std::string("failed to replace the document: ") + res.strerror());
         }
 
         /**
@@ -310,7 +310,8 @@ namespace transactions
             }
             // TODO: RETRY-ERR-AMBIG
             // TODO: handle document already exists
-            throw client_error(std::string("failed to insert the document: ") + res.strerror());
+            // For now, anything is a fail.
+            throw error_wrapper(FAIL_OTHER, std::string("failed to insert the document: ") + res.strerror());
         }
 
         /**
@@ -343,16 +344,16 @@ namespace transactions
             };
             if (document.metadata()) {
                 if (document.metadata()->cas()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()));
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).xattr());
                 }
                 if (document.metadata()->revid()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->revid().value()));
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->revid().value()).xattr());
                 }
                 if (document.metadata()->exptime()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->exptime().value()));
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->exptime().value()).xattr());
                 }
             }
-            specs.emplace_back(mutate_in_spec::upsert(STAGED_DATA, REMOVE_SENTINEL));
+            specs.emplace_back(mutate_in_spec::upsert(STAGED_DATA, REMOVE_SENTINEL).xattr());
             const result& res = collection->mutate_in(document.id(), specs, durability(config_));
             spdlog::info("removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
             hooks_.after_staged_remove_complete(this, document.id());
@@ -364,7 +365,7 @@ namespace transactions
             } else {
                 auto msg = std::string("failed to remove document: ") + res.strerror();
                 spdlog::error(msg);
-                throw std::runtime_error(msg);
+                throw error_wrapper(FAIL_OTHER, msg);
             }
         }
 
@@ -407,7 +408,7 @@ namespace transactions
                     }
 
                 } else {
-                    throw std::runtime_error(std::string("failed to commit transaction: ") + attempt_id() + ": " + res.strerror());
+                    throw error_wrapper(FAIL_OTHER, std::string("failed to commit transaction: ") + attempt_id() + ": " + res.strerror());
                 }
             } else {
                 // no mutation, no need to commit
@@ -416,19 +417,99 @@ namespace transactions
                     is_done_ = true;
                     return;
                 } else {
-                    throw attempt_exception("calling commit on attempt that is already completed");
+                    // do not rollback or retry
+                    throw error_wrapper(FAIL_OTHER, std::string("calling commit on attempt that is already completed"), false, false);
                 }
             }
         }
+        /**
+         * Rollback the transaction.  All staged mutations will be unstaged.
+         *
+         * Typically, this is called internally to rollback transaction when errors occur in the lambda.  Though
+         * it can be called explicitly from the app logic within the transaction as well, perhaps that is better
+         * modeled as a custom exception that you raise instead.
+         */
         void rollback() {
-            // not yet implemented
-            spdlog::warn("rollback not yet implemented");
-            is_done_ = true;
+            spdlog::info("rolling back");
+            // check for expiry
+            check_expiry_during_commit_or_rollback(STAGE_ROLLBACK, boost::none);
+            if (!atr_id_ || !atr_collection_) {
+                spdlog::trace("rollback called on txn with no mutations");
+                return;
+            }
+            if (is_done()) {
+                std::string msg("Transaction already done, cannot rollback");
+                spdlog::error(msg);
+                // need to raise a FAIL_OTHER which is not retryable or rollback-able
+                throw error_wrapper(FAIL_OTHER, msg, false, false);
+            }
+            // We do 3 things - set the atr to abort
+            //                - unstage the docs
+            //                - set atr to ROLLED_BACK
+            std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
+            std::vector<mutate_in_spec> specs({
+                mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::ABORTED)).xattr(),
+                mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, "${Mutation.CAS}").xattr().expand_macro(),
+            });
+            // now add the staged mutations...
+            staged_mutations_.extract_to(prefix, specs);
+
+            hooks_.before_atr_aborted(this);
+            const result& res = atr_collection_->mutate_in(atr_id_.value(), specs);
+            hooks_.after_atr_aborted(this);
+            spdlog::trace("rollback completed atr abort phase");
+            if (res.is_success()) {
+                staged_mutations_.iterate([&](staged_mutation& mutation) {
+                    hooks_.before_doc_rolled_back(this, mutation.doc().id());
+                    std::vector<mutate_in_spec> specs({
+                        mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
+                    });
+                    switch(mutation.type()) {
+                        case staged_mutation_type::INSERT:
+                            spdlog::trace("rolling back staged insert for {}", mutation.doc().id());
+                            // TODO: since we don't insert as deleted yet, instead of mutating this, we
+                            // need to remove it
+                            //mutation.doc().collection_ref().mutate_in(mutation.doc().id(), specs);
+                            mutation.doc().collection_ref().remove(mutation.doc().id());
+                            hooks_.after_rollback_replace_or_remove(this, mutation.doc().id());
+                            // TODO: deal with errors mutating the doc
+                            break;
+                        default:
+                            spdlog::trace("rolling back staged remove/replace for {}", mutation.doc().id());
+                            auto r = mutation.doc().collection_ref().mutate_in(mutation.doc().id(), specs);
+                            spdlog::trace("rollback result {}", r.to_string());
+                            hooks_.after_rollback_replace_or_remove(this, mutation.doc().id());
+                            // TODO: deal with errors mutating the doc
+                            break;
+
+                    }
+                    spdlog::trace("rollback completed unstaging docs");
+                });
+
+                // now complete the atr rollback
+                hooks_.before_atr_rolled_back(this);
+                std::vector<mutate_in_spec> specs({
+                    mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::ROLLED_BACK)).xattr(),
+                    mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
+                });
+                atr_collection_->mutate_in(atr_id_.value(), specs);
+                attempt_state(couchbase::transactions::attempt_state::ROLLED_BACK);
+                hooks_.after_atr_rolled_back(this);
+                is_done_ = true;
+                // TODO: deal with errors mutating ATR record, and retries perhaps?
+            } else {
+
+            }
         }
 
         [[nodiscard]] bool is_done()
         {
             return is_done_;
+        }
+
+        [[nodiscard]] const std::string& transaction_id()
+        {
+            return overall_.transaction_id();
         }
 
         [[nodiscard]] const std::string& attempt_id()
@@ -492,7 +573,7 @@ namespace transactions
                 // [EXP-ROLLBACK] Combo of setting this mode and throwing AttemptExpired will result in a attempt to rollback, which will
                 // ignore expiries, and bail out if anything fails
                 expiry_overtime_mode_ = true;
-                throw attempt_expired("Attempt has expired in stage " + stage);
+                throw attempt_expired(std::string("Attempt has expired in stage ") + stage);
             }
         }
 
@@ -526,8 +607,8 @@ namespace transactions
         {
             if (staged_mutations_.empty()) {
                 std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
-                if (!atr_id_) {
-                    throw std::domain_error("ATR ID is not initialized");
+                if (!atr_id_.has_value()) {
+                    throw error_wrapper(FAIL_OTHER, std::string("ATR ID is not initialized"));
                 }
                 insure_atr_exists(collection);
                 hooks_.before_atr_pending(this);
@@ -554,10 +635,11 @@ namespace transactions
                     check_expiry_during_commit_or_rollback(STAGE_ATR_PENDING, {});
                 } else if (res.is_value_too_large()) {
                     // TODO: Handle "active transaction record is full" condition
+                    throw error_wrapper(FAIL_ATR_FULL, "ATR is full");
                 } else {
                     std::string what(fmt::format("got error while setting atr {}: {}", atr_id_.value(), res.strerror()));
                     spdlog::warn(what);
-                    throw client_error(what);
+                    throw error_wrapper(FAIL_OTHER, what);
                 }
             }
         }
@@ -613,7 +695,7 @@ namespace transactions
                                      doc.id(),
                                      doc.links().staged_attempt_id().get(),
                                      elapsed_since_start_of_txn.count());
-                        throw document_already_in_transaction("TODO");
+                        throw document_already_in_transaction(std::string("TODO"));
                     } else {
                         // The blocking transaction has been blocking for a suspiciosly long time. Time to start checking if it is expired
                         if (doc.links().atr_id() && doc.links().atr_bucket_name()) {
@@ -640,7 +722,7 @@ namespace transactions
         void check_if_done()
         {
             if (is_done_) {
-                throw std::domain_error("Cannot perform operations after transaction has been committed or rolled back");
+                throw error_wrapper(FAIL_OTHER, "Cannot perform operations after transaction has been committed or rolled back", false, false);
             }
         }
 

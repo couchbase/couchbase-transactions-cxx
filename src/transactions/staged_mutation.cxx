@@ -90,6 +90,13 @@ tx::staged_mutation_queue::find_remove(std::shared_ptr<couchbase::collection> co
     }
     return nullptr;
 }
+void
+tx::staged_mutation_queue::iterate(std::function<void(staged_mutation&)> op) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    for (auto& item: queue_) {
+        op(item);
+    }
+}
 
 void
 tx::staged_mutation_queue::commit()

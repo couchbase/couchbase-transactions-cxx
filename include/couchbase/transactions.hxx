@@ -1,7 +1,6 @@
 #pragma once
 
 #include <functional>
-
 #include <couchbase/client/cluster.hxx>
 
 #include <couchbase/transactions/attempt_context.hxx>
@@ -39,7 +38,24 @@ namespace transactions
             transaction_context overall;
             attempt_context ctx(this, overall, config_);
             spdlog::info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.attempt_id());
-            logic(ctx);
+            while (!overall.has_expired_client_side(config_)) {
+                try {
+                    logic(ctx);
+                    break;
+                } catch (std::runtime_error ex) {
+                    ctx.rollback();
+                    break;
+                } catch (error_wrapper er) {
+                    if (er.should_retry()) {
+                        continue;
+                    }
+                    if (er.should_rollback()) {
+                        ctx.rollback();
+                    }
+                    // throw the expected exception here
+                    er.do_throw();
+                }
+            }
             if (!ctx.is_done()) {
                 ctx.commit();
             }
@@ -49,6 +65,16 @@ namespace transactions
                                       overall.attempts(),
                                       overall.current_attempt().state == attempt_state::COMPLETED};
 
+        }
+
+        void commit(attempt_context& ctx)
+        {
+            ctx.commit();
+        }
+
+        void rollback(attempt_context& ctx)
+        {
+            ctx.rollback();
         }
 
         void close()

@@ -56,7 +56,9 @@ namespace transactions
         bool empty();
         void add(const staged_mutation& mutation);
         void extract_to(const std::string& prefix, std::vector<couchbase::mutate_in_spec>& specs);
+        // TODO: deal with hooks - pass attempt_ctx here
         void commit();
+        void iterate(std::function<void(staged_mutation&)>);
 
         staged_mutation* find_replace(std::shared_ptr<collection> collection, const std::string& id);
         staged_mutation* find_insert(std::shared_ptr<collection> collection, const std::string& id);
