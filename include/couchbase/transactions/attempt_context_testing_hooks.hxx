@@ -25,7 +25,7 @@ namespace transactions
             return {};
         }
 
-        bool noop_4(attempt_context*, const std::string&, boost::optional<std::string>)
+        bool noop_4(attempt_context*, const std::string&, boost::optional<const std::string>)
         {
             return false;
         }
@@ -94,7 +94,7 @@ namespace transactions
 
         std::function<boost::optional<std::string>(attempt_context*)> random_atr_id_for_vbucket = noop_3;
 
-        std::function<bool(attempt_context*, const std::string&, boost::optional<std::string>)> has_expired_client_side_hook = noop_4;
+        std::function<bool(attempt_context*, const std::string&, boost::optional<const std::string>)> has_expired_client_side_hook = noop_4;
     };
 } // namespace transactions
 } // namespace couchbase

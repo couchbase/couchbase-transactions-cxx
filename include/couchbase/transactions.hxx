@@ -36,28 +36,33 @@ namespace transactions
         transaction_result run(const logic& logic)
         {
             transaction_context overall;
-            attempt_context ctx(this, overall, config_);
-            spdlog::info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.attempt_id());
             while (!overall.has_expired_client_side(config_)) {
+                attempt_context ctx(this, overall, config_);
+                spdlog::info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.attempt_id());
                 try {
                     logic(ctx);
+                    if (!ctx.is_done()) {
+                        ctx.commit();
+                    }
                     break;
-                } catch (std::runtime_error ex) {
-                    ctx.rollback();
-                    break;
-                } catch (error_wrapper er) {
+                } catch (const error_wrapper& er) {
+                    spdlog::error("got error_wrapper {}", er.what());
                     if (er.should_retry()) {
+                        spdlog::trace("got retryable exception {}, retrying", er.what());
                         continue;
                     }
                     if (er.should_rollback()) {
+                        spdlog::trace("got non-retryable exception, rolling back");
                         ctx.rollback();
                     }
+
                     // throw the expected exception here
-                    er.do_throw();
+                    er.do_throw(overall);
+                } catch (const std::runtime_error& ex) {
+                    spdlog::error("got runtime error {}", ex.what());
+                    ctx.rollback();
+                    break;
                 }
-            }
-            if (!ctx.is_done()) {
-                ctx.commit();
             }
             return transaction_result{overall.transaction_id(),
                                       overall.atr_id(),

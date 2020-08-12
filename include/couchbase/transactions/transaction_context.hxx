@@ -6,6 +6,7 @@
 
 #include <couchbase/transactions/transaction_attempt.hxx>
 #include <couchbase/transactions/uid_generator.hxx>
+#include <couchbase/transactions/transaction_config.hxx>
 
 namespace couchbase
 {
@@ -30,16 +31,26 @@ namespace transactions
         {
             return attempts_.size();
         }
-        [[nodiscard]] std::vector<transaction_attempt> attempts() const
+        [[nodiscard]] const std::vector<transaction_attempt>& attempts() const
         {
             return attempts_;
         }
-        [[nodiscard]] transaction_attempt& current_attempt() {
+        [[nodiscard]] std::vector<transaction_attempt>& attempts()
+        {
+            return const_cast<std::vector<transaction_attempt>&>(const_cast<const transaction_context*>(this)->attempts());
+        }
+        [[nodiscard]] const transaction_attempt& current_attempt() const
+        {
             if (attempts_.empty()) {
                 throw new std::runtime_error("transaction context has no attempts yet");
             }
             return attempts_.back();
         }
+        [[nodiscard]] transaction_attempt& current_attempt()
+        {
+            return const_cast<transaction_attempt&>(const_cast<const transaction_context*>(this)->current_attempt());
+        }
+
         void add_attempt() {
             transaction_attempt attempt{};
             attempts_.push_back(attempt);
@@ -67,14 +78,14 @@ namespace transactions
             return start_time_client_;
         }
 
-        [[nodiscard]] const std::string atr_id() {
+        [[nodiscard]] const std::string atr_id() const {
             return atr_id_;
         }
 
         void atr_id(const std::string& id) {
             atr_id_ = id;
         }
-        [[nodiscard]] std::string atr_collection() {
+        [[nodiscard]] std::string atr_collection() const {
             return atr_collection_;
         }
         void atr_collection(const std::string& coll) {

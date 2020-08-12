@@ -224,10 +224,10 @@ namespace transactions
                     specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).xattr());
                 }
                 if (document.metadata()->revid()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->revid().value()).xattr());
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_REVID, document.metadata()->revid().value()).xattr());
                 }
                 if (document.metadata()->exptime()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->exptime().value()).xattr());
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).xattr());
                 }
             }
 
@@ -347,10 +347,10 @@ namespace transactions
                     specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).xattr());
                 }
                 if (document.metadata()->revid()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->revid().value()).xattr());
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_REVID, document.metadata()->revid().value()).xattr());
                 }
                 if (document.metadata()->exptime()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->exptime().value()).xattr());
+                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).xattr());
                 }
             }
             specs.emplace_back(mutate_in_spec::upsert(STAGED_DATA, REMOVE_SENTINEL).xattr());
@@ -386,8 +386,10 @@ namespace transactions
                   mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::COMMITTED)).xattr(),
                   mutate_in_spec::upsert(prefix + ATR_FIELD_START_COMMIT, "${Mutation.CAS}").xattr().expand_macro(),
                 });
+                hooks_.before_atr_commit(this);
                 staged_mutations_.extract_to(prefix, specs);
                 const result& res = atr_collection_->mutate_in(atr_id_.value(), specs);
+                hooks_.after_atr_commit(this);
                 if (res.is_success()) {
                     std::vector<transaction_document> docs;
                     staged_mutations_.commit();
@@ -434,7 +436,10 @@ namespace transactions
             // check for expiry
             check_expiry_during_commit_or_rollback(STAGE_ROLLBACK, boost::none);
             if (!atr_id_ || !atr_collection_) {
+                // TODO: check this, but if we try to rollback an empty txn, we should
+                // prevent a subsequent commit
                 spdlog::trace("rollback called on txn with no mutations");
+                is_done_ = true;
                 return;
             }
             if (is_done()) {
@@ -546,6 +551,19 @@ namespace transactions
             overall_.atr_collection(coll);
         }
 
+        bool has_expired_client_side(std::string place, boost::optional<const std::string> doc_id)
+        {
+            bool over = overall_.has_expired_client_side(config_);
+            bool hook = hooks_.has_expired_client_side_hook(this, place, doc_id);
+            if (over) {
+                spdlog::info("{} expired in {}", attempt_id(), place);
+            }
+            if (hook) {
+                spdlog::info("{} fake expiry in {}", attempt_id(), place);
+            }
+            return over || hook;
+        }
+
       private:
         static couchbase::durability_level durability(const transaction_config& config)
         {
@@ -564,7 +582,7 @@ namespace transactions
 
         bool expiry_overtime_mode_{ false };
 
-        void check_expiry_pre_commit(std::string stage, boost::optional<std::string> doc_id)
+        void check_expiry_pre_commit(std::string stage, boost::optional<const std::string> doc_id)
         {
             if (has_expired_client_side(stage, std::move(doc_id))) {
                 spdlog::info(
@@ -580,7 +598,7 @@ namespace transactions
         // The timing of this call is important.
         // Should be done before doOnNext, which tests often make throw an exception.
         // In fact, needs to be done without relying on any onNext signal.  What if the operation times out instead.
-        void check_expiry_during_commit_or_rollback(const std::string& stage, boost::optional<std::string> doc_id)
+        void check_expiry_during_commit_or_rollback(const std::string& stage, boost::optional<const std::string> doc_id)
         {
             // [EXP-COMMIT-OVERTIME]
             if (!expiry_overtime_mode_) {
@@ -642,19 +660,6 @@ namespace transactions
                     throw error_wrapper(FAIL_OTHER, what);
                 }
             }
-        }
-
-        bool has_expired_client_side(std::string place, boost::optional<std::string> doc_id)
-        {
-            bool over = overall_.has_expired_client_side(config_);
-            bool hook = hooks_.has_expired_client_side_hook(this, place, doc_id);
-            if (over) {
-                spdlog::info("{} expired in {}", attempt_id(), place);
-            }
-            if (hook) {
-                spdlog::info("{} fake expiry in {}", attempt_id(), place);
-            }
-            return over || hook;
         }
 
         staged_mutation* check_for_own_write(std::shared_ptr<collection> collection, const std::string& id)

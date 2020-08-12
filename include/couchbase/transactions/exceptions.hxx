@@ -2,6 +2,8 @@
 
 #include <stdexcept>
 #include <boost/optional.hpp>
+#include <spdlog/spdlog.h>
+#include <couchbase/transactions/transaction_context.hxx>
 
 namespace couchbase
 {
@@ -32,20 +34,36 @@ namespace transactions
      *
      * These are the only exceptions that are raised out of the transaction lambda
      */
-    class transaction_failed : public std::runtime_error
+    class transaction_base : public std::runtime_error
     {
+      private:
+        const transaction_context _context;
+
       public:
-        explicit transaction_failed(const std::runtime_error& cause)
-          : std::runtime_error(cause)
+        explicit transaction_base(const std::runtime_error& cause, const transaction_context& context)
+            : std::runtime_error(cause), _context(context)
         {
+        }
+        const transaction_context& get_transaction_context() const {
+            return _context;
         }
     };
 
-    class transaction_expired: public std::runtime_error
+    class transaction_failed : public transaction_base
     {
       public:
-        explicit transaction_expired(const std::runtime_error& cause)
-            : std::runtime_error(cause)
+        explicit transaction_failed(const std::runtime_error& cause, const transaction_context& context)
+          : transaction_base(cause, context)
+        {
+        }
+
+    };
+
+    class transaction_expired: public transaction_base
+    {
+      public:
+        explicit transaction_expired(const std::runtime_error& cause, const transaction_context& context)
+            : transaction_base(cause, context)
             {
             }
     };
@@ -65,14 +83,15 @@ namespace transactions
         explicit error_wrapper(error_class ec, const std::runtime_error& cause, bool retry=false, bool rollback=true, final_error to_raise=FAILED)
             : std::runtime_error(cause), _ec(ec), _retry(retry), _rollback(rollback), _to_raise(to_raise) {}
 
-        bool should_retry() {
+        bool should_retry() const {
             return _retry;
         }
-        bool should_rollback() {
+        bool should_rollback() const {
             return _rollback;
         }
-        void do_throw() {
-            throw _to_raise == FAILED ? throw transaction_failed(*this) : transaction_expired(*this);
+        void do_throw(const transaction_context context) const {
+            spdlog::trace("throwing final error {}", _to_raise==FAILED ? "FAILED": "EXPIRED");
+            throw _to_raise == FAILED ? throw transaction_failed(*this, context) : transaction_expired(*this, context);
         }
 
       private:
@@ -98,16 +117,7 @@ namespace transactions
     {
       public:
         explicit attempt_expired(const std::string& what)
-          : error_wrapper(FAIL_EXPIRY, what)
-        {
-        }
-    };
-
-    class attempt_exception : public std::runtime_error
-    {
-      public:
-        explicit attempt_exception(const std::string& what)
-          : std::runtime_error(what)
+          : error_wrapper(FAIL_EXPIRY, what, false, true)
         {
         }
     };
@@ -121,14 +131,6 @@ namespace transactions
         }
     };
 
-    class transaction_commit_ambiguous: public std::runtime_error
-    {
-      public:
-        explicit transaction_commit_ambiguous(const std::string& what)
-            : std::runtime_error(what)
-            {
-            }
-    };
     namespace internal
     {
         /**
@@ -139,11 +141,11 @@ namespace transactions
          *
          * However, for testing purposes, a TransactionFailed will still be raised, correct in all respects including the attempts field.
          */
-        class test_fail_hard : public std::runtime_error
+        class test_fail_hard : public error_wrapper
         {
           public:
-            explicit test_fail_hard()
-              : std::runtime_error("Injecting a FAIL_HARD error")
+            explicit test_fail_hard() :
+                error_wrapper(FAIL_HARD, "Injecting a FAIL_HARD error", false, false)
             {
             }
         };
@@ -153,39 +155,39 @@ namespace transactions
          *
          * E.g. either the server or SDK raised an error indicating the operation was ambiguously successful.
          */
-        class test_fail_ambiguous : public std::runtime_error
+        class test_fail_ambiguous : public error_wrapper
         {
           public:
-            explicit test_fail_ambiguous()
-              : std::runtime_error("Injecting a FAIL_AMBIGUOUS error")
+            explicit test_fail_ambiguous() :
+                error_wrapper(FAIL_AMBIGUOUS, "Injecting a FAIL_AMBIGUOUS error", true, true)
             {
             }
         };
 
         /**
-         * Used only in testing: injects an error that will be handled as FAIL_FAST.
-         *
-         * E.g. an unrecoverable fault, such as a DocumentNotFoundException when trying to get a doc.
-         */
-        class test_fail_fast : public std::runtime_error
-        {
-          public:
-            explicit test_fail_fast()
-              : std::runtime_error("Injecting a FAIL_FAST error")
-            {
-            }
-        };
-
-        /**
-         * Used only in testing: injects an error that will be handled as FAIL_RETRY.
+         * Used only in testing: injects an error that will be handled as FAIL_TRANSIENT.
          *
          * E.g. a transient server error that could be recovered with a retry of either the operation or the transaction.
          */
-        class test_fail_retry : public std::runtime_error
+        class test_fail_transient : public error_wrapper
         {
           public:
-            explicit test_fail_retry()
-              : std::runtime_error("Injecting a FAIL_RETRY error")
+            explicit test_fail_transient()
+              : error_wrapper(FAIL_TRANSIENT, "Injecting a FAIL_TRANSIENT error", true, false)
+            {
+            }
+        };
+
+        /**
+         * Used only in testing: injects an error that will be handled as FAIL_OTHER.
+         *
+         * E.g. an error which is not retryable.
+         */
+        class test_fail_other: public error_wrapper
+        {
+          public:
+            explicit test_fail_other()
+              : error_wrapper(FAIL_OTHER, "Injecting a FAIL_OTHER error", false, true)
             {
             }
         };

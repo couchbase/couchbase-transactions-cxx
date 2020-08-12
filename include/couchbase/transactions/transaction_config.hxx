@@ -55,7 +55,7 @@ namespace transactions
             expiration_time_ = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
         }
 
-        void test_factories(attempt_context_testing_hooks hooks)
+        void test_factories(attempt_context_testing_hooks& hooks)
         {
             attempt_context_hooks_ = hooks;
         }
