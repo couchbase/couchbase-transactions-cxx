@@ -625,7 +625,7 @@ namespace transactions
         {
             if (staged_mutations_.empty()) {
                 std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
-                if (!atr_id_.has_value()) {
+                if (!atr_id_) {
                     throw error_wrapper(FAIL_OTHER, std::string("ATR ID is not initialized"));
                 }
                 insure_atr_exists(collection);
