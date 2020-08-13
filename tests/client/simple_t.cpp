@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include "couchbase/client/cluster.hxx"
 #include "couchbase/client/collection.hxx"
+#include <spdlog/spdlog.h>
 #include "client_env.h"
 
 using namespace couchbase;
@@ -63,25 +64,35 @@ TEST(SimpleClientBucketTests, CanGetDefaultCollection) {
     auto coll = b->default_collection();
     ASSERT_TRUE(coll.get() != nullptr);
 }
+
 class SimpleClientCollectionTests : public ::testing::Test {
 
   protected:
     void SetUp() override {
-        _bucket = ClientTestEnvironment::get_cluster()->bucket("default");
-        _coll = _bucket->default_collection();
+        // no need to ask for the bucket or cluster if we already have 'em
+        if (!_bucket) {
+            spdlog::info("asking for default bucket, and default collection");
+            _bucket = ClientTestEnvironment::get_cluster()->bucket("default");
+            _coll = _bucket->default_collection();
+
+            // TODO: This is a miserable hack.
+            std::this_thread::sleep_for(std::chrono::seconds(10));
+        }
+        // new id every time
         _id = ClientTestEnvironment::get_uuid();
 
         // for now, lets do this in hopes we avoid CCBC-1300
         int retries = 0;
         while (++retries < NUM_RETRIES ) {
-            std::cerr << "attempting to upsert (" << retries << " of " << NUM_RETRIES << " attempts)" << std::endl;
+            spdlog::warn("attempting to upsert ({}) of {} attempts", retries, NUM_RETRIES);
             auto result = _coll->upsert(_id, content);
             if (result.rc == 0) {
+                spdlog::info("successfully upserted, got {}", result.to_string());
                 return;
             } else if (result.rc != 201 && result.rc != 1040 && result.rc != 1031) {
                 FAIL() << "got unexpected result when upserting" << result.to_string();
             } else {
-                std::cerr << "upsert got " << result.to_string() << ", retrying in " << DELAY_SECONDS << " seconds..." << std::endl;
+                spdlog::info("upsert got {}, retrying in {} seconds", result.to_string(), DELAY_SECONDS);
                 std::this_thread::sleep_for(std::chrono::seconds(DELAY_SECONDS));
             }
         }
@@ -89,16 +100,19 @@ class SimpleClientCollectionTests : public ::testing::Test {
     }
 
     void TearDown() override {
-        std::cerr << "tearing down, removing " << _id << std::endl;
+        spdlog::info("tearing down, removing {}", _id);
         _coll->remove(_id);
     }
 
     const int NUM_RETRIES {10};
     const int DELAY_SECONDS {6};
-    std::shared_ptr<couchbase::collection> _coll;
-    std::shared_ptr<couchbase::bucket> _bucket;
+    static std::shared_ptr<couchbase::collection> _coll;
+    static std::shared_ptr<couchbase::bucket> _bucket;
     std::string _id;
 };
+std::shared_ptr<couchbase::collection> SimpleClientCollectionTests::_coll = std::shared_ptr<couchbase::collection>();
+std::shared_ptr<couchbase::bucket> SimpleClientCollectionTests::_bucket = std::shared_ptr<couchbase::bucket>();
+
 TEST_F(SimpleClientCollectionTests, CanInsert) {
     auto id = ClientTestEnvironment::get_uuid();
     auto content = nlohmann::json::parse("{\"some\":\"thing\"}");
