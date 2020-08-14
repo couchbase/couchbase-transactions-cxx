@@ -5,8 +5,6 @@
 #include <utility>
 #include <vector>
 
-#include <boost/core/ignore_unused.hpp>
-
 #include <couchbase/client/collection.hxx>
 #include <couchbase/client/exceptions.hxx>
 #include <couchbase/transactions/attempt_context_testing_hooks.hxx>
