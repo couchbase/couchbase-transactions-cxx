@@ -69,7 +69,7 @@ namespace transactions
             }
             spdlog::error("Document with id {} not found", id);
             // TODO: revisit this when re-working exceptions
-            throw new couchbase::document_not_found_error("Document not found");
+            throw couchbase::document_not_found_error("Document not found");
         }
 
         // TODO: this should return boost::optional::<TransactionGetResult>

@@ -30,6 +30,11 @@ class cluster
 
     std::list<std::string> buckets();
     std::shared_ptr<class bucket> bucket(const std::string& name);
+
+    // Helpful for debugging/logging
+    const std::string cluster_address() const {
+        return cluster_address_;
+    }
     void shutdown();
 };
 } // namespace couchbase

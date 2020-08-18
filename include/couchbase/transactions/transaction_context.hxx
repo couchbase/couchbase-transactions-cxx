@@ -42,7 +42,7 @@ namespace transactions
         [[nodiscard]] const transaction_attempt& current_attempt() const
         {
             if (attempts_.empty()) {
-                throw new std::runtime_error("transaction context has no attempts yet");
+                throw std::runtime_error("transaction context has no attempts yet");
             }
             return attempts_.back();
         }
