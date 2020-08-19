@@ -1,9 +1,25 @@
+/*
+ *     Copyright 2020 Couchbase, Inc.
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
+
 #pragma once
 
-#include <stdexcept>
 #include <boost/optional.hpp>
-#include <spdlog/spdlog.h>
 #include <couchbase/transactions/transaction_context.hxx>
+#include <spdlog/spdlog.h>
+#include <stdexcept>
 
 namespace couchbase
 {
@@ -24,10 +40,7 @@ namespace transactions
         FAIL_ATR_FULL
     };
 
-    enum final_error {
-        FAILED,
-        EXPIRED
-    };
+    enum final_error { FAILED, EXPIRED };
 
     /**
      * External excepitons
@@ -41,10 +54,12 @@ namespace transactions
 
       public:
         explicit transaction_base(const std::runtime_error& cause, const transaction_context& context)
-            : std::runtime_error(cause), _context(context)
+          : std::runtime_error(cause)
+          , _context(context)
         {
         }
-        const transaction_context& get_transaction_context() const {
+        const transaction_context& get_transaction_context() const
+        {
             return _context;
         }
     };
@@ -56,16 +71,15 @@ namespace transactions
           : transaction_base(cause, context)
         {
         }
-
     };
 
-    class transaction_expired: public transaction_base
+    class transaction_expired : public transaction_base
     {
       public:
         explicit transaction_expired(const std::runtime_error& cause, const transaction_context& context)
-            : transaction_base(cause, context)
-            {
-            }
+          : transaction_base(cause, context)
+        {
+        }
     };
 
     /** error_wrapper
@@ -78,19 +92,42 @@ namespace transactions
     {
       public:
         // TODO: prevent both retry and rollback from being true.
-        explicit error_wrapper(error_class ec, const std::string& what, bool retry=false, bool rollback=true, final_error to_raise=FAILED)
-            : std::runtime_error(what), _ec(ec), _retry(retry), _rollback(rollback), _to_raise(to_raise) {}
-        explicit error_wrapper(error_class ec, const std::runtime_error& cause, bool retry=false, bool rollback=true, final_error to_raise=FAILED)
-            : std::runtime_error(cause), _ec(ec), _retry(retry), _rollback(rollback), _to_raise(to_raise) {}
+        explicit error_wrapper(error_class ec,
+                               const std::string& what,
+                               bool retry = false,
+                               bool rollback = true,
+                               final_error to_raise = FAILED)
+          : std::runtime_error(what)
+          , _ec(ec)
+          , _retry(retry)
+          , _rollback(rollback)
+          , _to_raise(to_raise)
+        {
+        }
+        explicit error_wrapper(error_class ec,
+                               const std::runtime_error& cause,
+                               bool retry = false,
+                               bool rollback = true,
+                               final_error to_raise = FAILED)
+          : std::runtime_error(cause)
+          , _ec(ec)
+          , _retry(retry)
+          , _rollback(rollback)
+          , _to_raise(to_raise)
+        {
+        }
 
-        bool should_retry() const {
+        bool should_retry() const
+        {
             return _retry;
         }
-        bool should_rollback() const {
+        bool should_rollback() const
+        {
             return _rollback;
         }
-        void do_throw(const transaction_context context) const {
-            spdlog::trace("throwing final error {}", _to_raise==FAILED ? "FAILED": "EXPIRED");
+        void do_throw(const transaction_context context) const
+        {
+            spdlog::trace("throwing final error {}", _to_raise == FAILED ? "FAILED" : "EXPIRED");
             throw _to_raise == FAILED ? throw transaction_failed(*this, context) : transaction_expired(*this, context);
         }
 
@@ -144,8 +181,8 @@ namespace transactions
         class test_fail_hard : public error_wrapper
         {
           public:
-            explicit test_fail_hard() :
-                error_wrapper(FAIL_HARD, "Injecting a FAIL_HARD error", false, false)
+            explicit test_fail_hard()
+              : error_wrapper(FAIL_HARD, "Injecting a FAIL_HARD error", false, false)
             {
             }
         };
@@ -158,8 +195,8 @@ namespace transactions
         class test_fail_ambiguous : public error_wrapper
         {
           public:
-            explicit test_fail_ambiguous() :
-                error_wrapper(FAIL_AMBIGUOUS, "Injecting a FAIL_AMBIGUOUS error", true, true)
+            explicit test_fail_ambiguous()
+              : error_wrapper(FAIL_AMBIGUOUS, "Injecting a FAIL_AMBIGUOUS error", true, true)
             {
             }
         };
@@ -183,7 +220,7 @@ namespace transactions
          *
          * E.g. an error which is not retryable.
          */
-        class test_fail_other: public error_wrapper
+        class test_fail_other : public error_wrapper
         {
           public:
             explicit test_fail_other()

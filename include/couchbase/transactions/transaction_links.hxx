@@ -1,3 +1,19 @@
+/*
+ *     Copyright 2020 Couchbase, Inc.
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
+
 #pragma once
 
 #include <ostream>
@@ -62,73 +78,73 @@ namespace transactions
         /**
          * Note this doesn't guarantee an active transaction, as it may have expired and need rolling back.
          */
-        [[nodiscard]] bool is_document_in_transaction() const
+        CB_NODISCARD bool is_document_in_transaction() const
         {
             return !!(atr_id_);
         }
 
-        [[nodiscard]] bool is_document_being_removed() const
+        CB_NODISCARD bool is_document_being_removed() const
         {
             return staged_content_ && *staged_content_ == REMOVE_SENTINEL;
         }
 
-        [[nodiscard]] bool has_staged_write() const
+        CB_NODISCARD bool has_staged_write() const
         {
             return !!(staged_attempt_id_);
         }
 
-        [[nodiscard]] boost::optional<std::string> atr_id() const
+        CB_NODISCARD boost::optional<std::string> atr_id() const
         {
             return atr_id_;
         }
 
-        [[nodiscard]] boost::optional<std::string> atr_bucket_name() const
+        CB_NODISCARD boost::optional<std::string> atr_bucket_name() const
         {
             return atr_bucket_name_;
         }
 
-        [[nodiscard]] boost::optional<std::string> atr_scope_name() const
+        CB_NODISCARD boost::optional<std::string> atr_scope_name() const
         {
             return atr_scope_name_;
         }
 
-        [[nodiscard]] boost::optional<std::string> atr_collection_name() const
+        CB_NODISCARD boost::optional<std::string> atr_collection_name() const
         {
             return atr_collection_name_;
         }
 
-        [[nodiscard]] boost::optional<std::string> staged_transaction_id() const
+        CB_NODISCARD boost::optional<std::string> staged_transaction_id() const
         {
             return staged_transaction_id_;
         }
 
-        [[nodiscard]] boost::optional<std::string> staged_attempt_id() const
+        CB_NODISCARD boost::optional<std::string> staged_attempt_id() const
         {
             return staged_attempt_id_;
         }
 
-        [[nodiscard]] boost::optional<std::string> cas_pre_txn() const
+        CB_NODISCARD boost::optional<std::string> cas_pre_txn() const
         {
             return cas_pre_txn_;
         }
 
-        [[nodiscard]] boost::optional<std::string> revid_pre_txn() const
+        CB_NODISCARD boost::optional<std::string> revid_pre_txn() const
         {
             return revid_pre_txn_;
         }
 
-        [[nodiscard]] boost::optional<uint32_t> exptime_pre_txn() const
+        CB_NODISCARD boost::optional<uint32_t> exptime_pre_txn() const
         {
             return exptime_pre_txn_;
         }
 
-        [[nodiscard]] boost::optional<std::string> op() const
+        CB_NODISCARD boost::optional<std::string> op() const
         {
             return op_;
         }
 
         template<typename Content>
-        [[nodiscard]] Content staged_content() const
+        CB_NODISCARD Content staged_content() const
         {
             return staged_content_->get<Content>();
         }

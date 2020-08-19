@@ -1,3 +1,18 @@
+/*
+ *     Copyright 2020 Couchbase, Inc.
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
 #pragma once
 
 #include <mutex>
@@ -39,9 +54,7 @@ namespace transactions
         std::chrono::nanoseconds start_time_server_{ 0 };
 
       public:
-        attempt_context(transactions* parent,
-                        transaction_context& transaction_ctx,
-                        const transaction_config& config)
+        attempt_context(transactions* parent, transaction_context& transaction_ctx, const transaction_config& config)
           : parent_(parent)
           , overall_(transaction_ctx)
           , config_(config)
@@ -62,7 +75,8 @@ namespace transactions
          * @return an TransactionDocument containing the document
          */
         // TODO: this should return TransactionGetResult
-        transaction_document get(std::shared_ptr<collection> collection, const std::string& id) {
+        transaction_document get(std::shared_ptr<collection> collection, const std::string& id)
+        {
             auto result = get_optional(collection, id);
             if (result) {
                 return result.get();
@@ -295,13 +309,7 @@ namespace transactions
                                         boost::none,
                                         boost::none,
                                         std::string("insert"));
-                transaction_document out(id,
-                                         content,
-                                         res.cas,
-                                         *collection,
-                                         links,
-                                         transaction_document_status::NORMAL,
-                                         boost::none);
+                transaction_document out(id, content, res.cas, *collection, links, transaction_document_status::NORMAL, boost::none);
                 staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::INSERT));
                 add_mutation_token();
                 return out;
@@ -381,7 +389,8 @@ namespace transactions
             if (atr_collection_ && atr_id_ && !is_done_) {
                 std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
                 std::vector<mutate_in_spec> specs({
-                  mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::COMMITTED)).xattr(),
+                  mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::COMMITTED))
+                    .xattr(),
                   mutate_in_spec::upsert(prefix + ATR_FIELD_START_COMMIT, "${Mutation.CAS}").xattr().expand_macro(),
                 });
                 hooks_.before_atr_commit(this);
@@ -394,8 +403,10 @@ namespace transactions
                     // if this succeeds, set ATR to COMPLETED
                     std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
                     std::vector<mutate_in_spec> specs({
-                        mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::COMPLETED)).xattr(),
-                        mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
+                      mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS,
+                                             attempt_state_name(couchbase::transactions::attempt_state::COMPLETED))
+                        .xattr(),
+                      mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
                     });
                     const result& atr_res = atr_collection_->mutate_in(atr_id_.value(), specs);
                     if (atr_res.is_success()) {
@@ -429,7 +440,8 @@ namespace transactions
          * it can be called explicitly from the app logic within the transaction as well, perhaps that is better
          * modeled as a custom exception that you raise instead.
          */
-        void rollback() {
+        void rollback()
+        {
             spdlog::info("rolling back");
             // check for expiry
             check_expiry_during_commit_or_rollback(STAGE_ROLLBACK, boost::none);
@@ -451,8 +463,9 @@ namespace transactions
             //                - set atr to ROLLED_BACK
             std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
             std::vector<mutate_in_spec> specs({
-                mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::ABORTED)).xattr(),
-                mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, "${Mutation.CAS}").xattr().expand_macro(),
+              mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::ABORTED))
+                .xattr(),
+              mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, "${Mutation.CAS}").xattr().expand_macro(),
             });
             // now add the staged mutations...
             staged_mutations_.extract_to(prefix, specs);
@@ -465,14 +478,14 @@ namespace transactions
                 staged_mutations_.iterate([&](staged_mutation& mutation) {
                     hooks_.before_doc_rolled_back(this, mutation.doc().id());
                     std::vector<mutate_in_spec> specs({
-                        mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
+                      mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
                     });
-                    switch(mutation.type()) {
+                    switch (mutation.type()) {
                         case staged_mutation_type::INSERT:
                             spdlog::trace("rolling back staged insert for {}", mutation.doc().id());
                             // TODO: since we don't insert as deleted yet, instead of mutating this, we
                             // need to remove it
-                            //mutation.doc().collection_ref().mutate_in(mutation.doc().id(), specs);
+                            // mutation.doc().collection_ref().mutate_in(mutation.doc().id(), specs);
                             mutation.doc().collection_ref().remove(mutation.doc().id());
                             hooks_.after_rollback_replace_or_remove(this, mutation.doc().id());
                             // TODO: deal with errors mutating the doc
@@ -484,7 +497,6 @@ namespace transactions
                             hooks_.after_rollback_replace_or_remove(this, mutation.doc().id());
                             // TODO: deal with errors mutating the doc
                             break;
-
                     }
                     spdlog::trace("rollback completed unstaging docs");
                 });
@@ -492,8 +504,9 @@ namespace transactions
                 // now complete the atr rollback
                 hooks_.before_atr_rolled_back(this);
                 std::vector<mutate_in_spec> specs({
-                    mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::ROLLED_BACK)).xattr(),
-                    mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
+                  mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::ROLLED_BACK))
+                    .xattr(),
+                  mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
                 });
                 atr_collection_->mutate_in(atr_id_.value(), specs);
                 attempt_state(couchbase::transactions::attempt_state::ROLLED_BACK);
@@ -501,51 +514,56 @@ namespace transactions
                 is_done_ = true;
                 // TODO: deal with errors mutating ATR record, and retries perhaps?
             } else {
-
             }
         }
 
-        [[nodiscard]] bool is_done()
+        CB_NODISCARD bool is_done()
         {
             return is_done_;
         }
 
-        [[nodiscard]] const std::string& transaction_id()
+        CB_NODISCARD const std::string& transaction_id()
         {
             return overall_.transaction_id();
         }
 
-        [[nodiscard]] const std::string& attempt_id()
+        CB_NODISCARD const std::string& attempt_id()
         {
             return overall_.current_attempt().id;
         }
 
-        [[nodiscard]] const couchbase::transactions::attempt_state attempt_state()
+        CB_NODISCARD const couchbase::transactions::attempt_state attempt_state()
         {
             return overall_.current_attempt().state;
         }
 
-        void attempt_state(couchbase::transactions::attempt_state s) {
+        void attempt_state(couchbase::transactions::attempt_state s)
+        {
             overall_.current_attempt().state = s;
         }
 
-        void add_mutation_token() {
+        void add_mutation_token()
+        {
             overall_.current_attempt().add_mutation_token();
         }
 
-        [[nodiscard]] const std::string atr_id() {
+        CB_NODISCARD const std::string atr_id()
+        {
             return overall_.atr_id();
         }
 
-        void atr_id(const std::string& atr_id) {
+        void atr_id(const std::string& atr_id)
+        {
             overall_.atr_id(atr_id);
         }
 
-        [[nodiscard]] const std::string atr_collection() {
+        CB_NODISCARD const std::string atr_collection()
+        {
             return overall_.atr_collection();
         }
 
-        void atr_collection_name(const std::string& coll) {
+        void atr_collection_name(const std::string& coll)
+        {
             overall_.atr_collection(coll);
         }
 
@@ -610,7 +628,8 @@ namespace transactions
             }
         }
 
-        void insure_atr_exists(std::shared_ptr<collection> collection) {
+        void insure_atr_exists(std::shared_ptr<collection> collection)
+        {
             // TODO: use exists here when collection supports it
             result res = collection->get(atr_id_.value());
             // just upsert an empty doc for now
@@ -631,14 +650,14 @@ namespace transactions
                 spdlog::info("updating atr {}", atr_id_.value());
                 const result& res = collection->mutate_in(
                   atr_id_.value(),
-                  {
-                    mutate_in_spec::insert(prefix + ATR_FIELD_TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                    mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::PENDING)).xattr().create_path(),
+                  { mutate_in_spec::insert(prefix + ATR_FIELD_TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
+                    mutate_in_spec::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(couchbase::transactions::attempt_state::PENDING))
+                      .xattr()
+                      .create_path(),
                     mutate_in_spec::insert(prefix + ATR_FIELD_START_TIMESTAMP, mutate_in_macro::CAS).xattr().expand_macro(),
                     mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
                                            std::chrono::duration_cast<std::chrono::milliseconds>(config_.expiration_time()).count())
-                      .xattr()
-                  },
+                      .xattr() },
                   durability(config_));
                 if (res.is_success()) {
                     spdlog::info("set ATR {}/{}/{} to Pending, got CAS (start time) {}",
@@ -725,7 +744,8 @@ namespace transactions
         void check_if_done()
         {
             if (is_done_) {
-                throw error_wrapper(FAIL_OTHER, "Cannot perform operations after transaction has been committed or rolled back", false, false);
+                throw error_wrapper(
+                  FAIL_OTHER, "Cannot perform operations after transaction has been committed or rolled back", false, false);
             }
         }
 

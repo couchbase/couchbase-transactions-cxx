@@ -1,3 +1,19 @@
+/*
+ *     Copyright 2020 Couchbase, Inc.
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
+
 #pragma once
 
 #include <chrono>
@@ -49,7 +65,7 @@ namespace transactions
         {
         }
 
-        [[nodiscard]] bool has_expired(std::uint32_t safety_margin = 0) const
+        CB_NODISCARD bool has_expired(std::uint32_t safety_margin = 0) const
         {
             std::uint32_t cas_ms = cas_ / 1000000;
             if (expires_after_ms_) {
@@ -59,38 +75,38 @@ namespace transactions
             return false;
         }
 
-        [[nodiscard]] std::uint32_t age_ms() const
+        CB_NODISCARD std::uint32_t age_ms() const
         {
             return (cas_ / 1000000) - timestamp_start_ms_.value_or(0);
         }
 
-        [[nodiscard]] const std::string& atr_id() const
+        CB_NODISCARD const std::string& atr_id() const
         {
             return atr_id_;
         }
 
-        [[nodiscard]] const std::string& attempt_id() const
+        CB_NODISCARD const std::string& attempt_id() const
         {
             return attempt_id_;
         }
 
-        [[nodiscard]] boost::optional<std::uint32_t> timestamp_start_ms() const
+        CB_NODISCARD boost::optional<std::uint32_t> timestamp_start_ms() const
         {
             return timestamp_start_ms_;
         }
-        [[nodiscard]] boost::optional<std::uint32_t> timestamp_commit_ms() const
+        CB_NODISCARD boost::optional<std::uint32_t> timestamp_commit_ms() const
         {
             return timestamp_commit_ms_;
         }
-        [[nodiscard]] boost::optional<std::uint32_t> timestamp_complete_ms() const
+        CB_NODISCARD boost::optional<std::uint32_t> timestamp_complete_ms() const
         {
             return timestamp_complete_ms_;
         }
-        [[nodiscard]] boost::optional<std::uint32_t> timestamp_rollback_ms() const
+        CB_NODISCARD boost::optional<std::uint32_t> timestamp_rollback_ms() const
         {
             return timestamp_rollback_ms_;
         }
-        [[nodiscard]] boost::optional<std::uint32_t> timestamp_rolled_back_ms() const
+        CB_NODISCARD boost::optional<std::uint32_t> timestamp_rolled_back_ms() const
         {
             return timestamp_rolled_back_ms_;
         }
@@ -98,32 +114,32 @@ namespace transactions
         /**
          * Returns the CAS of the ATR document containing this entry
          */
-        [[nodiscard]] std::uint64_t cas() const
+        CB_NODISCARD std::uint64_t cas() const
         {
             return cas_;
         }
 
-        [[nodiscard]] boost::optional<std::vector<doc_record>> inserted_ids() const
+        CB_NODISCARD boost::optional<std::vector<doc_record>> inserted_ids() const
         {
             return inserted_ids_;
         }
 
-        [[nodiscard]] boost::optional<std::vector<doc_record>> replaced_ids() const
+        CB_NODISCARD boost::optional<std::vector<doc_record>> replaced_ids() const
         {
             return replaced_ids_;
         }
 
-        [[nodiscard]] boost::optional<std::vector<doc_record>> removed_ids() const
+        CB_NODISCARD boost::optional<std::vector<doc_record>> removed_ids() const
         {
             return removed_ids_;
         }
 
-        [[nodiscard]] boost::optional<std::uint32_t> expires_after_ms() const
+        CB_NODISCARD boost::optional<std::uint32_t> expires_after_ms() const
         {
             return expires_after_ms_;
         }
 
-        [[nodiscard]] attempt_state state() const
+        CB_NODISCARD attempt_state state() const
         {
             return state_;
         }

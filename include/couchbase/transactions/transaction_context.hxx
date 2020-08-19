@@ -1,12 +1,29 @@
+/*
+ *     Copyright 2020 Couchbase, Inc.
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
+
 #pragma once
 
 #include <chrono>
 #include <string>
 #include <vector>
 
+#include <couchbase/transactions/logging.hxx>
 #include <couchbase/transactions/transaction_attempt.hxx>
-#include <couchbase/transactions/uid_generator.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
+#include <couchbase/transactions/uid_generator.hxx>
 
 namespace couchbase
 {
@@ -22,40 +39,41 @@ namespace transactions
         {
         }
 
-        [[nodiscard]] const std::string& transaction_id() const
+        CB_NODISCARD const std::string& transaction_id() const
         {
             return transaction_id_;
         }
 
-        [[nodiscard]] size_t num_attempts() const
+        CB_NODISCARD size_t num_attempts() const
         {
             return attempts_.size();
         }
-        [[nodiscard]] const std::vector<transaction_attempt>& attempts() const
+        CB_NODISCARD const std::vector<transaction_attempt>& attempts() const
         {
             return attempts_;
         }
-        [[nodiscard]] std::vector<transaction_attempt>& attempts()
+        CB_NODISCARD std::vector<transaction_attempt>& attempts()
         {
             return const_cast<std::vector<transaction_attempt>&>(const_cast<const transaction_context*>(this)->attempts());
         }
-        [[nodiscard]] const transaction_attempt& current_attempt() const
+        CB_NODISCARD const transaction_attempt& current_attempt() const
         {
             if (attempts_.empty()) {
                 throw std::runtime_error("transaction context has no attempts yet");
             }
             return attempts_.back();
         }
-        [[nodiscard]] transaction_attempt& current_attempt()
+        CB_NODISCARD transaction_attempt& current_attempt()
         {
             return const_cast<transaction_attempt&>(const_cast<const transaction_context*>(this)->current_attempt());
         }
 
-        void add_attempt() {
+        void add_attempt()
+        {
             transaction_attempt attempt{};
             attempts_.push_back(attempt);
         }
-        [[nodiscard]] bool has_expired_client_side(const transaction_config& config)
+        CB_NODISCARD bool has_expired_client_side(const transaction_config& config)
         {
             const auto& now = std::chrono::system_clock::now();
             auto expired_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(now - start_time_client_) + deferred_elapsed_;
@@ -73,22 +91,26 @@ namespace transactions
             return is_expired;
         }
 
-        [[nodiscard]] std::chrono::time_point<std::chrono::system_clock> start_time_client() const
+        CB_NODISCARD std::chrono::time_point<std::chrono::system_clock> start_time_client() const
         {
             return start_time_client_;
         }
 
-        [[nodiscard]] const std::string atr_id() const {
+        CB_NODISCARD const std::string atr_id() const
+        {
             return atr_id_;
         }
 
-        void atr_id(const std::string& id) {
+        void atr_id(const std::string& id)
+        {
             atr_id_ = id;
         }
-        [[nodiscard]] std::string atr_collection() const {
+        CB_NODISCARD std::string atr_collection() const
+        {
             return atr_collection_;
         }
-        void atr_collection(const std::string& coll) {
+        void atr_collection(const std::string& coll)
+        {
             atr_collection_ = coll;
         }
 

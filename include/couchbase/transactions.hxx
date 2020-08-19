@@ -1,13 +1,29 @@
+/*
+ *     Copyright 2020 Couchbase, Inc.
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
+
 #pragma once
 
-#include <functional>
 #include <couchbase/client/cluster.hxx>
+#include <functional>
 
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/logging.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
-#include <couchbase/transactions/transactions_cleanup.hxx>
 #include <couchbase/transactions/transaction_result.hxx>
+#include <couchbase/transactions/transactions_cleanup.hxx>
 
 namespace couchbase
 {
@@ -64,12 +80,11 @@ namespace transactions
                     break;
                 }
             }
-            return transaction_result{overall.transaction_id(),
-                                      overall.atr_id(),
-                                      overall.atr_collection(),
-                                      overall.attempts(),
-                                      overall.current_attempt().state == attempt_state::COMPLETED};
-
+            return transaction_result{ overall.transaction_id(),
+                                       overall.atr_id(),
+                                       overall.atr_collection(),
+                                       overall.attempts(),
+                                       overall.current_attempt().state == attempt_state::COMPLETED };
         }
 
         void commit(attempt_context& ctx)
@@ -86,7 +101,7 @@ namespace transactions
         {
         }
 
-        [[nodiscard]] transactions_cleanup& cleanup()
+        CB_NODISCARD transactions_cleanup& cleanup()
         {
             return cleanup_;
         }

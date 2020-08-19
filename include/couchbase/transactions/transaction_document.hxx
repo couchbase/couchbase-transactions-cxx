@@ -1,3 +1,19 @@
+/*
+ *     Copyright 2020 Couchbase, Inc.
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ */
+
 #pragma once
 
 #include <ostream>
@@ -31,12 +47,14 @@ namespace transactions
 
       public:
         template<typename Content>
-        transaction_document(const transaction_document& doc) :
-            collection_(doc.collection_),
-            value_(doc.value_),
-            id_(doc.id_),
-            links_(doc.links_),
-            status_(doc.status_) {}
+        transaction_document(const transaction_document& doc)
+          : collection_(doc.collection_)
+          , value_(doc.value_)
+          , id_(doc.id_)
+          , links_(doc.links_)
+          , status_(doc.status_)
+        {
+        }
 
         template<typename Content>
         transaction_document(std::string id,
@@ -156,7 +174,8 @@ namespace transactions
 
         // TODO: make a swap function, use that here and copy constructor
         template<typename Content>
-        transaction_document& operator=(const transaction_document& other) {
+        transaction_document& operator=(const transaction_document& other)
+        {
             if (this != &other) {
                 this->collection_ = other.collection_;
                 this->value_ = other.value_;
@@ -167,34 +186,33 @@ namespace transactions
             return *this;
         }
 
-
         collection& collection_ref()
         {
             return collection_;
         }
 
         template<typename Content>
-        [[nodiscard]] Content content() const
+        CB_NODISCARD Content content() const
         {
             return value_.get<Content>();
         }
 
-        [[nodiscard]] const std::string& id() const
+        CB_NODISCARD const std::string& id() const
         {
             return id_;
         }
 
-        [[nodiscard]] uint64_t cas() const
+        CB_NODISCARD uint64_t cas() const
         {
             return cas_;
         }
 
-        [[nodiscard]] transaction_links links() const
+        CB_NODISCARD transaction_links links() const
         {
             return links_;
         }
 
-        [[nodiscard]] transaction_document_status status() const
+        CB_NODISCARD transaction_document_status status() const
         {
             return status_;
         }
@@ -215,7 +233,7 @@ namespace transactions
             status_ = status;
         }
 
-        [[nodiscard]] const boost::optional<document_metadata>& metadata() const
+        CB_NODISCARD const boost::optional<document_metadata>& metadata() const
         {
             return metadata_;
         }
