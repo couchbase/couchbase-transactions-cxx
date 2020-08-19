@@ -14,8 +14,18 @@
  *   limitations under the License.
  */
 
-/** Helpers to avoid needless warnings */
 #pragma once
+/** Simple version stuff for now - cmake populates the version */
+#define VERSION_MAJOR "@CB_VERSION_MAJOR@"
+#define VERSION_MINOR "@CB_VERSION_MINOR@"
+#define VERSION_PATCH "@CB_VERSION_PATCH@"
+#define VERSION_TWEAK "@CB_VERSION_TWEAK@"
+#define VERSION_SHA "-@CB_VERSION_SHA@"
+#define VERSION_SEP "."
+#define VERSION_STR() VERSION_MAJOR VERSION_SEP VERSION_MINOR VERSION_SEP VERSION_PATCH VERSION_SEP VERSION_TWEAK VERSION_SHA
+
+
+/** Helpers to avoid needless warnings */
 /* C++ language standard detection - helpful later on... */
 #if (defined(__cplusplus) && __cplusplus >= 201703L) || (defined(_HAS_CXX17) && _HAS_CXX17 == 1)
 #define CB_HAS_CPP_17

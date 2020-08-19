@@ -13,8 +13,6 @@ cmake_minimum_required(VERSION 3.9)
 #
 #set (CMAKE_CXX_STANDARD 11)
 #
-# Prevent GoogleTest from overriding our compiler/linker options
-# when building with Visual Studio
 #set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
 # Add googletest directly to our build. This adds the following targets:
@@ -42,6 +40,24 @@ add_subdirectory("${CMAKE_CURRENT_BINARY_DIR}/spdlog-src"
 # ============= END EXTERNAL DEPS ====================================
 # ============= BEGIN DEPS ===========================================
 project(transactions_cxx)
+set(CB_VERSION_MAJOR 1)
+set(CB_VERSION_MINOR 0)
+set(CB_VERSION_PATCH "0-alpha")
+set(CB_VERSION_TWEAK 1)
+
+find_program(GIT_EXECUTABLE NAMES git git.exe)
+macro(RUNGIT outvar)
+    message(STATUS "Getting SHA...")
+    execute_process(COMMAND git ${ARGN}
+        OUTPUT_VARIABLE ${outvar}
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+endmacro()
+if(GIT_EXECUTABLE)
+    RUNGIT(CB_VERSION_SHA rev-parse HEAD)
+endif()
+configure_file(${PROJECT_SOURCE_DIR}/include/couchbase/support.hxx.in ${PROJECT_SOURCE_DIR}/include/couchbase/support.hxx)
+
 set(CMAKE_CXX_STANDARD 11)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 

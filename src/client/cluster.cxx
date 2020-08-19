@@ -5,7 +5,9 @@
 #include <couchbase/client/bucket.hxx>
 #include <couchbase/client/cluster.hxx>
 #include <couchbase/client/result.hxx>
+#include <couchbase/support.hxx>
 #include <libcouchbase/couchbase.h>
+#include <spdlog/spdlog.h>
 
 namespace cb = couchbase;
 
@@ -15,6 +17,7 @@ cb::cluster::cluster(std::string cluster_address, std::string user_name, std::st
   , user_name_(std::move(user_name))
   , password_(std::move(password))
 {
+    spdlog::info("couchbase client library {} attempting to connect to {}", VERSION_STR(), cluster_address_);
     connect();
 }
 
