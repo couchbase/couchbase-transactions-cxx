@@ -26,6 +26,7 @@
 #include <couchbase/transactions/document_metadata.hxx>
 #include <couchbase/transactions/transaction_document_status.hxx>
 #include <couchbase/transactions/transaction_links.hxx>
+#include <spdlog/fmt/ostr.h>
 #include <utility>
 
 namespace couchbase
@@ -46,7 +47,7 @@ namespace transactions
         const boost::optional<document_metadata> metadata_;
 
       public:
-        template<typename Content>
+        // template<typename Content>
         transaction_document(const transaction_document& doc)
           : collection_(doc.collection_)
           , value_(doc.value_)
@@ -238,9 +239,14 @@ namespace transactions
             return metadata_;
         }
 
-        friend std::ostream& operator<<(std::ostream& os, const transaction_document& document);
+        template<typename OStream>
+        friend OStream& operator<<(OStream& os, const transaction_document document)
+        {
+            os << "transaction_document{id: " << document.id_ << ", cas: " << document.cas_
+               << ", status: " << transaction_document_status_name(document.status_) << ", bucket: " << document.collection_.bucket_name()
+               << ", coll: " << document.collection_.name() << ", links_: " << document.links_ << "}";
+            return os;
+        }
     };
-
-    std::ostream& operator<<(std::ostream& os, const transaction_document& document);
 } // namespace transactions
 } // namespace couchbase

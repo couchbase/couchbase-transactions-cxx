@@ -117,6 +117,7 @@ namespace transactions
                                                         lookup_in_spec::get(TYPE).xattr(),
                                                         lookup_in_spec::get("$document").xattr(),
                                                         lookup_in_spec::fulldoc_get() });
+            spdlog::info("got {}", res);
             if (res.is_not_found()) {
                 return {};
             } else if (res.is_success()) {
@@ -493,7 +494,7 @@ namespace transactions
                         default:
                             spdlog::trace("rolling back staged remove/replace for {}", mutation.doc().id());
                             auto r = mutation.doc().collection_ref().mutate_in(mutation.doc().id(), specs);
-                            spdlog::trace("rollback result {}", r.to_string());
+                            spdlog::trace("rollback result {}", r);
                             hooks_.after_rollback_replace_or_remove(this, mutation.doc().id());
                             // TODO: deal with errors mutating the doc
                             break;

@@ -21,8 +21,7 @@
 #define VERSION_PATCH "@CB_VERSION_PATCH@"
 #define VERSION_TWEAK "@CB_VERSION_TWEAK@"
 #define VERSION_SHA "-@CB_VERSION_SHA@"
-#define VERSION_SEP "."
-#define VERSION_STR() VERSION_MAJOR VERSION_SEP VERSION_MINOR VERSION_SEP VERSION_PATCH VERSION_SEP VERSION_TWEAK VERSION_SHA
+#define VERSION_STR "@CB_VERSION_STRING@"
 
 
 /** Helpers to avoid needless warnings */
@@ -36,17 +35,17 @@
 
 /* define a portable, warning-free nodiscard - CB_NODISCARD */
 #if defined(__has_cpp_attribute)
-#if __has_cpp_attribute(nodiscard)
-#if defined(__clang__) && !defined(CB_HAS_CPP_17)
-#define CB_NODISCARD
+    #if __has_cpp_attribute(nodiscard)
+        #if defined(__clang__) && !defined(CB_HAS_CPP_17)
+            #define CB_NODISCARD
+        #else
+            #define CB_NODISCARD CB_NODISCARD
+        #endif
+    #elif __has_cpp_attribute(gnu::warn_unused_result)
+        #define CB_NODISCARD [[gnu::warn_unused_result]]
+    #else
+        #define CB_NODISCARD
+    #endif
 #else
-#define CB_NODISCARD CB_NODISCARD
-#endif
-#elif __has_cpp_attribute(gnu::warn_unused_result)
-#define CB_NODISCARD [[gnu::warn_unused_result]]
-#else
-#define CB_NODISCARD
-#endif
-#else
-#define CB_NODISCARD
+    #define CB_NODISCARD
 #endif

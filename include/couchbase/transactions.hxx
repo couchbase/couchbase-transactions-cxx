@@ -47,7 +47,7 @@ namespace transactions
           , config_(config)
           , cleanup_(cluster_, config_)
         {
-            spdlog::info("couchbase transactions {} creating new transaction object", VERSION_STR());
+            spdlog::info("couchbase transactions {} creating new transaction object", VERSION_STR);
         }
 
         transaction_result run(const logic& logic)

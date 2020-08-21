@@ -19,6 +19,7 @@
 #include <boost/optional.hpp>
 #include <couchbase/support.hxx>
 #include <nlohmann/json.hpp>
+#include <spdlog/fmt/ostr.h>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,30 @@ struct result {
     CB_NODISCARD bool is_not_found() const;
     CB_NODISCARD bool is_success() const;
     CB_NODISCARD bool is_value_too_large() const;
-    CB_NODISCARD std::string to_string() const;
+    template<typename OStream>
+    friend OStream& operator<<(OStream& os, const result& res)
+    {
+        os << "result{";
+        os << "rc:" << res.rc << ",";
+        os << "strerror:" << res.strerror() << ",";
+        os << "cas:" << res.cas << ",";
+        os << "datatype:" << res.datatype << ",";
+        os << "flags:" << res.flags;
+        if (res.value) {
+            os << ",value:";
+            os << res.value->dump();
+        }
+        if (!res.values.empty()) {
+            os << ",values:[";
+            for (auto& v : res.values) {
+                if (v) {
+                    os << v->dump() << ",";
+                }
+            }
+            os << "]";
+        }
+        os << "}";
+        return os;
+    }
 };
 } // namespace couchbase

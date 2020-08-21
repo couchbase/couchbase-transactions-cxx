@@ -1,26 +1,5 @@
 cmake_minimum_required(VERSION 3.9)
 
-# ============= BEGIN GTEST ============================================
-
-# Download and unpack googletest at configure time
-#configure_file(CMakeLists.txt.in ${CMAKE_CURRENT_BINARY_DIR}/googletest-download/CMakeLists.txt)
-#execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
-#    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/googletest-download"
-#)
-#execute_process(COMMAND "${CMAKE_COMMAND}" --build .
-#    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/googletest-download"
-#)
-#
-#set (CMAKE_CXX_STANDARD 11)
-#
-#set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-
-# Add googletest directly to our build. This adds the following targets:
-# gtest, gtest_main, gmock and gmock_main
-#add_subdirectory("${CMAKE_CURRENT_BINARY_DIR}/googletest-src"
-#                 "${CMAKE_CURRENT_BINARY_DIR}/googletest-build"
-#)
-# ============= END GTEST ============================================
 # ============= BEGIN EXTERNAL DEPS ==================================
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(ALLOW_DUPLICATE_CUSTOM_TARGETS TRUE)
@@ -44,6 +23,7 @@ set(CB_VERSION_MAJOR 1)
 set(CB_VERSION_MINOR 0)
 set(CB_VERSION_PATCH "0-alpha")
 set(CB_VERSION_TWEAK 1)
+set(CB_VERSION_STRING ${CB_VERSION_MAJOR}.${CB_VERSION_MINOR}.${CB_VERSION_PATCH}.${CB_VERSION_TWEAK})
 
 find_program(GIT_EXECUTABLE NAMES git git.exe)
 macro(RUNGIT outvar)
@@ -103,6 +83,7 @@ target_link_libraries(client_cxx
                       spdlog
                       ${Boost_LIBRARIES}
                       couchbase)
+set_target_properties(client_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
 #============ END CLIENT ====================================================================
 # =========== BEGIN TRANSACTIONS ============================================================
 file(GLOB_RECURSE transactions_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/transactions/*.hxx)
@@ -114,6 +95,7 @@ target_link_libraries(transactions_cxx
                       spdlog
                       ${Boost_LIBRARIES}
                       client_cxx)
+set_target_properties(transactions_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
 # =========== END TRANSACTIONS ================================================================
 # =========== BEGIN DOCS ======================================================================
 if(BUILD_DOC)
@@ -144,4 +126,3 @@ file(GLOB CLIENT_TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/client/*_t.cpp")
 include_directories(${CURRENT_CMAKE_BINARY_DIR}/deps/libcouchbase/contrib/gtest-1.8.1)
 add_executable(client_tests ${CLIENT_TEST_SOURCES})
 target_link_libraries(client_tests client_cxx gtest)
-

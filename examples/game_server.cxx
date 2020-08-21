@@ -87,7 +87,7 @@ class GameServer
     {
     }
 
-    [[nodiscard]] int calculate_level_for_experience(int experience) const
+    CB_NODISCARD int calculate_level_for_experience(int experience) const
     {
         return experience / 100;
     }
