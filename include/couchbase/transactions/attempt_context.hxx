@@ -117,7 +117,6 @@ namespace transactions
                                                         lookup_in_spec::get(TYPE).xattr(),
                                                         lookup_in_spec::get("$document").xattr(),
                                                         lookup_in_spec::fulldoc_get() });
-            spdlog::info("got {}", res);
             if (res.is_not_found()) {
                 return {};
             } else if (res.is_success()) {

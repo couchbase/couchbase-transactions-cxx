@@ -47,7 +47,6 @@ namespace transactions
         const boost::optional<document_metadata> metadata_;
 
       public:
-        // template<typename Content>
         transaction_document(const transaction_document& doc)
           : collection_(doc.collection_)
           , value_(doc.value_)
