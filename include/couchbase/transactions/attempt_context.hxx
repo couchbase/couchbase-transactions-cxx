@@ -226,6 +226,7 @@ namespace transactions
             std::vector<mutate_in_spec> specs = {
                 mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
                 mutate_in_spec::upsert(ATTEMPT_ID, attempt_id()).xattr(),
+                mutate_in_spec::insert(STAGED_DATA, content).xattr(),
                 mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr(),
                 mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
                 mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr(),
@@ -359,7 +360,6 @@ namespace transactions
                     specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).xattr());
                 }
             }
-            specs.emplace_back(mutate_in_spec::upsert(STAGED_DATA, REMOVE_SENTINEL).xattr());
             const result& res = collection->mutate_in(document.id(), specs, durability(config_));
             spdlog::info("removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
             hooks_.after_staged_remove_complete(this, document.id());

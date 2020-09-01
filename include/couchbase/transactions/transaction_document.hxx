@@ -53,6 +53,8 @@ namespace transactions
           , id_(doc.id_)
           , links_(doc.links_)
           , status_(doc.status_)
+          , metadata_(doc.metadata_)
+          , cas_(doc.cas_)
         {
         }
 
