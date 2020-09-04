@@ -88,7 +88,7 @@ class collection
 
     result remove(const std::string& id, uint64_t cas = 0, durability_level level = durability_level::none);
 
-    result mutate_in(const std::string& id, std::vector<mutate_in_spec> specs, durability_level level = durability_level::none);
+    result mutate_in(const std::string& id, std::vector<mutate_in_spec> specs, durability_level level = durability_level::none, uint64_t cas = 0);
 
     result lookup_in(const std::string& id, std::vector<lookup_in_spec> specs);
 

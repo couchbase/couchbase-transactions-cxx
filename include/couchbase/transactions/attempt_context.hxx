@@ -19,6 +19,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <thread>
 
 #include <couchbase/client/collection.hxx>
 #include <couchbase/client/exceptions.hxx>
@@ -52,6 +53,7 @@ namespace transactions
         staged_mutation_queue staged_mutations_;
         attempt_context_testing_hooks hooks_;
         std::chrono::nanoseconds start_time_server_{ 0 };
+        static const std::chrono::milliseconds retry_delay_; // Java uses 3ms, copying that (in the cxx).
 
       public:
         attempt_context(transactions* parent, transaction_context& transaction_ctx, const transaction_config& config)
@@ -244,7 +246,7 @@ namespace transactions
                 }
             }
 
-            const result& res = collection->mutate_in(document.id(), specs, durability(config_));
+            const result& res = collection->mutate_in(document.id(), specs, durability(config_), document.cas());
 
             if (res.is_success()) {
                 transaction_document out = document;
@@ -274,51 +276,99 @@ namespace transactions
         template<typename Content>
         transaction_document insert(std::shared_ptr<collection> collection, const std::string& id, const Content& content)
         {
-            check_if_done();
-            check_expiry_pre_commit(STAGE_INSERT, id);
-            select_atr_if_needed(collection, id);
-            set_atr_pending_if_first_mutation(collection);
+            try {
+                check_if_done();
+                check_expiry_pre_commit(STAGE_INSERT, id);
+                select_atr_if_needed(collection, id);
+                set_atr_pending_if_first_mutation(collection);
 
-            hooks_.before_staged_insert(this, id);
-            spdlog::info("about to insert staged doc {}", id);
-            check_expiry_during_commit_or_rollback(STAGE_CREATE_STAGED_INSERT, id);
-            const result& res = collection->mutate_in(
-              id,
-              {
-                mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                mutate_in_spec::insert(ATTEMPT_ID, attempt_id()).xattr(),
-                mutate_in_spec::insert(ATR_ID, atr_id_.value()).xattr(),
-                mutate_in_spec::insert(STAGED_DATA, content).xattr(),
-                mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
-                mutate_in_spec::insert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr().create_path(),
-                mutate_in_spec::insert(TYPE, "insert").xattr(),
-                mutate_in_spec::fulldoc_insert(nlohmann::json::object()),
-              },
-              durability(config_));
-            spdlog::info("inserted doc {} CAS={}, rc={}", id, res.cas, res.strerror());
-            hooks_.after_staged_insert_complete(this, id);
-            if (res.is_success()) {
-                // TODO: clean this up (do most of this in transactions_document(...))
-                transaction_links links(atr_id_,
-                                        collection->bucket_name(),
-                                        collection->scope(),
-                                        collection->name(),
-                                        overall_.transaction_id(),
-                                        attempt_id(),
-                                        nlohmann::json(content),
-                                        boost::none,
-                                        boost::none,
-                                        boost::none,
-                                        std::string("insert"));
-                transaction_document out(id, content, res.cas, *collection, links, transaction_document_status::NORMAL, boost::none);
-                staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::INSERT));
-                add_mutation_token();
-                return out;
+                hooks_.before_staged_insert(this, id);
+                spdlog::info("about to insert staged doc {}", id);
+                check_expiry_during_commit_or_rollback(STAGE_CREATE_STAGED_INSERT, id);
+                const result& res = collection->mutate_in(
+                        id,
+                        {
+                        mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
+                        mutate_in_spec::insert(ATTEMPT_ID, attempt_id()).xattr(),
+                        mutate_in_spec::insert(ATR_ID, atr_id_.value()).xattr(),
+                        mutate_in_spec::insert(STAGED_DATA, content).xattr(),
+                        mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
+                        mutate_in_spec::insert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr().create_path(),
+                        mutate_in_spec::insert(TYPE, "insert").xattr(),
+                        mutate_in_spec::fulldoc_insert(nlohmann::json::object()),
+                        },
+                        durability(config_));
+                if (res.is_success()) {
+                    spdlog::info("inserted doc {} CAS={}, rc={}", id, res.cas, res.strerror());
+                    hooks_.after_staged_insert_complete(this, id);
+
+                    // TODO: clean this up (do most of this in transactions_document(...))
+                    transaction_links links(atr_id_,
+                            collection->bucket_name(),
+                            collection->scope(),
+                            collection->name(),
+                            overall_.transaction_id(),
+                            attempt_id(),
+                            nlohmann::json(content),
+                            boost::none,
+                            boost::none,
+                            boost::none,
+                            std::string("insert"));
+                    transaction_document out(id, content, res.cas, *collection, links, transaction_document_status::NORMAL, boost::none);
+                    staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::INSERT));
+                    add_mutation_token();
+                    return out;
+                } else {
+                    error_class ec = error_class_from_result(res);
+                    if (expiry_overtime_mode_) {
+                        throw error_wrapper(FAIL_EXPIRY, "attempt timed out", false, false, EXPIRED);
+                    }
+                    switch(ec) {
+                        case FAIL_EXPIRY:
+                            expiry_overtime_mode_ = true;
+                            throw error_wrapper(ec, "attempt timed-out", false, true, EXPIRED);
+                        case FAIL_TRANSIENT:
+                            throw error_wrapper(ec, "transient error in insert", true, false);
+                        case FAIL_AMBIGUOUS:
+                            // DELAY, then retry.
+                            std::this_thread::sleep_for(retry_delay_);
+                            return insert(collection, id, content);
+                        case FAIL_DOC_ALREADY_EXISTS:
+                        case FAIL_CAS_MISMATCH:
+                            // special handling for doc already existing
+                            hooks_.before_get_doc_in_exists_during_staged_insert(this, id);
+                            // get the doc TODO: adjust when we tombstone
+                            try {
+                                auto get_document = get(collection, id);
+                                // TODO: figure out if there are any retry possibilities here...
+                                // for now, you can overwrite only if the doc is part of _this_ txn
+                                if (get_document.links().atr_id() == atr_id_) {
+                                    // we can safely proceed, it is our txn's doc.  TODO: - change content?
+                                    return get_document;
+                                }
+                                // otherwise, rollback and try again (maybe the doc is ephemeral and the other txn will remove it).
+                                throw error_wrapper(FAIL_DOC_ALREADY_EXISTS, std::string("document already exists"), true, true);
+                            } catch (const error_wrapper& get_err) {
+                                switch(get_err.ec()) {
+                                    case FAIL_TRANSIENT:
+                                    case FAIL_PATH_NOT_FOUND:
+                                        std::this_thread::sleep_for(retry_delay_);
+                                        return this->insert(collection, id, content);
+                                    default:
+                                        throw;
+                                }
+                            } catch (const couchbase::document_not_found_error& e) {
+                                spdlog::trace("got {} trying to find document in insert, retry txn", e.what());
+                                throw error_wrapper(FAIL_TRANSIENT, e.what(), true, true);
+                            }
+
+                        default:
+                            throw error_wrapper(FAIL_OTHER, res.strerror(), true, true);
+                    }
+                }
+            } catch (const error_wrapper& e) {
+                throw;
             }
-            // TODO: RETRY-ERR-AMBIG
-            // TODO: handle document already exists
-            // For now, anything is a fail.
-            throw error_wrapper(FAIL_OTHER, std::string("failed to insert the document: ") + res.strerror());
         }
 
         /**
@@ -360,10 +410,10 @@ namespace transactions
                     specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).xattr());
                 }
             }
-            const result& res = collection->mutate_in(document.id(), specs, durability(config_));
-            spdlog::info("removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
-            hooks_.after_staged_remove_complete(this, document.id());
+            const result& res = collection->mutate_in(document.id(), specs, durability(config_), document.cas());
             if (res.is_success()) {
+                spdlog::info("removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
+                hooks_.after_staged_remove_complete(this, document.id());
                 document.cas(res.cas);
                 // TODO: overwriting insert
                 staged_mutations_.add(staged_mutation(document, "", staged_mutation_type::REMOVE));

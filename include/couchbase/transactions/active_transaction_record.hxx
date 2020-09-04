@@ -90,11 +90,11 @@ namespace transactions
                                      atr_id,
                                      element.key(),
                                      attempt_state_value(val[ATR_FIELD_STATUS].get<std::string>()),
-                                     parse_mutation_cas(val[ATR_FIELD_START_TIMESTAMP].get<std::string>()),
-                                     parse_mutation_cas(val[ATR_FIELD_START_COMMIT].get<std::string>()),
-                                     parse_mutation_cas(val[ATR_FIELD_TIMESTAMP_COMPLETE].get<std::string>()),
-                                     parse_mutation_cas(val[ATR_FIELD_TIMESTAMP_ROLLBACK_START].get<std::string>()),
-                                     parse_mutation_cas(val[ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE].get<std::string>()),
+                                     parse_mutation_cas(val.value(ATR_FIELD_START_TIMESTAMP, "")),
+                                     parse_mutation_cas(val.value(ATR_FIELD_START_COMMIT, "")),
+                                     parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_COMPLETE, "")),
+                                     parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_START, "")),
+                                     parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "")),
                                      val.count(ATR_FIELD_EXPIRES_AFTER_MSECS)
                                        ? boost::make_optional(val[ATR_FIELD_EXPIRES_AFTER_MSECS].get<std::uint32_t>())
                                        : boost::optional<std::uint32_t>(),

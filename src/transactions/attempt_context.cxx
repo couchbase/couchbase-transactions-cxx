@@ -8,7 +8,7 @@
 #include "atr_ids.hxx"
 
 namespace tx = couchbase::transactions;
-
+const std::chrono::milliseconds tx::attempt_context::retry_delay_ {3};
 void
 tx::attempt_context::select_atr_if_needed(std::shared_ptr<couchbase::collection> collection, const std::string& id)
 {

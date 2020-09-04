@@ -98,6 +98,7 @@ namespace transactions
 
         static transaction_document create_from(collection& collection, std::string id, result res, transaction_document_status status)
         {
+            spdlog::trace("creating doc from {}", res);
             boost::optional<std::string> atr_id;
             boost::optional<std::string> transaction_id;
             boost::optional<std::string> attempt_id;
@@ -117,6 +118,7 @@ namespace transactions
             boost::optional<uint32_t> exptime_from_doc;
 
             boost::optional<std::string> op;
+            nlohmann::json content;
 
             if (res.values[0]) {
                 atr_id = res.values[0]->get<std::string>();
@@ -128,13 +130,13 @@ namespace transactions
                 attempt_id = res.values[2]->get<std::string>();
             }
             if (res.values[3]) {
-                staged_content = res.values[3]->get<std::string>();
+                staged_content = res.values[3]->get<nlohmann::json>();
             }
             if (res.values[4]) {
-                atr_bucket_name = res.values[3]->get<std::string>();
+                atr_bucket_name = res.values[4]->get<std::string>();
             }
             if (res.values[5]) {
-                std::string name = res.values[3]->get<std::string>();
+                std::string name = res.values[5]->get<std::string>();
                 std::vector<std::string> splits;
                 boost::split(splits, name, [](char c) { return c == '.'; });
                 atr_scope_name = splits[0];
@@ -157,21 +159,24 @@ namespace transactions
                 revid_from_doc = doc["revid"].get<std::string>();
                 exptime_from_doc = doc["exptime"].get<uint32_t>();
             }
-            nlohmann::json content = res.values[9].get();
-
+            if (res.values[9]) {
+                content = res.values[9].get();
+            } else {
+                content = nlohmann::json::object();
+            }
             transaction_links links(atr_id,
-                                    atr_bucket_name,
-                                    atr_scope_name,
-                                    atr_collection_name,
-                                    transaction_id,
-                                    attempt_id,
-                                    staged_content,
-                                    cas_pre_txn,
-                                    revid_pre_txn,
-                                    exptime_pre_txn,
-                                    op);
+                    atr_bucket_name,
+                    atr_scope_name,
+                    atr_collection_name,
+                    transaction_id,
+                    attempt_id,
+                    staged_content,
+                    cas_pre_txn,
+                    revid_pre_txn,
+                    exptime_pre_txn,
+                    op);
             document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc);
-            return transaction_document(std::move(id), content, res.cas, collection, links, status, boost::make_optional(md));
+            return transaction_document(id, content, res.cas, collection, links, status, boost::make_optional(md));
         }
 
         // TODO: make a swap function, use that here and copy constructor

@@ -18,6 +18,7 @@
 
 #include <couchbase/client/cluster.hxx>
 #include <functional>
+#include <thread>
 
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/logging.hxx>
@@ -64,8 +65,10 @@ namespace transactions
                     break;
                 } catch (const error_wrapper& er) {
                     spdlog::error("got error_wrapper {}", er.what());
-                    if (er.should_retry()) {
+                    if (er.should_retry() && overall.num_attempts() < max_attempts_) {
                         spdlog::trace("got retryable exception {}, retrying", er.what());
+                        // simple linear backoff with #of attempts
+                        std::this_thread::sleep_for(min_retry_delay_ * overall.num_attempts());
                         continue;
                     }
                     if (er.should_rollback()) {
@@ -111,6 +114,8 @@ namespace transactions
         couchbase::cluster& cluster_;
         transaction_config config_;
         transactions_cleanup cleanup_;
+        const int max_attempts_{10};
+        const std::chrono::milliseconds min_retry_delay_{10};
     };
 } // namespace transactions
 } // namespace couchbase
