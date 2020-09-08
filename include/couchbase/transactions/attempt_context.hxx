@@ -88,9 +88,14 @@ namespace transactions
             throw couchbase::document_not_found_error("Document not found");
         }
 
+        boost::optional<transaction_document> get_optional(std::shared_ptr<collection> collection, const std::string& id) {
+            auto retval = do_get(collection, id);
+            hooks_.after_get_complete(this, id);
+            return retval;
+        }
+
         // TODO: this should return boost::optional::<TransactionGetResult>
-        boost::optional<transaction_document> get_optional(std::shared_ptr<collection> collection, const std::string& id)
-        {
+        boost::optional<transaction_document> do_get(std::shared_ptr<collection> collection, const std::string& id) {
             check_if_done();
             check_expiry_pre_commit(STAGE_GET, id);
 
@@ -218,10 +223,10 @@ namespace transactions
         transaction_document replace(std::shared_ptr<collection> collection, const transaction_document& document, const Content& content)
         {
             check_if_done();
-            check_expiry_pre_commit(STAGE_REPLACE, document.id());
             check_and_handle_blocking_transactions(document);
             select_atr_if_needed(collection, document.id());
             set_atr_pending_if_first_mutation(collection);
+            check_expiry_pre_commit(STAGE_REPLACE, document.id());
 
             hooks_.before_staged_replace(this, document.id());
             spdlog::trace("about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
@@ -278,9 +283,9 @@ namespace transactions
         {
             try {
                 check_if_done();
-                check_expiry_pre_commit(STAGE_INSERT, id);
                 select_atr_if_needed(collection, id);
                 set_atr_pending_if_first_mutation(collection);
+                check_expiry_pre_commit(STAGE_INSERT, id);
 
                 hooks_.before_staged_insert(this, id);
                 spdlog::info("about to insert staged doc {}", id);
@@ -367,7 +372,7 @@ namespace transactions
                     }
                 }
             } catch (const error_wrapper& e) {
-                throw;
+                throw e;
             }
         }
 
@@ -385,9 +390,9 @@ namespace transactions
         void remove(std::shared_ptr<couchbase::collection> collection, transaction_document& document)
         {
             check_if_done();
-            check_expiry_pre_commit(STAGE_REMOVE, document.id());
             select_atr_if_needed(collection, document.id());
             set_atr_pending_if_first_mutation(collection);
+            check_expiry_pre_commit(STAGE_REMOVE, document.id());
 
             hooks_.before_staged_remove(this, document.id());
             spdlog::info("about to remove remove doc {} with cas {}", document.id(), document.cas());

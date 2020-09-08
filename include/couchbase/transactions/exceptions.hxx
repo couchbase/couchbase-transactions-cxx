@@ -189,7 +189,7 @@ namespace transactions
     {
       public:
         explicit attempt_expired(const std::string& what)
-          : error_wrapper(FAIL_EXPIRY, what, false, true)
+          : error_wrapper(FAIL_EXPIRY, what, false, true, EXPIRED)
         {
         }
     };
