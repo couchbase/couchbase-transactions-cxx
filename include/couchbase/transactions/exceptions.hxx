@@ -71,6 +71,30 @@ namespace transactions
         }
     }
 
+    class client_error : public std::runtime_error
+    {
+      private:
+          error_class _ec;
+
+      public:
+        explicit client_error(const couchbase::result& res)
+            : runtime_error(res.strerror())
+            , _ec(error_class_from_result(res))
+        {
+        }
+        explicit client_error(error_class ec, const std::string& what)
+            : runtime_error(what)
+            , _ec(ec)
+        {
+
+            spdlog::trace("creating client error with ec {}", _ec);
+        }
+        error_class ec() const
+        {
+            return _ec;
+        }
+    };
+
     enum final_error { FAILED, EXPIRED };
 
     /**
@@ -122,30 +146,48 @@ namespace transactions
     class error_wrapper : public std::runtime_error
     {
       public:
-        // TODO: prevent both retry and rollback from being true?  Or maybe that is meaningful?
         explicit error_wrapper(error_class ec,
                                const std::string& what,
                                bool retry = false,
                                bool rollback = true,
                                final_error to_raise = FAILED)
-          : std::runtime_error(what)
-          , _ec(ec)
-          , _retry(retry)
-          , _rollback(rollback)
-          , _to_raise(to_raise)
-        {
-        }
+            : std::runtime_error(what)
+            , _ec(ec)
+            , _retry(retry)
+            , _rollback(rollback)
+            , _to_raise(to_raise)
+            {
+                validate();
+            }
+        explicit error_wrapper(const client_error& client_err,
+                               bool retry = false,
+                               bool rollback = true,
+                               final_error to_raise = FAILED)
+            : std::runtime_error(client_err.what())
+            , _ec(client_err.ec())
+            , _retry(retry)
+            , _rollback(rollback)
+            , _to_raise(to_raise)
+            {
+                validate();
+            }
         explicit error_wrapper(error_class ec,
                                const std::runtime_error& cause,
                                bool retry = false,
                                bool rollback = true,
                                final_error to_raise = FAILED)
-          : std::runtime_error(cause)
-          , _ec(ec)
-          , _retry(retry)
-          , _rollback(rollback)
-          , _to_raise(to_raise)
-        {
+            : std::runtime_error(cause)
+            , _ec(ec)
+            , _retry(retry)
+            , _rollback(rollback)
+            , _to_raise(to_raise)
+            {
+                validate();
+            }
+
+        void validate() {
+            // you can't retry without rollback.
+            assert(!(_retry && !_rollback));
         }
 
         bool should_retry() const
@@ -180,7 +222,7 @@ namespace transactions
          * This is retryable - note the error wrapper constructor has true for retry and false for rollback
          */
         explicit document_already_in_transaction(const std::string& what)
-          : error_wrapper(FAIL_WRITE_WRITE_CONFLICT, what, true, false)
+          : error_wrapper(FAIL_WRITE_WRITE_CONFLICT, what, true, true)
         {
         }
     };
@@ -190,15 +232,6 @@ namespace transactions
       public:
         explicit attempt_expired(const std::string& what)
           : error_wrapper(FAIL_EXPIRY, what, false, true, EXPIRED)
-        {
-        }
-    };
-
-    class client_error : public std::runtime_error
-    {
-      public:
-        explicit client_error(const std::string& what)
-          : std::runtime_error(what)
         {
         }
     };
@@ -241,11 +274,11 @@ namespace transactions
          *
          * E.g. a transient server error that could be recovered with a retry of either the operation or the transaction.
          */
-        class test_fail_transient : public error_wrapper
+        class test_fail_transient : public client_error
         {
           public:
             explicit test_fail_transient()
-              : error_wrapper(FAIL_TRANSIENT, "Injecting a FAIL_TRANSIENT error", true, false)
+              : client_error(FAIL_TRANSIENT, "Injecting a FAIL_TRANSIENT error")
             {
             }
         };

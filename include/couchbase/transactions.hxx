@@ -19,6 +19,7 @@
 #include <couchbase/client/cluster.hxx>
 #include <functional>
 #include <thread>
+#include <cmath>
 
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/logging.hxx>
@@ -65,26 +66,28 @@ namespace transactions
                     break;
                 } catch (const error_wrapper& er) {
                     spdlog::error("got error_wrapper {}", er.what());
+                    // first rollback if appropriate.  Almost always is.
+                    if (er.should_rollback()) {
+                        spdlog::trace("got rollback-able exception, rolling back");
+                        ctx.rollback();
+                    }
                     if (er.should_retry()) {
                         if (overall.num_attempts() < max_attempts_) {
-                            spdlog::trace("got retryable exception {}, retrying", er.what());
+                            spdlog::trace("got retryable exception, retrying");
                             // simple linear backoff with #of attempts
-                            std::this_thread::sleep_for(min_retry_delay_ * overall.num_attempts());
+                            std::this_thread::sleep_for(min_retry_delay_ * pow(2, fmin(10, overall.num_attempts())));
                             continue;
-                        } else {
-                            spdlog::error("max_attempts ({}} exceeded, rolling back", max_attempts_);
-                            ctx.rollback();
                         }
-                    }
-                    if (er.should_rollback()) {
-                        spdlog::trace("got non-retryable exception, rolling back");
-                        ctx.rollback();
                     }
 
                     // throw the expected exception here
                     er.do_throw(overall);
                 } catch (const std::runtime_error& ex) {
                     spdlog::error("got runtime error {}", ex.what());
+                    ctx.rollback();
+                    break;
+                } catch(...) {
+                    spdlog::error("got unexpected error, rolling back");
                     ctx.rollback();
                     break;
                 }
@@ -119,7 +122,8 @@ namespace transactions
         couchbase::cluster& cluster_;
         transaction_config config_;
         transactions_cleanup cleanup_;
-        const int max_attempts_{100};
+        // TODO: realistic max - this helps with tests as the expiration is 2 min and thats forever
+        const int max_attempts_{10};
         const std::chrono::milliseconds min_retry_delay_{10};
     };
 } // namespace transactions

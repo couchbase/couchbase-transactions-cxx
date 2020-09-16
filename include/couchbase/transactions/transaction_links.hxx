@@ -146,7 +146,7 @@ namespace transactions
         template<typename Content>
         CB_NODISCARD Content staged_content() const
         {
-            return staged_content_->get<Content>();
+            return staged_content_ ? staged_content_->get<Content>() : Content();
         }
 
         friend std::ostream& operator<<(std::ostream& os, const transaction_links& links);
