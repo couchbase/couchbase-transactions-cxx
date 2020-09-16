@@ -541,7 +541,7 @@ namespace transactions
             spdlog::info("rolling back");
             // check for expiry
             check_expiry_during_commit_or_rollback(STAGE_ROLLBACK, boost::none);
-            if (!atr_id_ || !atr_collection_ || attempt_state()==attempt_state::NOT_STARTED) {
+            if (!atr_id_ || !atr_collection_ || attempt_state()==couchbase::transactions::attempt_state::NOT_STARTED) {
                 // TODO: check this, but if we try to rollback an empty txn, we should
                 // prevent a subsequent commit
                 spdlog::trace("rollback called on txn with no mutations");
