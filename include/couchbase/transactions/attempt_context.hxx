@@ -884,7 +884,7 @@ namespace transactions
         void wrap_collection_call(result& res, std::function<void(result&)> call)
         {
             call(res);
-            if (res.rc != LCB_SUCCESS) {
+            if (!res.is_success()) {
                 throw client_error(res);
             }
         }

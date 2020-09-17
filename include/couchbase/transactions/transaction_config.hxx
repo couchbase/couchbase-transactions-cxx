@@ -15,7 +15,7 @@
  */
 
 #pragma once
-
+#include <couchbase/support.hxx>
 #include <couchbase/transactions/attempt_context_testing_hooks.hxx>
 #include <couchbase/transactions/durability_level.hxx>
 
