@@ -13,8 +13,14 @@ void
 tx::attempt_context::select_atr_if_needed(std::shared_ptr<couchbase::collection> collection, const std::string& id)
 {
     if (!atr_id_) {
-        int vbucket_id = atr_ids::vbucket_for_key(id);
-        atr_id_.emplace(atr_ids::atr_id_for_vbucket(vbucket_id));
+        int vbucket_id=-1;
+        boost::optional<const std::string> hook_atr = hooks_.random_atr_id_for_vbucket(this);
+        if (hook_atr) {
+            atr_id_.emplace(*hook_atr);
+        } else {
+            vbucket_id = atr_ids::vbucket_for_key(id);
+            atr_id_.emplace(atr_ids::atr_id_for_vbucket(vbucket_id));
+        }
         atr_collection_ = collection;
         overall_.atr_collection(collection->name());
         overall_.atr_id(*atr_id_);

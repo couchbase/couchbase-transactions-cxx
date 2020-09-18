@@ -1,7 +1,9 @@
 #include <utility>
 #include <spdlog/spdlog.h>
+#include <couchbase/client/result.hxx>
 #include <couchbase/transactions/staged_mutation.hxx>
 #include <couchbase/transactions/transaction_fields.hxx>
+#include <couchbase/transactions/attempt_context.hxx>
 
 namespace tx = couchbase::transactions;
 
@@ -99,26 +101,87 @@ tx::staged_mutation_queue::iterate(std::function<void(staged_mutation&)> op) {
 }
 
 void
-tx::staged_mutation_queue::commit()
+tx::staged_mutation_queue::commit(attempt_context& ctx)
 {
     std::unique_lock<std::mutex> lock(mutex_);
-
     for (auto& item : queue_) {
         switch (item.type()) {
             case staged_mutation_type::REMOVE:
-                item.doc().collection_ref().remove(item.doc().id());
+                remove_doc(ctx, item);
                 break;
             case staged_mutation_type::INSERT:
             case staged_mutation_type::REPLACE:
-                // TODO: check and handle expiry, check for overtime mode, etc...
-
-                // move staged content into doc
-                item.doc().collection_ref().mutate_in(item.doc().id(),
-                                                      {
-                                                        mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
-                                                        mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
-                                                      });
+                commit_doc(ctx, item);
                 break;
+        }
+    }
+}
+
+void
+tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& item, bool ambiguity_resolution_mode) {
+    try {
+        // TODO: deal with tombstone here, for now, insert ans replace are same
+        ctx.check_expiry_during_commit_or_rollback(STAGE_COMMIT_DOC, boost::optional<const std::string>(item.doc().id()));
+        ctx.hooks_.before_doc_committed(&ctx, item.doc().id());
+
+        // move staged content into doc
+        result res;
+        ctx.wrap_collection_call(res, [&](result& r) {
+            r = item.doc().collection_ref().mutate_in(item.doc().id(),
+                {
+                    mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
+                    mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
+                });
+        });
+        // TODO: mutation tokens
+        ctx.hooks_.after_doc_committed_before_saving_cas(&ctx, item.doc().id());
+        item.doc().cas(res.cas);
+        ctx.hooks_.after_doc_committed(&ctx, item.doc().id());
+    } catch (const client_error& e) {
+        error_class ec = e.ec();
+        if (ctx.expiry_overtime_mode_) {
+            // TODO new final exception type expired_post_commit
+            throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
+        }
+        switch(ec) {
+            case FAIL_AMBIGUOUS:
+                std::this_thread::sleep_for(ctx.retry_delay_);
+                return commit_doc(ctx, item, true);
+            case FAIL_CAS_MISMATCH:
+            case FAIL_DOC_ALREADY_EXISTS:
+                if (ambiguity_resolution_mode) {
+                    throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
+                }
+                std::this_thread::sleep_for(ctx.retry_delay_);
+                return commit_doc(ctx, item, true);
+            default:
+                throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
+        }
+    }
+}
+
+void
+    tx::staged_mutation_queue::remove_doc(attempt_context& ctx, staged_mutation& item) {
+    try {
+        ctx.check_expiry_during_commit_or_rollback(STAGE_REMOVE_DOC, boost::optional<const std::string>(item.doc().id()));
+        ctx.hooks_.before_doc_removed(&ctx, item.doc().id());
+        result res;
+        ctx.wrap_collection_call(res, [&](result& r) {
+            r = item.doc().collection_ref().remove(item.doc().id());
+        });
+        // TODO:mutation tokens
+    } catch (const client_error& e) {
+        error_class ec = e.ec();
+        if (ctx.expiry_overtime_mode_) {
+            // TODO new final exception type expired_post_commit
+            throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
+        }
+        switch (ec) {
+            case FAIL_AMBIGUOUS:
+                std::this_thread::sleep_for(ctx.retry_delay_);
+                return remove_doc(ctx, item);
+            default:
+                throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
         }
     }
 }

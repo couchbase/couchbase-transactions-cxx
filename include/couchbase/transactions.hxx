@@ -82,6 +82,8 @@ namespace transactions
 
                     // throw the expected exception here
                     er.do_throw(overall);
+                    // if we don't throw, break here means no retry
+                    break;
                 } catch (const std::runtime_error& ex) {
                     spdlog::error("got runtime error {}", ex.what());
                     ctx.rollback();

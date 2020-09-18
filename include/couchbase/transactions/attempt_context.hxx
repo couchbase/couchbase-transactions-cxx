@@ -54,6 +54,8 @@ namespace transactions
         attempt_context_testing_hooks hooks_;
         std::chrono::nanoseconds start_time_server_{ 0 };
         static const std::chrono::milliseconds retry_delay_; // Java uses 3ms, copying that (in the cxx).
+        // commit needs to access the hooks
+        friend class staged_mutation_queue;
 
       public:
         attempt_context(transactions* parent, transaction_context& transaction_ctx, const transaction_config& config)
@@ -488,9 +490,9 @@ namespace transactions
                         r = atr_collection_->mutate_in(atr_id_.value(), specs);
                         hooks_.after_atr_commit(this);
                     });
-
+                    attempt_state(couchbase::transactions::attempt_state::COMMITTED);
                     std::vector<transaction_document> docs;
-                    staged_mutations_.commit();
+                    staged_mutations_.commit(*this);
                     // if this succeeds, set ATR to COMPLETED
                     std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
                     std::vector<mutate_in_spec> specs({
@@ -677,7 +679,7 @@ namespace transactions
         bool has_expired_client_side(std::string place, boost::optional<const std::string> doc_id)
         {
             bool over = overall_.has_expired_client_side(config_);
-            bool hook = hooks_.has_expired_client_side_hook(this, place, doc_id);
+            bool hook = hooks_.has_expired_client_side(this, place, doc_id);
             if (over) {
                 spdlog::info("{} expired in {}", attempt_id(), place);
             }
