@@ -1,6 +1,7 @@
 #include <memory>
 
 #include <boost/algorithm/string/split.hpp>
+#include <spdlog/spdlog.h>
 
 #include <libcouchbase/couchbase.h>
 
@@ -40,6 +41,7 @@ cb::bucket::collection(const std::string& collection)
 
 cb::bucket::bucket(lcb_st* instance, const std::string& name)
   : lcb_(instance)
+  , name_(name)
 {
     lcb_STATUS rc;
 
@@ -52,5 +54,18 @@ cb::bucket::bucket(lcb_st* instance, const std::string& name)
     lcb_wait(lcb_, LCB_WAIT_DEFAULT);
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to open bucket (wait): ") + lcb_strerror_short(rc));
+    }
+}
+
+cb::bucket::~bucket() {
+    close();
+}
+
+void
+cb::bucket::close() {
+    spdlog::trace("bucket shutting down - lcb_ = {}", (void*)lcb_);
+    if (lcb_ != nullptr) {
+        lcb_destroy(lcb_);
+        lcb_ = nullptr;
     }
 }

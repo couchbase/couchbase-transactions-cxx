@@ -52,6 +52,14 @@ namespace transactions
             spdlog::info("couchbase transactions {} creating new transaction object", VERSION_STR);
         }
 
+        std::shared_ptr<transactions>
+        clone(cluster& new_cluster, std::shared_ptr<attempt_context_testing_hooks> new_hooks) {
+            spdlog::info("couchbase transactions {} copying transaction object", VERSION_STR);
+            transaction_config config = config_;
+            config.test_factories(*new_hooks);
+            return std::make_shared<transactions>(new_cluster, config);
+        }
+
         transaction_result run(const logic& logic)
         {
             transaction_context overall;
@@ -113,6 +121,7 @@ namespace transactions
 
         void close()
         {
+
         }
 
         CB_NODISCARD transactions_cleanup& cleanup()

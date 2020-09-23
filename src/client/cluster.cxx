@@ -21,6 +21,24 @@ cb::cluster::cluster(std::string cluster_address, std::string user_name, std::st
     connect();
 }
 
+cb::cluster::cluster(const cluster& cluster)
+    : cluster_address_(cluster.cluster_address_)
+    , lcb_(nullptr)
+    , user_name_(cluster.user_name_)
+    , password_(cluster.password_)
+{
+    spdlog::info("couchbase client library {} attempting to connect to {}", VERSION_STR, cluster_address_);
+    connect();
+}
+
+bool
+cb::cluster::operator==(const cluster& other) const{
+    return cluster_address_ == other.cluster_address_ &&
+           user_name_ == other.user_name_ &&
+           password_ == other.password_ &&
+           lcb_ == other.lcb_;
+}
+
 cb::cluster::~cluster()
 {
     shutdown();
@@ -77,6 +95,7 @@ cb::cluster::connect()
 void
 cb::cluster::shutdown()
 {
+    spdlog::trace("cluster shutting down - lcb_ = {}", (void*)lcb_);
     if (lcb_ != nullptr) {
         lcb_destroy(lcb_);
         lcb_ = nullptr;

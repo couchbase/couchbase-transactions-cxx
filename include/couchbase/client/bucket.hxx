@@ -17,6 +17,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 struct lcb_st;
 
 namespace couchbase
@@ -34,6 +35,7 @@ class bucket : public std::enable_shared_from_this<bucket>
 
   private:
     lcb_st* lcb_;
+    const std::string name_;
     bucket(lcb_st* instance, const std::string& name);
 
   public:
@@ -45,5 +47,8 @@ class bucket : public std::enable_shared_from_this<bucket>
     }
     std::shared_ptr<class collection> default_collection();
     std::shared_ptr<class collection> collection(const std::string& name);
+    const std::string name() { return name_; };
+    void close();
+    ~bucket();
 };
-} // namespace couchbase
+}// namespace couchbase

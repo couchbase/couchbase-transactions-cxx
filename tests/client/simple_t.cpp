@@ -42,7 +42,12 @@ TEST(SimpleClientClusterTests, ClusterConnect)
     auto c = ClientTestEnvironment::get_cluster();
     ASSERT_TRUE(c.get() != nullptr);
 }
-
+TEST(SimpleClientClusterTests, ClusterCopy)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    cluster copy = *c;
+    ASSERT_FALSE(*c == copy);
+}
 TEST(SimpleClientClusterTests, CanGetBucket)
 {
     auto c = ClientTestEnvironment::get_cluster();
@@ -70,6 +75,13 @@ TEST(SimpleClientBucketTests, CanGetDefaultCollection)
     auto b = c->bucket("default");
     auto coll = b->default_collection();
     ASSERT_TRUE(coll.get() != nullptr);
+}
+
+TEST(SimpleClientBucketTests, CanGetBucketName)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto b = c->bucket("default");
+    ASSERT_EQ(b->name(), "default");
 }
 
 class SimpleClientCollectionTests : public ::testing::Test

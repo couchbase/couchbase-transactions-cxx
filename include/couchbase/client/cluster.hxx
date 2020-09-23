@@ -42,11 +42,12 @@ class cluster
 
   public:
     explicit cluster(std::string cluster_address, std::string user_name, std::string password);
+    cluster(const cluster& cluster);
     ~cluster();
 
     std::list<std::string> buckets();
     std::shared_ptr<class bucket> bucket(const std::string& name);
-
+    bool operator==(const couchbase::cluster&  other) const;
     // Helpful for debugging/logging
     const std::string cluster_address() const
     {
