@@ -145,14 +145,14 @@ tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& ite
         }
         switch(ec) {
             case FAIL_AMBIGUOUS:
-                std::this_thread::sleep_for(ctx.retry_delay_);
+                ctx.overall_.retry_delay(ctx.config_);
                 return commit_doc(ctx, item, true);
             case FAIL_CAS_MISMATCH:
             case FAIL_DOC_ALREADY_EXISTS:
                 if (ambiguity_resolution_mode) {
                     throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
                 }
-                std::this_thread::sleep_for(ctx.retry_delay_);
+                ctx.overall_.retry_delay(ctx.config_);
                 return commit_doc(ctx, item, true);
             default:
                 throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
@@ -178,7 +178,7 @@ void
         }
         switch (ec) {
             case FAIL_AMBIGUOUS:
-                std::this_thread::sleep_for(ctx.retry_delay_);
+                ctx.overall_.retry_delay(ctx.config_);
                 return remove_doc(ctx, item);
             default:
                 throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);

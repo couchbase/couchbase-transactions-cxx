@@ -8,7 +8,7 @@
 #include "atr_ids.hxx"
 
 namespace tx = couchbase::transactions;
-const std::chrono::milliseconds tx::attempt_context::retry_delay_ {3};
+
 void
 tx::attempt_context::select_atr_if_needed(std::shared_ptr<couchbase::collection> collection, const std::string& id)
 {
@@ -32,6 +32,37 @@ tx::attempt_context::select_atr_if_needed(std::shared_ptr<couchbase::collection>
 void
 couchbase::transactions::attempt_context::check_atr_entry_for_blocking_document(const couchbase::transactions::transaction_document& doc)
 {
-    // FIXME:
-    // collection = parent_->cleanup().cluster().bucket(doc.links().atr_bucket_name().value());
+    auto collection = parent_->cluster().bucket(doc.links().atr_bucket_name().value())->default_collection();
+    int retries = 0;
+    while (retries < 5) {
+        retries++;
+        auto atr = active_transaction_record::get_atr(collection, doc.links().atr_id().value(), config_);
+        if (atr) {
+            auto entries = atr->entries();
+            auto it = std::find_if(entries.begin(), entries.end(), [&] (const atr_entry& e) {
+                    return e.attempt_id() == doc.links().staged_attempt_id();
+                    });
+            if (it != entries.end()) {
+                if (it->has_expired()) {
+                    spdlog::trace("existing atr entry has expired, ignoring");
+                    return;
+                }
+                switch(it->state()) {
+                    case tx::attempt_state::COMPLETED:
+                    case tx::attempt_state::ROLLED_BACK:
+                        spdlog::trace("existing atr entry can be ignored due to state {}", it->state());
+                        return;
+                    default:
+                        spdlog::trace("existing atr entry found in state {}, retrying in 100ms", it->state());
+                }
+                // TODO  this (and other retries) probably need a clever class, exponential backoff, etc...
+                std::this_thread::sleep_for(std::chrono::milliseconds(50*retries));
+            } else {
+                spdlog::trace("no blocking atr entry");
+                return;
+            }
+        }
+    }
+    // if we are here, there is still a write-write conflict
+    throw error_wrapper(FAIL_WRITE_WRITE_CONFLICT, "document is in another transaction", true, true);
 }

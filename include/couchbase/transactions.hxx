@@ -129,6 +129,11 @@ namespace transactions
             return cleanup_;
         }
 
+        CB_NODISCARD cluster& cluster()
+        {
+            return cluster_;
+        }
+
       private:
         couchbase::cluster& cluster_;
         transaction_config config_;

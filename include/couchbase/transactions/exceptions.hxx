@@ -222,11 +222,11 @@ namespace transactions
          *
          * However, for testing purposes, a TransactionFailed will still be raised, correct in all respects including the attempts field.
          */
-        class test_fail_hard : public error_wrapper
+        class test_fail_hard : public client_error
         {
           public:
             explicit test_fail_hard()
-              : error_wrapper(FAIL_HARD, "Injecting a FAIL_HARD error", false, false)
+              : client_error(FAIL_HARD, "Injecting a FAIL_HARD error")
             {
             }
         };
@@ -236,11 +236,11 @@ namespace transactions
          *
          * E.g. either the server or SDK raised an error indicating the operation was ambiguously successful.
          */
-        class test_fail_ambiguous : public error_wrapper
+        class test_fail_ambiguous : public client_error
         {
           public:
             explicit test_fail_ambiguous()
-              : error_wrapper(FAIL_AMBIGUOUS, "Injecting a FAIL_AMBIGUOUS error", true, true)
+              : client_error(FAIL_AMBIGUOUS, "Injecting a FAIL_AMBIGUOUS error")
             {
             }
         };
@@ -264,11 +264,11 @@ namespace transactions
          *
          * E.g. an error which is not retryable.
          */
-        class test_fail_other : public error_wrapper
+        class test_fail_other : public client_error
         {
           public:
             explicit test_fail_other()
-              : error_wrapper(FAIL_OTHER, "Injecting a FAIL_OTHER error", false, true)
+              : client_error(FAIL_OTHER, "Injecting a FAIL_OTHER error")
             {
             }
         };

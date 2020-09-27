@@ -19,6 +19,7 @@
 #include <chrono>
 #include <string>
 #include <vector>
+#include <thread>
 
 #include <couchbase/transactions/logging.hxx>
 #include <couchbase/transactions/transaction_attempt.hxx>
@@ -89,6 +90,15 @@ namespace transactions
                              std::chrono::duration_cast<std::chrono::milliseconds>(config.expiration_time()).count());
             }
             return is_expired;
+        }
+
+        void retry_delay(const transaction_config& config)
+        {
+            // when we retry an operation, we typically call that function recursively.  So, we need to
+            // limit total number of times we do it.  Later we can be more sophisticated perhaps.
+            auto delay = config.expiration_time() / 100; // the 100 is arbitrary
+            spdlog::trace("about to sleep for {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(delay).count());
+            std::this_thread::sleep_for(delay);
         }
 
         CB_NODISCARD std::chrono::time_point<std::chrono::system_clock> start_time_client() const
