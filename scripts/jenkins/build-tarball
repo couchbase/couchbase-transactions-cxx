@@ -26,8 +26,18 @@ PKGBUILD_ROOT="${PROJECT_ROOT}/pkgbuild"
 SOURCES_DIR="${PKGBUILD_ROOT}/sources"
 BUILD_DIR="${PKGBUILD_ROOT}/build"
 
+BOOST_LOCATION=${BOOST_LOCATION:-system}
+EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS:-}
+if [ "x${BOOST_LOCATION}" = "xcbdep" ]
+then
+    BOOST_ROOT=$(realpath "${PROJECT_ROOT}/../deps/boost-1.67.0-cb8")
+    EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DBOOST_ROOT=${BOOST_ROOT}"
+fi
+
 echo "Sources: ${SOURCES_DIR}"
 echo "Build: ${BUILD_DIR}"
+echo "Boost location: ${BOOST_LOCATION}"
+echo "Extra cmake flags: ${EXTRA_CMAKE_FLAGS}"
 
 set -x
 set -e
@@ -35,7 +45,7 @@ set -e
 rm -rf "${BUILD_DIR}" "${SOURCES_DIR}"
 mkdir -p "${BUILD_DIR}" "${SOURCES_DIR}"
 cd "${BUILD_DIR}"
-cmake -DBUILD_DOC=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF "${PROJECT_ROOT}"
+cmake -DBUILD_DOC=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF ${EXTRA_CMAKE_FLAGS} -S "${PROJECT_ROOT}" -B .
 make tarball
 TARBALL_NAME=$(find . -name "couchbase-transactions-*.tar.gz")
 cp "${TARBALL_NAME}" "${SOURCES_DIR}/"
