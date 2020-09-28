@@ -53,6 +53,7 @@ sed -e "s/\(Release: .*\)%/\1.${BUILD_NUMBER}%/;s/Source: .*/Source: ${TARBALL_N
   > "${SPEC_FILE}"
 
 mock --buildsrpm \
+     --old-chroot \
      --root "${CENTOS_ROOT}" \
      --sources "${SOURCES_DIR}" \
      --resultdir "${RESULTS_DIR}" \

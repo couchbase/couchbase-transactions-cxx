@@ -45,6 +45,7 @@ mkdir -p "${SOURCES_DIR}" "${RESULTS_DIR}"
 SRPM_NAME=$(cat "${SOURCES_DIR}/srpm-name.txt")
 
 mock --rebuild \
+     --old-chroot \
      --root "${CENTOS_ROOT}" \
      --resultdir "${RESULTS_DIR}" \
      "${SOURCES_DIR}/${SRPM_NAME}"
