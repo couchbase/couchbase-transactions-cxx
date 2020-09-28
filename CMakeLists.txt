@@ -1,27 +1,18 @@
 cmake_minimum_required(VERSION 3.9)
+if (POLICY CMP0063) # Visibility
+    cmake_policy(SET CMP0063 NEW)
+endif (POLICY CMP0063)
 
 # ============= BEGIN EXTERNAL DEPS ==================================
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(ALLOW_DUPLICATE_CUSTOM_TARGETS TRUE)
 
-configure_file(CMakeLists.txt.in ${CMAKE_CURRENT_BINARY_DIR}/spdlog-download/CMakeLists.txt)
-
-execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
-                WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/spdlog-download"
-)
-execute_process(COMMAND "${CMAKE_COMMAND}" --build .
-                WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/spdlog-download"
-)
-
-add_subdirectory("${CMAKE_CURRENT_BINARY_DIR}/spdlog-src"
-                 "${CMAKE_CURRENT_BINARY_DIR}/spdlog-build"
-)
 # ============= END EXTERNAL DEPS ====================================
 # ============= BEGIN DEPS ===========================================
 project(transactions_cxx)
 set(CB_VERSION_MAJOR 1)
 set(CB_VERSION_MINOR 0)
-set(CB_VERSION_PATCH "0-alpha")
+set(CB_VERSION_PATCH "0.alpha")
 set(CB_VERSION_TWEAK 1)
 set(CB_VERSION_STRING ${CB_VERSION_MAJOR}.${CB_VERSION_MINOR}.${CB_VERSION_PATCH}.${CB_VERSION_TWEAK})
 
@@ -44,6 +35,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/
 
 option(BUILD_DOC "Build documentation" ON)
 option(BUILD_EXAMPLES "Build examples" ON)
+option(BUILD_TESTS "Build tests" ON)
 
 set(LCB_NO_TESTS ON CACHE INTERNAL "")
 set(LCB_NO_TOOLS ON CACHE INTERNAL "")
@@ -51,11 +43,21 @@ set(LCB_BUILD_LIBEV OFF CACHE INTERNAL "")
 set(LCB_BUILD_LIBUV OFF CACHE INTERNAL "")
 set(LCB_EMBED_PLUGIN_LIBEVENT ON CACHE INTERNAL "")
 set(LCB_STATIC_LIBEVENT ON CACHE INTERNAL "")
+set(LCB_BUILD_DTRACE OFF CACHE INTERNAL "")
+set(LCB_INSTALL_HEADERS OFF CACHE INTERNAL "")
+set(LCB_INSTALL_PKGCONFIG OFF CACHE INTERNAL "")
+set(LCB_INSTALL_LIBRARY OFF CACHE INTERNAL "")
 
+add_definitions(-DLIBCOUCHBASE_STATIC=1)
 add_subdirectory(deps/libcouchbase)
-add_subdirectory(deps/libcouchbase/contrib/gtest-1.8.1)
+if(BUILD_TESTS)
+    add_subdirectory(deps/libcouchbase/contrib/gtest-1.8.1)
+endif()
 set(JSON_BuildTests OFF CACHE INTERNAL "")
+set(JSON_Install OFF CACHE INTERNAL "")
 add_subdirectory(deps/json)
+
+add_subdirectory(deps/spdlog)
 
 find_package(Threads)
 set(Boost_USE_MULTITHREADED ON)
@@ -69,20 +71,26 @@ message(STATUS "Boost_LIBRARIES: ${Boost_LIBRARIES}")
 
 #============ END DEPS =======================================================
 #============ BEGIN CLIENT ===================================================
-include_directories(include ${PROJECT_SOURCE_DIR}/deps/libcouchbase/include
-                            ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated
-			    ${CMAKE_CURRENT_BINARY_DIR}/spdlog-src/include)
+include_directories(include)
+include_directories(SYSTEM
+        ${PROJECT_SOURCE_DIR}/deps/spdlog/include
+        ${PROJECT_SOURCE_DIR}/deps/libcouchbase/include
+        ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated)
 
 file(GLOB_RECURSE client_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/client/*.hxx)
 file(GLOB_RECURSE client_src_FILES ${PROJECT_SOURCE_DIR}/src/client/*.cxx)
 add_definitions(-DBOOST_UUID_RANDOM_GENERATOR_COMPAT)
-add_library(client_cxx SHARED ${client_include_FILES} ${client_src_FILES})
+add_library(client_cxx STATIC ${client_include_FILES} ${client_src_FILES})
+set_property(TARGET client_cxx PROPERTY C_VISIBILITY_PRESET hidden)
+set_property(TARGET client_cxx PROPERTY CXX_VISIBILITY_PRESET hidden)
+set_property(TARGET client_cxx PROPERTY VISIBILITY_INLINES_HIDDEN ON)
 target_link_libraries(client_cxx
+                      PRIVATE
                       ${CMAKE_THREAD_LIBS_INIT}
                       nlohmann_json::nlohmann_json
-                      spdlog
+                      spdlog::spdlog_header_only
                       ${Boost_LIBRARIES}
-                      couchbase)
+                      couchbaseS)
 set_target_properties(client_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
 #============ END CLIENT ====================================================================
 # =========== BEGIN TRANSACTIONS ============================================================
@@ -92,7 +100,7 @@ add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions
 target_link_libraries(transactions_cxx
                       ${CMAKE_THREAD_LIBS_INIT}
                       nlohmann_json::nlohmann_json
-                      spdlog
+                      spdlog::spdlog_header_only
                       ${Boost_LIBRARIES}
                       client_cxx)
 set_target_properties(transactions_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
@@ -119,10 +127,37 @@ if(BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 #========== END EXAMPLES =========================================================================
+#=========== BEGIN TARBALL =======================================================================
+set(tarball_name "couchbase-transactions-${CB_VERSION_STRING}")
+set(tarball_manifest_path "${CMAKE_CURRENT_BINARY_DIR}/tarball-manifest.txt")
+set(tarball_exclude_path "${PROJECT_SOURCE_DIR}/scripts/jenkins/pkg/exclude.txt")
+
+add_custom_target(tarball_manifest
+    COMMAND sh -c 'test -e ${tarball_manifest_path} || git ls-files --recurse-submodules | grep --invert-match --file=${tarball_exclude_path} > ${tarball_manifest_path}'
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+
+add_custom_target(tarball
+    COMMAND rm -rf "${tarball_name}"
+    COMMAND mkdir "${tarball_name}"
+    COMMAND tar -c -f - --directory "${PROJECT_SOURCE_DIR}" --files-from "${tarball_manifest_path}" | tar -x -f - --directory "${tarball_name}"
+    COMMAND cp "${PROJECT_SOURCE_DIR}/deps/libcouchbase/packaging/distinfo/distinfo.cmake" "${tarball_name}/deps/libcouchbase/packaging/distinfo/"
+    COMMAND tar -cz -f "${tarball_name}.tar.gz" "${tarball_name}"
+    COMMAND rm -rf "${tarball_name}"
+    DEPENDS tarball_manifest)
+
+include(GNUInstallDirs)
+install(TARGETS transactions_cxx DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(DIRECTORY include/couchbase
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN *.hxx)
+#=========== END TARBALL =========================================================================
+
 #========== BEGIN TESTS ==========================================================================
 
-file(GLOB CLIENT_TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/client/*_t.cpp")
-# super fragile - lets try to do better
-include_directories(${CURRENT_CMAKE_BINARY_DIR}/deps/libcouchbase/contrib/gtest-1.8.1)
-add_executable(client_tests ${CLIENT_TEST_SOURCES})
-target_link_libraries(client_tests client_cxx gtest)
+if(BUILD_TESTS)
+    file(GLOB CLIENT_TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/client/*_t.cpp")
+    # super fragile - lets try to do better
+    include_directories(${CURRENT_CMAKE_BINARY_DIR}/deps/libcouchbase/contrib/gtest-1.8.1)
+    add_executable(client_tests ${CLIENT_TEST_SOURCES})
+    target_link_libraries(client_tests client_cxx gtest)
+endif()

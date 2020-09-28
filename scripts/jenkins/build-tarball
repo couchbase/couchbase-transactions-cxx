@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+
+#    Copyright 2020 Couchbase, Inc.
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+PROJECT_ROOT="$( cd "$(dirname "$0"/../..)" >/dev/null 2>&1 ; pwd -P )"
+
+echo "HOSTNAME=${HOSTNAME}"
+echo "NODE_NAME=${NODE_NAME}"
+echo "CONTAINER_TAG=${CONTAINER_TAG}"
+echo "JENKINS_SLAVE_LABELS=${JENKINS_SLAVE_LABELS}"
+echo "NODE_LABELS=${NODE_LABELS}"
+
+PKGBUILD_ROOT="${PROJECT_ROOT}/pkgbuild"
+SOURCES_DIR="${PKGBUILD_ROOT}/sources"
+BUILD_DIR="${PKGBUILD_ROOT}/build"
+
+BOOST_LOCATION=${BOOST_LOCATION:-system}
+EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS:-}
+if [ "x${BOOST_LOCATION}" = "xcbdep" ]
+then
+    BOOST_ROOT=$(realpath "${PROJECT_ROOT}/deps/boost-1.67.0-cb8")
+    EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DBOOST_ROOT=${BOOST_ROOT}"
+fi
+
+echo "Sources: ${SOURCES_DIR}"
+echo "Build: ${BUILD_DIR}"
+echo "Boost location: ${BOOST_LOCATION}"
+echo "Extra cmake flags: ${EXTRA_CMAKE_FLAGS}"
+
+set -x
+set -e
+
+rm -rf "${BUILD_DIR}" "${SOURCES_DIR}"
+mkdir -p "${BUILD_DIR}" "${SOURCES_DIR}"
+cd "${BUILD_DIR}"
+cmake -DBUILD_DOC=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF ${EXTRA_CMAKE_FLAGS} "${PROJECT_ROOT}"
+make tarball
+TARBALL_NAME=$(find . -name "couchbase-transactions-*.tar.gz")
+cp "${TARBALL_NAME}" "${SOURCES_DIR}/"
+basename "${TARBALL_NAME}" > "${SOURCES_DIR}/tarball-name.txt"
