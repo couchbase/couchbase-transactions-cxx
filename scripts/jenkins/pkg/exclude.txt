@@ -3,7 +3,6 @@
 ^.cmake-format.yaml
 ^.gitignore
 ^.gitmodules
-^deps/json$
 ^deps/json/.circleci
 ^deps/json/.clang-tidy
 ^deps/json/.doozer.json
@@ -24,8 +23,6 @@
 ^deps/json/nlohmann_json.natvis
 ^deps/json/test
 ^deps/json/third_party
-^deps/libcouchbase$
-^deps/spdlog$
 ^deps/spdlog/.clang-format
 ^deps/spdlog/.clang-tidy
 ^deps/spdlog/.gitattributes

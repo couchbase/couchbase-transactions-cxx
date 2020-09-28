@@ -133,7 +133,7 @@ set(tarball_manifest_path "${CMAKE_CURRENT_BINARY_DIR}/tarball-manifest.txt")
 set(tarball_exclude_path "${PROJECT_SOURCE_DIR}/scripts/jenkins/pkg/exclude.txt")
 
 add_custom_target(tarball_manifest
-    COMMAND ${PROJECT_SOURCE_DIR}/scripts/build-file-manifest ${tarball_manifest_path} ${tarball_exclude_path}
+    COMMAND sh -c 'test -e ${tarball_manifest_path} || git ls-files --recurse-submodules | grep --invert-match --file=${tarball_exclude_path} > ${tarball_manifest_path}'
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 
 add_custom_target(tarball
