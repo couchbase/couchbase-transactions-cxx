@@ -30,7 +30,7 @@ BOOST_LOCATION=${BOOST_LOCATION:-system}
 EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS:-}
 if [ "x${BOOST_LOCATION}" = "xcbdep" ]
 then
-    BOOST_ROOT=$(realpath "${PROJECT_ROOT}/../deps/boost-1.67.0-cb8")
+    BOOST_ROOT=$(realpath "${PROJECT_ROOT}/deps/boost-1.67.0-cb8")
     EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DBOOST_ROOT=${BOOST_ROOT}"
 fi
 
