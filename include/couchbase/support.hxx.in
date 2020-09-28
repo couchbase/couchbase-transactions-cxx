@@ -39,7 +39,7 @@
         #if defined(__clang__) && !defined(CB_HAS_CPP_17)
             #define CB_NODISCARD
         #else
-            #define CB_NODISCARD CB_NODISCARD
+            #define CB_NODISCARD [[nodiscard]]
         #endif
     #elif __has_cpp_attribute(gnu::warn_unused_result)
         #define CB_NODISCARD [[gnu::warn_unused_result]]
