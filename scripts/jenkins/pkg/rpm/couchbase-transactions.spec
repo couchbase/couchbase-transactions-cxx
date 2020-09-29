@@ -14,7 +14,7 @@ BuildRequires: cmake >= 3.9
 BuildRequires: pkgconfig(libevent) >= 2
 BuildRequires: openssl-devel
 BuildRequires: boost-devel
-URL: https://docs.couchbase.com/c-sdk/3.0/project-docs/distributed-transactions-c-release-notes.html
+URL: https://docs.couchbase.com/c-sdk/3.0/project-docs/distributed-transactions-cpp-release-notes.html
 Source: couchbase-transactions-%{version}.tar.gz
 
 %description
