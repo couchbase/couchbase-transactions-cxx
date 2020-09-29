@@ -38,7 +38,6 @@ echo "Results: ${RESULTS_DIR}"
 set -x
 set -e
 
-
 mkdir -p "${SOURCES_DIR}" "${RESULTS_DIR}"
 
 # SRPM absolute path written by build-srpm script
@@ -49,3 +48,8 @@ mock --rebuild \
      --root "${CENTOS_ROOT}" \
      --resultdir "${RESULTS_DIR}" \
      "${SOURCES_DIR}/${SRPM_NAME}"
+
+cd "${RESULTS_DIR}"
+rm -rf *.src.rpm
+PKG_NAME=$(rpm -qpp --queryformat "%{nvr}.%{arch}\n" *.rpm | sort | head -1)
+tar cvf "${PKG_NAME}.tar" *.rpm
