@@ -74,6 +74,7 @@ message(STATUS "Boost_LIBRARIES: ${Boost_LIBRARIES}")
 include_directories(include)
 include_directories(SYSTEM
         ${PROJECT_SOURCE_DIR}/deps/spdlog/include
+        ${PROJECT_SOURCE_DIR}/deps/json/include
         ${PROJECT_SOURCE_DIR}/deps/libcouchbase/include
         ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated)
 
@@ -88,7 +89,7 @@ target_link_libraries(client_cxx
                       PRIVATE
                       ${CMAKE_THREAD_LIBS_INIT}
                       nlohmann_json::nlohmann_json
-                      spdlog::spdlog_header_only
+                      spdlog::spdlog
                       ${Boost_LIBRARIES}
                       couchbaseS)
 set_target_properties(client_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
@@ -100,7 +101,7 @@ add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions
 target_link_libraries(transactions_cxx
                       ${CMAKE_THREAD_LIBS_INIT}
                       nlohmann_json::nlohmann_json
-                      spdlog::spdlog_header_only
+                      spdlog::spdlog
                       ${Boost_LIBRARIES}
                       client_cxx)
 set_target_properties(transactions_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
