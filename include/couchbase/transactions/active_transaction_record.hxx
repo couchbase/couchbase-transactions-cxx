@@ -34,8 +34,7 @@ namespace transactions
     {
       public:
         static boost::optional<active_transaction_record> get_atr(std::shared_ptr<collection> collection,
-                                                                  const std::string& atr_id,
-                                                                  const transaction_config& config);
+                                                                  const std::string& atr_id);
 
         /**
          * ${Mutation.CAS} is written by kvengine with 'macroToString(htonll(info.cas))'.  Discussed this with KV team and, though there is

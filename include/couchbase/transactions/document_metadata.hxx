@@ -31,10 +31,14 @@ namespace transactions
     class document_metadata
     {
       public:
-        document_metadata(boost::optional<std::string> cas, boost::optional<std::string> revid, boost::optional<std::uint32_t> exptime)
+        document_metadata(boost::optional<std::string> cas,
+                          boost::optional<std::string> revid,
+                          boost::optional<std::uint32_t> exptime,
+                          boost::optional<std::string> crc32)
           : cas_(std::move(cas))
           , revid_(std::move(revid))
           , exptime_(exptime)
+          , crc32_(crc32)
         {
         }
 
@@ -53,10 +57,16 @@ namespace transactions
             return exptime_;
         }
 
+        CB_NODISCARD boost::optional<std::string> crc32() const
+        {
+            return crc32_;
+        }
+
       private:
         const boost::optional<std::string> cas_;
         const boost::optional<std::string> revid_;
         const boost::optional<std::uint32_t> exptime_;
+        const boost::optional<std::string> crc32_;
     };
 } // namespace transactions
 } // namespace couchbase

@@ -46,6 +46,7 @@ namespace transactions
         boost::optional<std::string> cas_pre_txn_;
         boost::optional<std::string> revid_pre_txn_;
         boost::optional<uint32_t> exptime_pre_txn_;
+        boost::optional<std::string> crc32_of_staging_;
         boost::optional<std::string> op_;
 
       public:
@@ -60,6 +61,7 @@ namespace transactions
                           boost::optional<std::string> cas_pre_txn,
                           boost::optional<std::string> revid_pre_txn,
                           boost::optional<uint32_t> exptime_pre_txn,
+                          boost::optional<std::string> crc32_of_staging,
                           boost::optional<std::string> op)
           : atr_id_(std::move(atr_id))
           , atr_bucket_name_(std::move(atr_bucket_name))
@@ -71,6 +73,7 @@ namespace transactions
           , cas_pre_txn_(std::move(cas_pre_txn))
           , revid_pre_txn_(std::move(revid_pre_txn))
           , exptime_pre_txn_(exptime_pre_txn)
+          , crc32_of_staging_(std::move(crc32_of_staging))
           , op_(std::move(op))
         {
         }
@@ -82,7 +85,10 @@ namespace transactions
         {
             return !!(atr_id_);
         }
-
+        CB_NODISCARD bool has_staged_content() const
+        {
+            return !!(staged_content_);
+        }
         CB_NODISCARD bool is_document_being_removed() const
         {
             return staged_content_ && *staged_content_ == REMOVE_SENTINEL;
@@ -141,6 +147,11 @@ namespace transactions
         CB_NODISCARD boost::optional<std::string> op() const
         {
             return op_;
+        }
+
+        CB_NODISCARD boost::optional<std::string> crc32_of_staging() const
+        {
+            return crc32_of_staging_;
         }
 
         template<typename Content>

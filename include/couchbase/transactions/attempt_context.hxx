@@ -31,6 +31,7 @@
 #include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transaction_context.hxx>
 #include <couchbase/transactions/transaction_document.hxx>
+#include <couchbase/transactions/atr_cleanup_entry.hxx>
 
 namespace couchbase
 {
@@ -55,6 +56,8 @@ namespace transactions
         std::chrono::nanoseconds start_time_server_{ 0 };
         // commit needs to access the hooks
         friend class staged_mutation_queue;
+        // entry needs access to private members
+        friend class atr_cleanup_entry;
 
       public:
         attempt_context(transactions* parent, transaction_context& transaction_ctx, const transaction_config& config)
@@ -126,14 +129,15 @@ namespace transactions
                                 lookup_in_spec::get(TRANSACTION_RESTORE_PREFIX_ONLY).xattr(),
                                 lookup_in_spec::get(TYPE).xattr(),
                                 lookup_in_spec::get("$document").xattr(),
-                                lookup_in_spec::fulldoc_get() });
+                                lookup_in_spec::get(CRC32_OF_STAGING).xattr(),
+                                lookup_in_spec::fulldoc_get()});
                         });
 
                 transaction_document doc = transaction_document::create_from(*collection, id, res, transaction_document_status::NORMAL);
 
                 if (doc.links().is_document_in_transaction()) {
                     boost::optional<active_transaction_record> atr =
-                        active_transaction_record::get_atr(collection, doc.links().atr_id().value(), config_);
+                        active_transaction_record::get_atr(collection, doc.links().atr_id().value());
                     if (atr) {
                         active_transaction_record& atr_doc = atr.value();
                         boost::optional<atr_entry> entry;
@@ -252,6 +256,7 @@ namespace transactions
                     mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr(),
                     mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
                     mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr(),
+                    mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).xattr().expand_macro(),
                     mutate_in_spec::upsert(TYPE, "replace").xattr(),
                 };
                 if (document.metadata()) {
@@ -337,6 +342,7 @@ namespace transactions
                         mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
                         mutate_in_spec::insert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr().create_path(),
                         mutate_in_spec::insert(TYPE, "insert").xattr(),
+                        mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).xattr().expand_macro(),
                         mutate_in_spec::fulldoc_insert(nlohmann::json::object()),
                         },
                         durability(config_));
@@ -352,6 +358,7 @@ namespace transactions
                         overall_.transaction_id(),
                         attempt_id(),
                         nlohmann::json(content),
+                        boost::none,
                         boost::none,
                         boost::none,
                         boost::none,
@@ -441,6 +448,7 @@ namespace transactions
                     mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr(),
                     mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
                     mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr(),
+                    mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).xattr().expand_macro(),
                     mutate_in_spec::upsert(TYPE, "remove").xattr(),
                 };
                 if (document.metadata()) {

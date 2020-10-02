@@ -47,11 +47,12 @@ namespace transactions
     {
       private:
           error_class _ec;
-
+          uint32_t _rc;
       public:
         explicit client_error(const couchbase::result& res)
             : runtime_error(res.strerror())
             , _ec(error_class_from_result(res))
+            , _rc(res.rc)
         {
         }
         explicit client_error(error_class ec, const std::string& what)
@@ -64,6 +65,10 @@ namespace transactions
         error_class ec() const
         {
             return _ec;
+        }
+        uint32_t rc() const
+        {
+            return _rc;
         }
     };
 

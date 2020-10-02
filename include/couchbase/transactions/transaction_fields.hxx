@@ -61,6 +61,7 @@ namespace transactions
     static const std::string ATR_COLL_NAME = TRANSACTION_INTERFACE_PREFIX + "atr.coll";
     static const std::string STAGED_DATA = TRANSACTION_INTERFACE_PREFIX + "op.stgd";
     static const std::string TYPE = TRANSACTION_INTERFACE_PREFIX + "op.type";
+    static const std::string CRC32_OF_STAGING = TRANSACTION_INTERFACE_PREFIX + "op.crc32";
 
     static const std::string PRE_TXN_CAS = TRANSACTION_RESTORE_PREFIX + "CAS";
     static const std::string PRE_TXN_REVID = TRANSACTION_RESTORE_PREFIX + "revid";

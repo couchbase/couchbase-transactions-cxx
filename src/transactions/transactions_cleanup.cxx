@@ -11,10 +11,18 @@
 #include <couchbase/transactions/transactions_cleanup.hxx>
 #include <couchbase/transactions/uid_generator.hxx>
 #include <couchbase/transactions/logging.hxx>
-
 #include "atr_ids.hxx"
 
 namespace tx = couchbase::transactions;
+
+tx::transactions_cleanup_attempt::transactions_cleanup_attempt(const tx::atr_cleanup_entry& entry)
+    : success_(false)
+    , atr_id_(entry.atr_id_)
+    , attempt_id_(entry.attempt_id_)
+    , atr_bucket_name_(entry.atr_collection_->bucket_name())
+{
+}
+
 
 tx::transactions_cleanup::transactions_cleanup(couchbase::cluster& cluster, const tx::transaction_config& config)
   : cluster_(cluster)
@@ -23,6 +31,13 @@ tx::transactions_cleanup::transactions_cleanup(couchbase::cluster& cluster, cons
 {
     // TODO: re-enable after fixing the loop
     //lost_attempts_thr = std::thread(std::bind(&transactions_cleanup::lost_attempts_loop, this));
+
+    if (config_.cleanup_client_attempts()) {
+        running_ = true;
+        cleanup_thr_ = std::thread(std::bind(&transactions_cleanup::attempts_loop, this));
+    } else {
+        running_ = false;
+    }
 }
 
 static uint64_t
@@ -73,7 +88,7 @@ tx::transactions_cleanup::lost_attempts_loop()
         auto config = config_;
         auto col = bkt->default_collection();
         workers.emplace_back([&]() {
-            while (running) {
+            while (running_) {
                 col->mutate_in(CLIENT_RECORD_DOC_ID,
                                {
                                  mutate_in_spec::upsert("dummy", nullptr).xattr(),
@@ -180,10 +195,85 @@ tx::transactions_cleanup::lost_attempts_loop()
         thr.join();
     }
 }
-
-tx::transactions_cleanup::~transactions_cleanup()
+void
+tx::transactions_cleanup::force_cleanup_entry(atr_cleanup_entry& entry, transactions_cleanup_attempt& attempt)
 {
-    running = false;
+    try {
+        entry.clean(*this, &attempt);
+        attempt.success(true);
+
+    } catch (const std::runtime_error& e) {
+        spdlog::error("error attempting to clean {}: {}", entry, e.what());
+        attempt.success(false);
+    }
+}
+
+void
+tx::transactions_cleanup::force_cleanup_attempts(std::vector<transactions_cleanup_attempt>& results)
+{
+    spdlog::trace("starting force_cleanup_attempts");
+    while(atr_queue_.size() > 0) {
+        auto entry = atr_queue_.pop(false);
+        if (!entry) {
+            spdlog::error("pop failed to return entry, but queue size {}", atr_queue_.size());
+            return;
+        }
+        results.emplace_back(*entry);
+        try {
+            entry->clean(*this, &(results.back()));
+            results.back().success(true);
+        } catch (std::runtime_error& e) {
+            results.back().success(false);
+        }
+    }
+}
+
+void
+tx::transactions_cleanup::attempts_loop()
+{
+    spdlog::info("cleanup attempts loop starting...");
+    while (running_) {
+        auto entry = atr_queue_.pop();
+        if (entry) {
+            spdlog::trace("beginning cleanup on {}", *entry);
+            try {
+                entry->clean(*this);
+            } catch (const std::runtime_error& e) {
+                spdlog::info("got error {}, will retry in 10 seconds", e.what());
+                entry->min_start_time(std::chrono::system_clock::now() + std::chrono::milliseconds{10000});
+                atr_queue_.push(*entry);
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    spdlog::info("attempts_loop stopping - {} entries on queue", atr_queue_.size());
+}
+
+void
+tx::transactions_cleanup::add_attempt(attempt_context& ctx) {
+    if (ctx.attempt_state() == tx::attempt_state::NOT_STARTED) {
+        spdlog::trace("attempt not started, not adding to cleanup");
+        return;
+    }
+    if (config_.cleanup_client_attempts()) {
+        spdlog::trace("adding attempt {} to cleanup queue", ctx.attempt_id());
+        atr_queue_.push(ctx);
+    } else {
+        spdlog::trace("not cleaning client attempts, ignoring {}", ctx.attempt_id());
+    }
+}
+void
+tx::transactions_cleanup::close()
+{
+    running_ = false;
     // TODO: re-enable after fixing the loop
     // lost_attempts_thr.join();
+    if (cleanup_thr_.joinable()) {
+        cleanup_thr_.join();
+        spdlog::info("cleanup closed");
+    }
+}
+tx::transactions_cleanup::~transactions_cleanup()
+{
+    close();
 }

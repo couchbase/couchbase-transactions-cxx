@@ -36,7 +36,7 @@ couchbase::transactions::attempt_context::check_atr_entry_for_blocking_document(
     int retries = 0;
     while (retries < 5) {
         retries++;
-        auto atr = active_transaction_record::get_atr(collection, doc.links().atr_id().value(), config_);
+        auto atr = active_transaction_record::get_atr(collection, doc.links().atr_id().value());
         if (atr) {
             auto entries = atr->entries();
             auto it = std::find_if(entries.begin(), entries.end(), [&] (const atr_entry& e) {

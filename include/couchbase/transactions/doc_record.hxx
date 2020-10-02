@@ -46,6 +46,11 @@ namespace transactions
             return id_;
         }
 
+        CB_NODISCARD const std::string collection_name() const
+        {
+            return collection_name_;
+        }
+
         static doc_record create_from(nlohmann::json& obj)
         {
             std::string bucket_name = obj[ATR_FIELD_PER_DOC_BUCKET].get<std::string>();
@@ -53,6 +58,18 @@ namespace transactions
             std::string collection_name = obj[ATR_FIELD_PER_DOC_COLLECTION].get<std::string>();
             std::string id = obj[ATR_FIELD_PER_DOC_ID].get<std::string>();
             return doc_record(bucket_name, scope_name, collection_name, id);
+        }
+
+        template<typename OStream>
+        friend OStream& operator<<(OStream& os, const doc_record& dr)
+        {
+            os << "doc_record{";
+            os << "bucket_name:" << dr.bucket_name_ << ",";
+            os << "collection_name:" << dr.collection_name_ << ",";
+            os << "scope_name:" << dr.scope_name_ << ",";
+            os << "id:" << dr.id_ << ",";
+            os << "}";
+            return os;
         }
 
       private:

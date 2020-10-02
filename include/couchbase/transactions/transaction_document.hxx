@@ -90,6 +90,7 @@ namespace transactions
                                     document.links().cas_pre_txn(),
                                     document.links().revid_pre_txn(),
                                     document.links().exptime_pre_txn(),
+                                    document.links().crc32_of_staging(),
                                     document.links().op());
 
             return transaction_document(
@@ -111,11 +112,13 @@ namespace transactions
             boost::optional<std::string> cas_pre_txn;
             boost::optional<std::string> revid_pre_txn;
             boost::optional<uint32_t> exptime_pre_txn;
+            boost::optional<std::string> crc32_of_staging;
 
             // read from $document
             boost::optional<std::string> cas_from_doc;
             boost::optional<std::string> revid_from_doc;
             boost::optional<uint32_t> exptime_from_doc;
+            boost::optional<std::string> crc32_from_doc;
 
             boost::optional<std::string> op;
             nlohmann::json content;
@@ -158,12 +161,17 @@ namespace transactions
                 // only present in 6.5+
                 revid_from_doc = doc["revid"].get<std::string>();
                 exptime_from_doc = doc["exptime"].get<uint32_t>();
+                crc32_from_doc = doc["value_crc32c"].get<std::string>();
             }
             if (res.values[9]) {
-                content = res.values[9].get();
+                crc32_of_staging = res.values[9].get();
+            }
+            if (res.values[10]) {
+                content = res.values[10].get();
             } else {
                 content = nlohmann::json::object();
             }
+
             transaction_links links(atr_id,
                     atr_bucket_name,
                     atr_scope_name,
@@ -174,8 +182,9 @@ namespace transactions
                     cas_pre_txn,
                     revid_pre_txn,
                     exptime_pre_txn,
+                    crc32_of_staging,
                     op);
-            document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc);
+            document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc, crc32_from_doc);
             return transaction_document(id, content, res.cas, collection, links, status, boost::make_optional(md));
         }
 

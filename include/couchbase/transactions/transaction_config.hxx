@@ -17,6 +17,7 @@
 #pragma once
 #include <couchbase/support.hxx>
 #include <couchbase/transactions/attempt_context_testing_hooks.hxx>
+#include <couchbase/transactions/cleanup_testing_hooks.hxx>
 #include <couchbase/transactions/durability_level.hxx>
 
 namespace couchbase
@@ -60,9 +61,19 @@ namespace transactions
             cleanup_lost_attempts_ = value;
         }
 
+        CB_NODISCARD bool cleanup_lost_attempts() const
+        {
+            return cleanup_lost_attempts_;
+        }
+
         void cleanup_client_attempts(bool value)
         {
             cleanup_client_attempts_ = value;
+        }
+
+        CB_NODISCARD bool cleanup_client_attempts() const
+        {
+            return cleanup_client_attempts_;
         }
 
         template<typename T>
@@ -71,14 +82,20 @@ namespace transactions
             expiration_time_ = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
         }
 
-        void test_factories(attempt_context_testing_hooks& hooks)
+        void test_factories(attempt_context_testing_hooks& hooks, cleanup_testing_hooks& cleanup_hooks)
         {
             attempt_context_hooks_ = hooks;
+            cleanup_hooks_ = cleanup_hooks;
         }
 
         CB_NODISCARD attempt_context_testing_hooks attempt_context_hooks() const
         {
             return attempt_context_hooks_;
+        }
+
+        CB_NODISCARD cleanup_testing_hooks cleanup_hooks() const
+        {
+            return cleanup_hooks_;
         }
 
       private:
@@ -88,6 +105,7 @@ namespace transactions
         bool cleanup_lost_attempts_{ true };
         bool cleanup_client_attempts_{ true };
         attempt_context_testing_hooks attempt_context_hooks_;
+        cleanup_testing_hooks cleanup_hooks_;
     };
 
 } // namespace transactions
