@@ -2,8 +2,8 @@
 #include <stdexcept>
 #include <utility>
 
-#include <couchbase/client/bucket.hxx>
 #include <couchbase/client/cluster.hxx>
+#include <couchbase/client/bucket.hxx>
 #include <couchbase/client/result.hxx>
 #include <couchbase/support.hxx>
 #include <libcouchbase/couchbase.h>
@@ -49,10 +49,16 @@ cb::cluster::bucket(const std::string& name)
 {
     connect();
     std::unique_lock<std::mutex> lock(mutex_);
-    auto bkt = bucket::create(lcb_, name);
-    // TODO: cache buckets
+    auto it = std::find_if(open_buckets_.begin(), open_buckets_.end(), [&](const std::shared_ptr<cb::bucket>& b) {
+        return b->name() == name;
+    });
+    if (it != open_buckets_.end()) {
+        return *it;
+    }
+    std::shared_ptr<cb::bucket> b(new cb::bucket(lcb_, name));
+    open_buckets_.push_back(b);
     lcb_ = nullptr;
-    return bkt;
+    return open_buckets_.back();
 }
 
 void

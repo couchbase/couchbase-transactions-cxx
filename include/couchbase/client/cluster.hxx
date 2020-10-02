@@ -20,6 +20,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <couchbase/client/bucket.hxx>
 
@@ -37,6 +38,7 @@ class cluster
     std::string user_name_;
     std::string password_;
     std::mutex mutex_;
+    std::vector<std::shared_ptr<class bucket>> open_buckets_;
 
     void connect();
 

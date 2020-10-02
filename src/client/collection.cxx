@@ -209,7 +209,6 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
     lcb_cmdsubdoc_create(&cmd);
     lcb_cmdsubdoc_key(cmd, id.data(), id.size());
     lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-    lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
     lcb_cmdsubdoc_cas(cmd, cas);
 
     lcb_SUBDOCSPECS* ops;

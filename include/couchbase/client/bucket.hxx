@@ -23,7 +23,7 @@ struct lcb_st;
 namespace couchbase
 {
 class collection;
-
+class cluster;
 /**
  * Couchbase bucket.
  *
@@ -32,6 +32,7 @@ class collection;
 class bucket : public std::enable_shared_from_this<bucket>
 {
     friend class collection;
+    friend class cluster;
 
   private:
     lcb_st* lcb_;
@@ -39,16 +40,11 @@ class bucket : public std::enable_shared_from_this<bucket>
     bucket(lcb_st* instance, const std::string& name);
 
   public:
-    // this insures that a shared_ptr<bucket> exists before we ever try to
-    // do a shared_from_this() call with it later
-    static std::shared_ptr<bucket> create(lcb_st* instance, const std::string& name)
-    {
-        return std::shared_ptr<bucket>(new bucket(instance, name));
-    }
     std::shared_ptr<class collection> default_collection();
     std::shared_ptr<class collection> collection(const std::string& name);
-    const std::string name() { return name_; };
+    const std::string name() const { return name_; };
     void close();
     ~bucket();
+    bool operator==(const bucket& b) const { return lcb_ == b.lcb_; }
 };
 }// namespace couchbase

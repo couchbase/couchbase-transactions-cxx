@@ -69,6 +69,14 @@ TEST(SimpleClientClusterTests, CanListBucketNames)
     ASSERT_TRUE(std::find(buckets.begin(), buckets.end(), std::string("default")) != buckets.end());
 }
 
+TEST(SimpleClientClusterTests, CachesBuckets)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto b1 = c->bucket("default");
+    auto b2 = c->bucket("default");
+    ASSERT_EQ(*b1, *b2);
+}
+
 TEST(SimpleClientBucketTests, CanGetDefaultCollection)
 {
     auto c = ClientTestEnvironment::get_cluster();
