@@ -32,7 +32,7 @@ tx::attempt_context::select_atr_if_needed(std::shared_ptr<couchbase::collection>
 void
 couchbase::transactions::attempt_context::check_atr_entry_for_blocking_document(const couchbase::transactions::transaction_document& doc)
 {
-    auto collection = parent_->cluster().bucket(doc.links().atr_bucket_name().value())->default_collection();
+    auto collection = parent_->cluster_ref().bucket(doc.links().atr_bucket_name().value())->default_collection();
     int retries = 0;
     while (retries < 5) {
         retries++;

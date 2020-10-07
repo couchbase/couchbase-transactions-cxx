@@ -148,7 +148,7 @@ namespace transactions
             return cleanup_;
         }
 
-        CB_NODISCARD couchbase::cluster& cluster()
+        CB_NODISCARD couchbase::cluster& cluster_ref()
         {
             return cluster_;
         }
