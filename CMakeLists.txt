@@ -36,6 +36,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/
 option(BUILD_DOC "Build documentation" ON)
 option(BUILD_EXAMPLES "Build examples" ON)
 option(BUILD_TESTS "Build tests" ON)
+option(STATIC_BOOST "Link Boost libraries statically" OFF)
 
 set(LCB_NO_TESTS ON CACHE INTERNAL "")
 set(LCB_NO_TOOLS ON CACHE INTERNAL "")
@@ -60,9 +61,11 @@ add_subdirectory(deps/json)
 add_subdirectory(deps/spdlog)
 
 find_package(Threads)
+# Just in case of debugging CMake recipes for Boost
+# set(Boost_DEBUG ON)
+# set(Boost_VERBOSE ON)
 set(Boost_USE_MULTITHREADED ON)
-set(Boost_USE_STATIC_LIBS OFF)
-include(FindBoost)
+set(Boost_USE_STATIC_LIBS ${STATIC_BOOST})
 find_package(Boost REQUIRED COMPONENTS system thread date_time)
 include_directories(BEFORE ${Boost_INCLUDE_DIRS})
 
