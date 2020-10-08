@@ -1,0 +1,21 @@
+Source: couchbase-transactions
+Maintainer: Couchbase SDK Team <support@couchbase.com>
+Build-Depends: debhelper (>= 11.1), cmake (>= 3.9), libevent-dev (>= 2.1), libssl-dev, libboost-dev, libboost-system-dev, libboost-thread-dev, libboost-date-time-dev
+Standards-Version: 3.9.2
+Section: libs
+Homepage: https://docs.couchbase.com/c-sdk/3.0/project-docs/distributed-transactions-cpp-release-notes.html
+
+Package: couchbase-transactions
+Architecture: any
+Provides: couchbase-transactions
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Multi-Arch: same
+Description: This package provides the library and all necessary headers to implement Couchbase distributed transactions in the C++ application.
+
+Package: couchbase-transactions-dbg
+Section: debug
+Architecture: any
+Priority: extra
+Depends: couchbase-transactions (= ${binary:Version}), ${misc:Depends}
+Multi-Arch: same
+Description: This package provides debugging symbols for couchbase-transactions.
