@@ -61,6 +61,16 @@ TEST(SimpleClientClusterTests, CanGetBucket_NoBucket)
     ASSERT_THROW(c->bucket(random_bucket), std::runtime_error);
 }
 
+TEST(SimpleClientClusterTests, CanOpenMultipleBuckets)
+{
+    // NOTE - this _assumes_ secBucket exists.  The fit
+    // performer insists on this, so seems ok.  Will insure
+    // jenkins job puts it in too.
+    auto c = ClientTestEnvironment::get_cluster();
+    auto b = c->bucket("default");
+    auto b2 = c->bucket("secBucket");
+}
+
 TEST(SimpleClientClusterTests, CanListBucketNames)
 {
     auto c = ClientTestEnvironment::get_cluster();
@@ -73,7 +83,7 @@ TEST(SimpleClientClusterTests, CachesBuckets)
     auto c = ClientTestEnvironment::get_cluster();
     auto b1 = c->bucket("default");
     auto b2 = c->bucket("default");
-    ASSERT_EQ(*b1, *b2);
+    ASSERT_EQ((void*)&(*b1), (void*)&(*b2));
 }
 
 TEST(SimpleClientBucketTests, CanGetDefaultCollection)
@@ -89,6 +99,15 @@ TEST(SimpleClientBucketTests, CanGetBucketName)
     auto c = ClientTestEnvironment::get_cluster();
     auto b = c->bucket("default");
     ASSERT_EQ(b->name(), "default");
+}
+
+TEST(SimpleClientBucketTests, CachesCollections)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto b = c->bucket("default");
+    auto coll1 = b->collection("somecollection");
+    auto coll2 = b->collection("somecollection");
+    ASSERT_EQ((void*)&(*coll1), (void*)&(*coll2));
 }
 
 class SimpleClientCollectionTests : public ::testing::Test

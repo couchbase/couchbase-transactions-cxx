@@ -20,14 +20,9 @@ open_callback(lcb_INSTANCE* instance, lcb_STATUS status)
 }
 
 std::shared_ptr<cb::collection>
-cb::bucket::default_collection()
+cb::bucket::find_or_create_collection(const std::string& collection)
 {
-    return std::make_shared<cb::collection>(shared_from_this(), "_default", "_default");
-}
-
-std::shared_ptr<cb::collection>
-cb::bucket::collection(const std::string& collection)
-{
+    // TODO maybe more validation?
     std::vector<std::string> splits;
     boost::split(splits, collection, [](char c) { return c == '.'; });
     std::string scope_name("_default");
@@ -36,7 +31,27 @@ cb::bucket::collection(const std::string& collection)
         scope_name = splits[0];
         collection_name = splits[1];
     }
-    return std::make_shared<cb::collection>(shared_from_this(), scope_name, collection_name);
+    auto it = std::find_if(collections_.begin(), collections_.end(), [&](const std::shared_ptr<cb::collection>& c) {
+        return c->scope() == scope_name && c->name() == collection_name;
+    });
+    if (it == collections_.end()) {
+        collections_.push_back(std::make_shared<cb::collection>(shared_from_this(), scope_name, collection_name));
+        return collections_.back();
+    }
+    return *it;
+
+}
+
+std::shared_ptr<cb::collection>
+cb::bucket::default_collection()
+{
+    return find_or_create_collection("_default._default");
+}
+
+std::shared_ptr<cb::collection>
+cb::bucket::collection(const std::string& collection)
+{
+    return find_or_create_collection(collection);
 }
 
 cb::bucket::bucket(lcb_st* instance, const std::string& name)

@@ -18,6 +18,8 @@
 
 #include <memory>
 #include <string>
+#include <vector>
+
 struct lcb_st;
 
 namespace couchbase
@@ -37,8 +39,9 @@ class bucket : public std::enable_shared_from_this<bucket>
   private:
     lcb_st* lcb_;
     const std::string name_;
+    std::vector<std::shared_ptr<class collection> > collections_;
     bucket(lcb_st* instance, const std::string& name);
-
+    std::shared_ptr<class collection> find_or_create_collection(const std::string& name);
   public:
     std::shared_ptr<class collection> default_collection();
     std::shared_ptr<class collection> collection(const std::string& name);
