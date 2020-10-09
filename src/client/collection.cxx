@@ -217,13 +217,12 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
     lcb_cmdsubdoc_create(&cmd);
     lcb_cmdsubdoc_key(cmd, id.data(), id.size());
     lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-    if (opts.cas() && opts.cas() != 0ull) {
-        lcb_cmdsubdoc_cas(cmd, *opts.cas());
-    }
+    uint64_t cas = opts.cas().value_or(0);
+    lcb_cmdsubdoc_cas(cmd, cas);
 
     if (opts.create_as_deleted()) {
         lcb_cmdsubdoc_create_as_deleted(cmd, true);
-        if (opts.cas() && opts.cas() != 0ull) {
+        if (cas > 0) {
             lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
         } else {
             lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_INSERT);

@@ -15,6 +15,7 @@
  */
 
 #pragma once
+#include <chrono>
 #include <couchbase/support.hxx>
 #include <boost/optional.hpp>
 #include <boost/optional/optional_io.hpp>
