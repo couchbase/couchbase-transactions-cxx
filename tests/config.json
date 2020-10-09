@@ -1,5 +1,5 @@
 {
-    "connection_string": "couchbase://10.143.202.101",
+    "connection_string": "couchbase://127.0.0.1,localhost",
     "username": "Administrator",
     "password": "password"
 }

@@ -75,7 +75,7 @@ message(STATUS "Boost_LIBRARIES: ${Boost_LIBRARIES}")
 #============ END DEPS =======================================================
 #============ BEGIN CLIENT ===================================================
 include_directories(include)
-include_directories(SYSTEM
+include_directories(BEFORE
         ${PROJECT_SOURCE_DIR}/deps/spdlog/include
         ${PROJECT_SOURCE_DIR}/deps/json/include
         ${PROJECT_SOURCE_DIR}/deps/libcouchbase/include

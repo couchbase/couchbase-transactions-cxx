@@ -1,7 +1,6 @@
 #include <chrono>
 #include <cstdio>
 #include <memory>
-#include <thread>
 
 #include "client_env.h"
 #include "couchbase/client/cluster.hxx"
@@ -99,35 +98,17 @@ class SimpleClientCollectionTests : public ::testing::Test
     void SetUp() override
     {
         // no need to ask for the bucket or cluster if we already have 'em
-        if (!_bucket) {
-            spdlog::info("asking for default bucket, and default collection");
-            _bucket = ClientTestEnvironment::get_cluster()->bucket("default");
-            _coll = _bucket->default_collection();
+       _coll = ClientTestEnvironment::get_cluster()->bucket("default")->default_collection();
 
-            // TODO: This is a miserable hack.
-            spdlog::info("Waiting until ready by sleeping {} seconds...");
-            std::this_thread::sleep_for(std::chrono::seconds(10));
-            spdlog::info("done sleeping");
-        }
         // new id every time
         _id = ClientTestEnvironment::get_uuid();
 
-        // for now, lets do this in hopes we avoid CCBC-1300
-        int retries = 0;
-        while (++retries < NUM_RETRIES) {
-            spdlog::warn("attempting to upsert ({}) of {} attempts", retries, NUM_RETRIES);
-            auto result = _coll->upsert(_id, content);
-            if (result.rc == 0) {
-                spdlog::info("successfully upserted, got {}", result);
-                return;
-            } else if (result.rc != 201 && result.rc != 1040 && result.rc != 1031) {
-                FAIL() << "got unexpected result code when upserting" << result.rc;
-            } else {
-                spdlog::info("upsert got {}, retrying in {} seconds", result, DELAY_SECONDS);
-                std::this_thread::sleep_for(std::chrono::seconds(DELAY_SECONDS));
-            }
+        auto result = _coll->upsert(_id, content);
+        if (result.rc == 0) {
+            spdlog::info("successfully upserted, got {}", result);
+            return;
         }
-        FAIL() << "tried " << NUM_RETRIES << " times, waiting " << DELAY_SECONDS << "sec between, bucket still not ready";
+        FAIL() << "couldn't upsert into bucket";
     }
 
     void TearDown() override
@@ -136,14 +117,9 @@ class SimpleClientCollectionTests : public ::testing::Test
         _coll->remove(_id);
     }
 
-    const int NUM_RETRIES{ 10 };
-    const int DELAY_SECONDS{ 6 };
-    static std::shared_ptr<couchbase::collection> _coll;
-    static std::shared_ptr<couchbase::bucket> _bucket;
+    std::shared_ptr<couchbase::collection> _coll;
     std::string _id;
 };
-std::shared_ptr<couchbase::collection> SimpleClientCollectionTests::_coll = std::shared_ptr<couchbase::collection>();
-std::shared_ptr<couchbase::bucket> SimpleClientCollectionTests::_bucket = std::shared_ptr<couchbase::bucket>();
 
 TEST_F(SimpleClientCollectionTests, CanInsert)
 {
@@ -157,6 +133,7 @@ TEST_F(SimpleClientCollectionTests, CanInsert)
     ASSERT_TRUE(result.strerror().find("LCB_SUCCESS") != std::string::npos);
     ASSERT_EQ(result.key, id);
     ASSERT_FALSE(result.value);
+    ASSERT_FALSE(result.is_deleted);
 }
 
 TEST_F(SimpleClientCollectionTests, CanUpsert)
@@ -178,6 +155,7 @@ TEST_F(SimpleClientCollectionTests, CanGet)
     ASSERT_EQ(get_res.rc, 0);
     ASSERT_TRUE(get_res.value);
     ASSERT_EQ(get_res.value.get(), content);
+    ASSERT_FALSE(get_res.is_deleted);
 }
 
 TEST_F(SimpleClientCollectionTests, CanGetDocNotFound)
@@ -189,6 +167,7 @@ TEST_F(SimpleClientCollectionTests, CanGetDocNotFound)
     ASSERT_FALSE(res.is_value_too_large());
     ASSERT_TRUE(res.strerror().find("LCB_SUCCESS") == std::string::npos);
     ASSERT_TRUE(res.key.empty());
+    ASSERT_FALSE(res.is_deleted);
     ASSERT_EQ(res.rc, 301);
 }
 
@@ -203,6 +182,7 @@ TEST_F(SimpleClientCollectionTests, CanRemove)
     ASSERT_FALSE(res.is_value_too_large());
     ASSERT_TRUE(res.key.empty());
     ASSERT_EQ(res.rc, 301);
+    ASSERT_FALSE(res.is_deleted);
 }
 
 TEST_F(SimpleClientCollectionTests, CanReplace)
@@ -210,12 +190,13 @@ TEST_F(SimpleClientCollectionTests, CanReplace)
     // Of course, this depends on being able to upsert and get.
     auto cas = _coll->get(_id).cas;
     auto new_content = nlohmann::json::parse("{\"some\":\"thing else\"}");
-    auto res = _coll->replace(_id, new_content, cas);
+    auto res = _coll->replace(_id, new_content, replace_options().cas(cas));
     ASSERT_TRUE(res.is_success());
     res = _coll->get(_id);
     ASSERT_TRUE(res.is_success());
     ASSERT_NE(res.cas, cas);
     ASSERT_EQ(res.value->get<nlohmann::json>(), new_content);
+    ASSERT_FALSE(res.is_deleted);
 }
 
 TEST_F(SimpleClientCollectionTests, CanLookupIn)
@@ -230,6 +211,7 @@ TEST_F(SimpleClientCollectionTests, CanLookupIn)
     ASSERT_FALSE(res.values.empty());
     ASSERT_EQ(res.values[0]->get<std::string>(), std::string("thing"));
     ASSERT_EQ(res.values[1]->get<nlohmann::json>(), ::content);
+    ASSERT_FALSE(res.is_deleted);
 }
 
 TEST_F(SimpleClientCollectionTests, CanMutateIn)
@@ -243,6 +225,7 @@ TEST_F(SimpleClientCollectionTests, CanMutateIn)
     ASSERT_TRUE(res.is_success());
     ASSERT_TRUE(res.value);
     ASSERT_EQ(res.value->get<nlohmann::json>(), nlohmann::json::parse("{\"some\":\"other thing\", \"another\":\"field\"}"));
+    ASSERT_FALSE(res.is_deleted);
 }
 
 TEST_F(SimpleClientCollectionTests, CanGetBucketNameEtc)

@@ -239,8 +239,21 @@ tx::transactions_cleanup::attempts_loop()
             try {
                 entry->clean(*this);
             } catch (const std::runtime_error& e) {
-                spdlog::info("got error {}, will retry in 10 seconds", e.what());
-                entry->min_start_time(std::chrono::system_clock::now() + std::chrono::milliseconds{10000});
+                // TODO: perhaps in config later?
+                auto backoff_duration = std::chrono::milliseconds(10000);
+                entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
+                spdlog::info("got error '{}' cleaning {}, will retry in {} seconds",
+                              e.what(),
+                              entry,
+                              std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
+                atr_queue_.push(*entry);
+            } catch (...) {
+                // TODO: perhaps in config later?
+                auto backoff_duration = std::chrono::milliseconds(10000);
+                entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
+                spdlog::info("got error cleaning {}, will retry in {} seconds",
+                              entry,
+                              std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
                 atr_queue_.push(*entry);
             }
         }

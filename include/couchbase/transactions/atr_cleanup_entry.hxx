@@ -62,7 +62,7 @@ namespace couchbase {
                 void do_per_doc(std::vector<doc_record> docs,
                                 bool require_crc_to_match,
                                 const transactions_cleanup& cleanup,
-                                const std::function<void(transaction_document& doc)>& call);
+                                const std::function<void(transaction_document&,bool)>& call);
             public:
                 explicit atr_cleanup_entry(attempt_context& ctx);
                 atr_cleanup_entry(const std::string& atr_id,

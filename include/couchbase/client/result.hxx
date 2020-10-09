@@ -33,7 +33,9 @@ struct result {
     std::string key;
     boost::optional<nlohmann::json> value;
     std::vector<boost::optional<nlohmann::json>> values;
+    bool is_deleted;
 
+    result() : rc(0), cas(0), datatype(0), flags(0), is_deleted(0) {}
     CB_NODISCARD std::string strerror() const;
     CB_NODISCARD bool is_not_found() const;
     CB_NODISCARD bool is_success() const;
@@ -45,6 +47,7 @@ struct result {
         os << "rc:" << res.rc << ",";
         os << "strerror:" << res.strerror() << ",";
         os << "cas:" << res.cas << ",";
+        os << "is_deleted:" << res.is_deleted << ",";
         os << "datatype:" << res.datatype << ",";
         os << "flags:" << res.flags;
         if (res.value) {

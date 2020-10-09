@@ -85,6 +85,9 @@ subdoc_callback(lcb_INSTANCE*, int, const lcb_RESPSUBDOC* resp)
             res->values.emplace(itr, boost::none);
         }
     }
+    if (len > 0) {
+        res->is_deleted = lcb_respsubdoc_is_deleted(resp);
+    }
     spdlog::trace("subdoc_callback returning {}", *res);
 }
 }
@@ -160,14 +163,15 @@ couchbase::store_impl(couchbase::collection* collection,
 }
 
 couchbase::result
-couchbase::collection::get(const std::string& id, uint32_t expiry)
+couchbase::collection::get(const std::string& id, const get_options& opts)
 {
     lcb_CMDGET* cmd;
     lcb_cmdget_create(&cmd);
     lcb_cmdget_key(cmd, id.data(), id.size());
     lcb_cmdget_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-    if (expiry) {
-        lcb_cmdget_expiry(cmd, expiry);
+    if (opts.expiry()) {
+        // does a 'get and touch'
+        lcb_cmdget_expiry(cmd, *opts.expiry());
     }
     lcb_STATUS rc;
     result res;
@@ -182,14 +186,18 @@ couchbase::collection::get(const std::string& id, uint32_t expiry)
 }
 
 couchbase::result
-couchbase::collection::remove(const std::string& id, uint64_t cas, couchbase::durability_level level)
+couchbase::collection::remove(const std::string& id, const remove_options& opts)
 {
     lcb_CMDREMOVE* cmd;
     lcb_cmdremove_create(&cmd);
     lcb_cmdremove_key(cmd, id.data(), id.size());
-    lcb_cmdremove_cas(cmd, cas);
+    if (opts.cas()) {
+        lcb_cmdremove_cas(cmd, *opts.cas());
+    }
     lcb_cmdremove_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-    lcb_cmdremove_durability(cmd, convert_durability(level));
+    if (opts.durability()) {
+        lcb_cmdremove_durability(cmd, convert_durability(*opts.durability()));
+    }
     lcb_STATUS rc;
     result res;
     assert(bucket_->lcb_);
@@ -203,14 +211,27 @@ couchbase::collection::remove(const std::string& id, uint64_t cas, couchbase::du
 }
 
 couchbase::result
-couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_spec> specs, couchbase::durability_level level, uint64_t cas)
+couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_spec> specs, const mutate_in_options& opts)
 {
     lcb_CMDSUBDOC* cmd;
     lcb_cmdsubdoc_create(&cmd);
     lcb_cmdsubdoc_key(cmd, id.data(), id.size());
     lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-    lcb_cmdsubdoc_cas(cmd, cas);
+    if (opts.cas() && opts.cas() != 0ull) {
+        lcb_cmdsubdoc_cas(cmd, *opts.cas());
+    }
 
+    if (opts.create_as_deleted()) {
+        lcb_cmdsubdoc_create_as_deleted(cmd, true);
+        if (opts.cas() && opts.cas() != 0ull) {
+            lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
+        } else {
+            lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_INSERT);
+        }
+    }
+    if (opts.access_deleted()) {
+        lcb_cmdsubdoc_access_deleted(cmd, true);
+    }
     lcb_SUBDOCSPECS* ops;
     lcb_subdocspecs_create(&ops, specs.size());
     size_t idx = 0;
@@ -226,11 +247,15 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
                 break;
             case mutate_in_spec_type::MUTATE_IN_FULLDOC_UPSERT:
                 lcb_subdocspecs_replace(ops, idx++, spec.flags_, nullptr, 0, spec.value_.data(), spec.value_.size());
-                lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
+                if (!opts.create_as_deleted()) {
+                    lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
+                }
                 break;
             case mutate_in_spec_type::MUTATE_IN_FULLDOC_INSERT:
                 lcb_subdocspecs_replace(ops, idx++, spec.flags_, nullptr, 0, spec.value_.data(), spec.value_.size());
-                lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_INSERT);
+                if (!opts.create_as_deleted()) {
+                    lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_INSERT);
+                }
                 break;
             case mutate_in_spec_type::REMOVE:
                 lcb_subdocspecs_remove(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
@@ -238,7 +263,9 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
         }
     }
     lcb_cmdsubdoc_specs(cmd, ops);
-    lcb_cmdsubdoc_durability(cmd, convert_durability(level));
+    if (opts.durability()) {
+        lcb_cmdsubdoc_durability(cmd, convert_durability(*opts.durability()));
+    }
     lcb_STATUS rc;
     result res;
     assert(bucket_->lcb_);
@@ -253,13 +280,15 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
 }
 
 couchbase::result
-couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_spec> specs)
+couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_spec> specs, const lookup_in_options& opts)
 {
     lcb_CMDSUBDOC* cmd;
     lcb_cmdsubdoc_create(&cmd);
     lcb_cmdsubdoc_key(cmd, id.data(), id.size());
     lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-
+    if (opts.access_deleted()) {
+        lcb_cmdsubdoc_access_deleted(cmd, true);
+    }
     lcb_SUBDOCSPECS* ops;
     lcb_subdocspecs_create(&ops, specs.size());
     size_t idx = 0;

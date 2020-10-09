@@ -36,33 +36,38 @@ couchbase::transactions::attempt_context::check_atr_entry_for_blocking_document(
     int retries = 0;
     while (retries < 5) {
         retries++;
-        auto atr = active_transaction_record::get_atr(collection, doc.links().atr_id().value());
-        if (atr) {
-            auto entries = atr->entries();
-            auto it = std::find_if(entries.begin(), entries.end(), [&] (const atr_entry& e) {
-                    return e.attempt_id() == doc.links().staged_attempt_id();
-                    });
-            if (it != entries.end()) {
-                if (it->has_expired()) {
-                    spdlog::trace("existing atr entry has expired, ignoring");
+        try {
+            hooks_.before_check_atr_entry_for_blocking_doc(this, doc.id());
+            auto atr = active_transaction_record::get_atr(collection, doc.links().atr_id().value());
+            if (atr) {
+                auto entries = atr->entries();
+                auto it = std::find_if(entries.begin(), entries.end(), [&doc] (const atr_entry& e) {
+                        return e.attempt_id() == doc.links().staged_attempt_id();
+                        });
+                if (it != entries.end()) {
+                    if (it->has_expired()) {
+                        spdlog::trace("existing atr entry has expired, ignoring");
+                        return;
+                    }
+                    switch(it->state()) {
+                        case tx::attempt_state::COMPLETED:
+                        case tx::attempt_state::ROLLED_BACK:
+                            spdlog::trace("existing atr entry can be ignored due to state {}", it->state());
+                            return;
+                        default:
+                            spdlog::trace("existing atr entry found in state {}, retrying in 100ms", it->state());
+                    }
+                    // TODO  this (and other retries) probably need a clever class, exponential backoff, etc...
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50*retries));
+                } else {
+                    spdlog::trace("no blocking atr entry");
                     return;
                 }
-                switch(it->state()) {
-                    case tx::attempt_state::COMPLETED:
-                    case tx::attempt_state::ROLLED_BACK:
-                        spdlog::trace("existing atr entry can be ignored due to state {}", it->state());
-                        return;
-                    default:
-                        spdlog::trace("existing atr entry found in state {}, retrying in 100ms", it->state());
-                }
-                // TODO  this (and other retries) probably need a clever class, exponential backoff, etc...
-                std::this_thread::sleep_for(std::chrono::milliseconds(50*retries));
-            } else {
-                spdlog::trace("no blocking atr entry");
-                return;
             }
+            // if we are here, there is still a write-write conflict
+            throw error_wrapper(FAIL_WRITE_WRITE_CONFLICT, "document is in another transaction", true, true);
+        } catch (const client_error& e) {
+            throw error_wrapper(e.ec(), e.what(), true, true);
         }
     }
-    // if we are here, there is still a write-write conflict
-    throw error_wrapper(FAIL_WRITE_WRITE_CONFLICT, "document is in another transaction", true, true);
 }

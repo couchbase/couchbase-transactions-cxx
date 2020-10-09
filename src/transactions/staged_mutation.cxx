@@ -120,19 +120,27 @@ tx::staged_mutation_queue::commit(attempt_context& ctx)
 void
 tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& item, bool ambiguity_resolution_mode) {
     try {
-        // TODO: deal with tombstone here, for now, insert ans replace are same
         ctx.check_expiry_during_commit_or_rollback(STAGE_COMMIT_DOC, boost::optional<const std::string>(item.doc().id()));
         ctx.hooks_.before_doc_committed(&ctx, item.doc().id());
 
         // move staged content into doc
         result res;
-        ctx.wrap_collection_call(res, [&](result& r) {
-            r = item.doc().collection_ref().mutate_in(item.doc().id(),
-                {
-                    mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
-                    mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
-                });
-        });
+        if(item.type() == staged_mutation_type::INSERT) {
+            ctx.wrap_collection_call(res, [&](result& r) {
+                r = item.doc().collection_ref().insert(item.doc().id(),
+                                                       item.doc().content<nlohmann::json>());
+            });
+        } else {
+            ctx.wrap_collection_call(res, [&](result& r) {
+            r = item.doc().collection_ref().mutate_in(
+                    item.doc().id(),
+                    {
+                        mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
+                        mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
+                    },
+                    mutate_in_options().cas(item.doc().cas()));
+            });
+        }
         // TODO: mutation tokens
         ctx.hooks_.after_doc_committed_before_saving_cas(&ctx, item.doc().id());
         item.doc().cas(res.cas);
@@ -167,7 +175,7 @@ void
         ctx.hooks_.before_doc_removed(&ctx, item.doc().id());
         result res;
         ctx.wrap_collection_call(res, [&](result& r) {
-            r = item.doc().collection_ref().remove(item.doc().id());
+            r = item.doc().collection_ref().remove(item.doc().id(), remove_options().cas(item.doc().cas()));
         });
         // TODO:mutation tokens
     } catch (const client_error& e) {

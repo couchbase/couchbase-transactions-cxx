@@ -21,13 +21,13 @@
 #include <couchbase/client/mutate_in_spec.hxx>
 #include <couchbase/client/result.hxx>
 #include <couchbase/support.hxx>
+#include <couchbase/client/options.hxx>
 #include <string>
 #include <vector>
 
 namespace couchbase
 {
 
-enum class durability_level { none, majority, majority_and_persist_to_active, persist_to_majority };
 enum class store_operation { upsert, insert, replace };
 
 result
@@ -66,31 +66,31 @@ class collection
   public:
     explicit collection(std::shared_ptr<bucket> bucket, std::string scope, std::string name);
 
-    result get(const std::string& id, uint32_t expiry = 0);
+    result get(const std::string& id, const get_options& opts = get_options());
 
     template<typename Content>
-    result upsert(const std::string& id, const Content& value, uint64_t cas = 0, durability_level level = durability_level::none)
+    result upsert(const std::string& id, const Content& value, const upsert_options& opts = upsert_options())
     {
-        return store(store_operation::upsert, id, value, cas, level);
+        return store(store_operation::upsert, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none));
     }
 
     template<typename Content>
-    result insert(const std::string& id, const Content& value, durability_level level = durability_level::none)
+    result insert(const std::string& id, const Content& value, const insert_options& opts = insert_options())
     {
-        return store(store_operation::insert, id, value, 0, level);
+        return store(store_operation::insert, id, value, 0, opts.durability().value_or(durability_level::none));
     }
 
     template<typename Content>
-    result replace(const std::string& id, const Content& value, uint64_t cas, durability_level level = durability_level::none)
+    result replace(const std::string& id, const Content& value, const replace_options& opts = replace_options())
     {
-        return store(store_operation::replace, id, value, cas, level);
+        return store(store_operation::replace, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none));
     }
 
-    result remove(const std::string& id, uint64_t cas = 0, durability_level level = durability_level::none);
+    result remove(const std::string& id, const remove_options& opts = remove_options());
 
-    result mutate_in(const std::string& id, std::vector<mutate_in_spec> specs, durability_level level = durability_level::none, uint64_t cas = 0);
+    result mutate_in(const std::string& id, std::vector<mutate_in_spec> specs, const mutate_in_options& opts = mutate_in_options());
 
-    result lookup_in(const std::string& id, std::vector<lookup_in_spec> specs);
+    result lookup_in(const std::string& id, std::vector<lookup_in_spec> specs, const lookup_in_options& opts = lookup_in_options());
 
     CB_NODISCARD const std::string& name() const
     {

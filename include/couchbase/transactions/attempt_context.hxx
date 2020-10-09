@@ -117,24 +117,12 @@ namespace transactions
                 }
 
                 hooks_.before_doc_get(this, id);
-                wrap_collection_call(res, [&](result& r) {
-                        r = collection->lookup_in(id,
-                                { lookup_in_spec::get(ATR_ID).xattr(),
-                                lookup_in_spec::get(TRANSACTION_ID).xattr(),
-                                lookup_in_spec::get(ATTEMPT_ID).xattr(),
-                                lookup_in_spec::get(STAGED_DATA).xattr(),
-                                lookup_in_spec::get(ATR_BUCKET_NAME).xattr(),
-                                lookup_in_spec::get(ATR_COLL_NAME).xattr(),
-                                // For {BACKUP_FIELDS}
-                                lookup_in_spec::get(TRANSACTION_RESTORE_PREFIX_ONLY).xattr(),
-                                lookup_in_spec::get(TYPE).xattr(),
-                                lookup_in_spec::get("$document").xattr(),
-                                lookup_in_spec::get(CRC32_OF_STAGING).xattr(),
-                                lookup_in_spec::fulldoc_get()});
-                        });
 
-                transaction_document doc = transaction_document::create_from(*collection, id, res, transaction_document_status::NORMAL);
-
+                auto doc_res = get_doc(collection, id);
+                if (!doc_res) {
+                    return {};
+                }
+                auto doc = doc_res->first;
                 if (doc.links().is_document_in_transaction()) {
                     boost::optional<active_transaction_record> atr =
                         active_transaction_record::get_atr(collection, doc.links().atr_id().value());
@@ -199,6 +187,11 @@ namespace transactions
                             return doc;
                         }
                     }
+                } else  {
+                    if (res.is_deleted) {
+                        // doc has been deleted, not in txn, so don't return it
+                        return {};
+                    }
                 }
                 return doc;
             } catch (const client_error& e) {
@@ -251,23 +244,23 @@ namespace transactions
 
                 std::vector<mutate_in_spec> specs = {
                     mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                    mutate_in_spec::upsert(ATTEMPT_ID, attempt_id()).xattr(),
-                    mutate_in_spec::insert(STAGED_DATA, content).xattr(),
-                    mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr(),
+                    mutate_in_spec::upsert(ATTEMPT_ID, attempt_id()).xattr().create_path(),
+                    mutate_in_spec::insert(STAGED_DATA, content).xattr().create_path(),
+                    mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr().create_path(),
                     mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
                     mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr(),
-                    mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).xattr().expand_macro(),
+                    mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).xattr().create_path().expand_macro(),
                     mutate_in_spec::upsert(TYPE, "replace").xattr(),
                 };
                 if (document.metadata()) {
                     if (document.metadata()->cas()) {
-                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).xattr());
+                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).create_path().xattr());
                     }
                     if (document.metadata()->revid()) {
-                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_REVID, document.metadata()->revid().value()).xattr());
+                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_REVID, document.metadata()->revid().value()).create_path().xattr());
                     }
                     if (document.metadata()->exptime()) {
-                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).xattr());
+                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).create_path().xattr());
                     }
                 }
 
@@ -275,7 +268,9 @@ namespace transactions
                 hooks_.before_staged_replace(this, document.id());
                 spdlog::trace("about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
                 wrap_collection_call(res, [&](result& r) {
-                    r = collection->mutate_in(document.id(), specs, durability(config_), document.cas());
+                    r = collection->mutate_in(document.id(),
+                                              specs,
+                                              mutate_in_options().cas(document.cas()).access_deleted(true).durability(durability(config_)));
                 });
                 hooks_.after_staged_replace_complete(this, document.id());
                 transaction_document out = document;
@@ -324,49 +319,12 @@ namespace transactions
             try {
                 check_if_done();
                 select_atr_if_needed(collection, id);
+                if (check_for_own_write(collection, id)) {
+                    throw error_wrapper(FAIL_OTHER, "cannot insert a document that has already been mutated in this transaction");
+                }
                 check_expiry_pre_commit(STAGE_INSERT, id);
                 set_atr_pending_if_first_mutation(collection);
-
-                hooks_.before_staged_insert(this, id);
-                spdlog::info("about to insert staged doc {}", id);
-                check_expiry_pre_commit(STAGE_CREATE_STAGED_INSERT, id);
-                result res;
-                wrap_collection_call(res, [&](result& r){
-                    r = collection->mutate_in(
-                        id,
-                        {
-                        mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                        mutate_in_spec::insert(ATTEMPT_ID, attempt_id()).xattr(),
-                        mutate_in_spec::insert(ATR_ID, atr_id_.value()).xattr(),
-                        mutate_in_spec::insert(STAGED_DATA, content).xattr(),
-                        mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
-                        mutate_in_spec::insert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr().create_path(),
-                        mutate_in_spec::insert(TYPE, "insert").xattr(),
-                        mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).xattr().expand_macro(),
-                        mutate_in_spec::fulldoc_insert(nlohmann::json::object()),
-                        },
-                        durability(config_));
-                });
-                spdlog::info("inserted doc {} CAS={}, rc={}", id, res.cas, res.strerror());
-                hooks_.after_staged_insert_complete(this, id);
-
-                // TODO: clean this up (do most of this in transactions_document(...))
-                transaction_links links(atr_id_,
-                        collection->bucket_name(),
-                        collection->scope(),
-                        collection->name(),
-                        overall_.transaction_id(),
-                        attempt_id(),
-                        nlohmann::json(content),
-                        boost::none,
-                        boost::none,
-                        boost::none,
-                        boost::none,
-                        std::string("insert"));
-                transaction_document out(id, content, res.cas, *collection, links, transaction_document_status::NORMAL, boost::none);
-                staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::INSERT));
-                add_mutation_token();
-                return out;
+                return create_staged_insert(collection, id, content);
             } catch (const client_error& e) {
                 error_class ec = e.ec();
                 if (expiry_overtime_mode_) {
@@ -382,36 +340,10 @@ namespace transactions
                         // DELAY, then retry.
                         overall_.retry_delay(config_);
                         return insert(collection, id, content);
-                    case FAIL_DOC_ALREADY_EXISTS:
-                    case FAIL_CAS_MISMATCH:
-                        // special handling for doc already existing
-                        // get the doc TODO: adjust when we tombstone
-                        try {
-                            hooks_.before_get_doc_in_exists_during_staged_insert(this, id);
-                            auto get_document = get(collection, id);
-                            // TODO: figure out if there are any retry possibilities here...
-                            // for now, you can overwrite only if the doc is part of _this_ txn
-                            if (get_document.links().atr_id() == atr_id_) {
-                                // we can safely proceed, it is our txn's doc.  TODO: - change content?
-                                return get_document;
-                            }
-                            // otherwise, rollback and try again (maybe the doc is ephemeral and the other txn will remove it).
-                            throw error_wrapper(FAIL_DOC_ALREADY_EXISTS, std::string("document already exists"), false, true);
-                        } catch (const error_wrapper& get_err) {
-                            switch(get_err.ec()) {
-                                case FAIL_TRANSIENT:
-                                case FAIL_PATH_NOT_FOUND:
-                                    overall_.retry_delay(config_);
-                                    return this->insert(collection, id, content);
-                                default:
-                                    throw;
-                            }
-                        } catch (const couchbase::document_not_found_error& e) {
-                            spdlog::trace("got {} trying to find document in insert, retry txn", e.what());
-                            throw error_wrapper(FAIL_TRANSIENT, e.what(), true, true);
-                        }
                     case FAIL_OTHER:
                         throw error_wrapper(ec, e.what(), false);
+                    case FAIL_HARD:
+                        throw error_wrapper(ec, e.what(), false, false);
                     default:
                         throw error_wrapper(FAIL_OTHER, e.what(), true, true);
                 }
@@ -444,27 +376,27 @@ namespace transactions
                 spdlog::info("about to remove remove doc {} with cas {}", document.id(), document.cas());
                 std::vector<mutate_in_spec> specs = {
                     mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                    mutate_in_spec::upsert(ATTEMPT_ID, attempt_id()).xattr(),
-                    mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr(),
-                    mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
-                    mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr(),
-                    mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).xattr().expand_macro(),
-                    mutate_in_spec::upsert(TYPE, "remove").xattr(),
+                    mutate_in_spec::upsert(ATTEMPT_ID, attempt_id()).create_path().xattr(),
+                    mutate_in_spec::upsert(ATR_ID, atr_id_.value()).create_path().xattr(),
+                    mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).create_path().xattr(),
+                    mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).create_path().xattr(),
+                    mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).xattr().create_path().expand_macro(),
+                    mutate_in_spec::upsert(TYPE, "remove").create_path().xattr(),
                 };
                 if (document.metadata()) {
                     if (document.metadata()->cas()) {
-                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).xattr());
+                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).create_path().xattr());
                     }
                     if (document.metadata()->revid()) {
-                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_REVID, document.metadata()->revid().value()).xattr());
+                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_REVID, document.metadata()->revid().value()).create_path().xattr());
                     }
                     if (document.metadata()->exptime()) {
-                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).xattr());
+                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).create_path().xattr());
                     }
                 }
                 result res;
                 wrap_collection_call(res, [&](result& r) {
-                        r = collection->mutate_in(document.id(), specs, durability(config_), document.cas());
+                        r = collection->mutate_in(document.id(), specs, mutate_in_options().durability(durability(config_)).access_deleted(true).cas(document.cas()));
                         });
                 spdlog::info("removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
                 hooks_.after_staged_remove_complete(this, document.id());
@@ -804,7 +736,7 @@ namespace transactions
                                 mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
                                                        std::chrono::duration_cast<std::chrono::milliseconds>(config_.expiration_time()).count()).xattr()
                             },
-                            durability(config_));
+                            mutate_in_options().durability(durability(config_)));
                     });
                     attempt_state(couchbase::transactions::attempt_state::PENDING);
                     spdlog::info("set ATR {}/{}/{} to Pending, got CAS (start time) {}",
@@ -905,6 +837,149 @@ namespace transactions
         }
 
         void select_atr_if_needed(std::shared_ptr<collection> collection, const std::string& id);
+
+        boost::optional<std::pair<transaction_document, couchbase::result>> get_doc(std::shared_ptr<couchbase::collection> collection, const std::string& id)
+        {
+            try {
+                result res;
+                wrap_collection_call(res, [&](result& r) {
+                    r = collection->lookup_in(id,
+                        {
+                            lookup_in_spec::get(ATR_ID).xattr(),
+                            lookup_in_spec::get(TRANSACTION_ID).xattr(),
+                            lookup_in_spec::get(ATTEMPT_ID).xattr(),
+                            lookup_in_spec::get(STAGED_DATA).xattr(),
+                            lookup_in_spec::get(ATR_BUCKET_NAME).xattr(),
+                            lookup_in_spec::get(ATR_COLL_NAME).xattr(),
+                            // For {BACKUP_FIELDS}
+                            lookup_in_spec::get(TRANSACTION_RESTORE_PREFIX_ONLY).xattr(),
+                            lookup_in_spec::get(TYPE).xattr(),
+                            lookup_in_spec::get("$document").xattr(),
+                            lookup_in_spec::get(CRC32_OF_STAGING).xattr(),
+                            lookup_in_spec::fulldoc_get()
+                        },
+                        lookup_in_options().access_deleted(true));
+                });
+                return std::pair<transaction_document, result>(transaction_document::create_from(*collection, id, res, transaction_document_status::NORMAL), res);
+            } catch (const client_error& e) {
+                if (e.ec() == FAIL_DOC_NOT_FOUND) {
+                    return boost::none;
+                }
+                throw;
+            }
+        }
+
+        template<typename Content>
+        transaction_document create_staged_insert(std::shared_ptr<collection> collection, const std::string& id, const Content& content, uint64_t cas=0)
+        {
+            try {
+                hooks_.before_staged_insert(this, id);
+                spdlog::info("about to insert staged doc {} with cas {}", id, cas);
+                check_expiry_pre_commit(STAGE_CREATE_STAGED_INSERT, id);
+                result res;
+                wrap_collection_call(res, [&](result& r){
+                    r = collection->mutate_in(
+                        id,
+                        {
+                            mutate_in_spec::insert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
+                            mutate_in_spec::insert(ATTEMPT_ID, attempt_id()).create_path().xattr(),
+                            mutate_in_spec::insert(ATR_ID, atr_id_.value()).create_path().xattr(),
+                            mutate_in_spec::insert(STAGED_DATA, content).create_path().xattr(),
+                            mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).create_path().xattr(),
+                            mutate_in_spec::insert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr().create_path(),
+                            mutate_in_spec::insert(TYPE, "insert").create_path().xattr(),
+                            mutate_in_spec::insert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).create_path().xattr().expand_macro(),
+                        },
+                        mutate_in_options().durability(durability(config_))
+                                           .access_deleted(true)
+                                           .create_as_deleted(true)
+                                           .cas(cas));
+                });
+                spdlog::info("inserted doc {} CAS={}, rc={}", id, res.cas, res.strerror());
+                hooks_.after_staged_insert_complete(this, id);
+
+                // TODO: clean this up (do most of this in transactions_document(...))
+                transaction_links links(atr_id_,
+                        collection->bucket_name(),
+                        collection->scope(),
+                        collection->name(),
+                        overall_.transaction_id(),
+                        attempt_id(),
+                        nlohmann::json(content),
+                        boost::none,
+                        boost::none,
+                        boost::none,
+                        boost::none,
+                        std::string("insert"));
+                transaction_document out(id, content, res.cas, *collection, links, transaction_document_status::NORMAL, boost::none);
+                staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::INSERT));
+                add_mutation_token();
+                return out;
+            } catch (const client_error& e) {
+                error_class ec = e.ec();
+                if (expiry_overtime_mode_) {
+                    throw error_wrapper(FAIL_EXPIRY, "attempt timed out", false, true, EXPIRED);
+                }
+                switch(ec) {
+                    case FAIL_EXPIRY:
+                        expiry_overtime_mode_ = true;
+                        throw error_wrapper(ec, "attempt timed-out", false, true, EXPIRED);
+                    case FAIL_TRANSIENT:
+                        throw error_wrapper(ec, "transient error in insert", true, true);
+                    case FAIL_AMBIGUOUS:
+                        // DELAY, then retry.
+                        overall_.retry_delay(config_);
+                        return insert(collection, id, content);
+                    case FAIL_DOC_ALREADY_EXISTS:
+                    case FAIL_CAS_MISMATCH:
+                        // special handling for doc already existing
+                        try {
+                            spdlog::trace("found existing doc {}, may still be able to insert", id);
+                            hooks_.before_get_doc_in_exists_during_staged_insert(this, id);
+                            auto get_document = get_doc(collection, id);
+                            if (get_document) {
+                                auto doc = get_document->first;
+                                auto get_res = get_document->second;
+                                spdlog::trace("document {} exists, is_in_transaction {}, is_deleted {} ",
+                                              doc.id(), doc.links().is_document_in_transaction(), get_res.is_deleted);
+                                if (!doc.links().is_document_in_transaction() && get_res.is_deleted) {
+                                    // it is just a deleted doc, so we are ok.  Lets try again, but with the cas
+                                    spdlog::trace("doc was deleted, retrying with cas {}", doc.cas());
+                                    overall_.retry_delay(config_);
+                                    return create_staged_insert(collection, id, content, doc.cas());
+                                }
+                                if (!doc.links().is_document_in_transaction()) {
+                                    // doc was inserted outside txn elsewhere
+                                    throw error_wrapper(FAIL_DOC_ALREADY_EXISTS, std::string("document already exists"), false, true);
+                                }
+                                check_and_handle_blocking_transactions(doc);
+                                // if the check didn't throw, we can retry staging with cas
+                                spdlog::trace("doc ok to overwrite, retrying with cas {}", doc.cas());
+                                overall_.retry_delay(config_);
+                                return create_staged_insert(collection, id, content, doc.cas());
+                            } else {
+                                // no doc now, just retry entire txn
+                                throw error_wrapper(FAIL_DOC_NOT_FOUND, "insert failed as the doc existed, but now seems to not exist", true, true);
+                            }
+                        } catch (const error_wrapper& get_err) {
+                            switch(get_err.ec()) {
+                                case FAIL_TRANSIENT:
+                                case FAIL_PATH_NOT_FOUND:
+                                    spdlog::trace("transient error trying to get doc in insert - retrying txn");
+                                    throw error_wrapper(ec, "error handling found doc in insert", true, true);
+                                default:
+                                    throw;
+                            }
+                        }
+                    case FAIL_OTHER:
+                        throw error_wrapper(ec, e.what(), false);
+                    case FAIL_HARD:
+                        throw error_wrapper(ec, e.what(), false, false);
+                    default:
+                        throw error_wrapper(FAIL_OTHER, e.what(), true, true);
+                }
+            }
+        }
     };
 } // namespace transactions
 } // namespace couchbase

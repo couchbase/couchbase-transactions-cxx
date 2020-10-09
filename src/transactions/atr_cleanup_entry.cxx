@@ -92,7 +92,7 @@ void
 tx::atr_cleanup_entry::do_per_doc(std::vector<tx::doc_record> docs,
                                   bool require_crc_to_match,
                                   const transactions_cleanup& cleanup,
-                                  const std::function<void(transaction_document& doc)>& call)
+                                  const std::function<void(transaction_document&, bool)>& call)
 {
     for(auto& dr : docs) {
         auto collection = cleanup.cluster().bucket(dr.bucket_name())->collection(dr.collection_name());
@@ -113,7 +113,8 @@ tx::atr_cleanup_entry::do_per_doc(std::vector<tx::doc_record> docs,
                                             lookup_in_spec::get("$document").xattr(),
                                             lookup_in_spec::get(CRC32_OF_STAGING).xattr(),
                                             lookup_in_spec::fulldoc_get()
-                                          });
+                                          },
+                                          lookup_in_options().access_deleted(true));
             });
 
             transaction_document doc = transaction_document::create_from(*collection, dr.id(), res, transaction_document_status::NORMAL);
@@ -131,7 +132,7 @@ tx::atr_cleanup_entry::do_per_doc(std::vector<tx::doc_record> docs,
                     continue;
                 }
             }
-            call(doc);
+            call(doc, res.is_deleted);
         } catch (const client_error& e) {
             error_class ec = e.ec();
             switch(ec) {
@@ -166,16 +167,23 @@ void
 tx::atr_cleanup_entry::commit_docs(boost::optional<std::vector<tx::doc_record>> docs, const transactions_cleanup& cleanup)
 {
     if (docs) {
-        do_per_doc(*docs, true, cleanup, [&](tx::transaction_document& doc) {
+        do_per_doc(*docs, true, cleanup, [&](tx::transaction_document& doc, bool is_deleted) {
             if (doc.links().has_staged_content()) {
                 nlohmann::json content = doc.links().staged_content<nlohmann::json>();
                 cleanup.config().cleanup_hooks().before_commit_doc(doc.id());
-                // logic needs to look for is_deleted (tombstone) when available
-                doc.collection_ref().mutate_in(doc.id(), {
-                        mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
-                        mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
-                        mutate_in_spec::fulldoc_upsert(content)
-                    }, durability(cleanup.config()), doc.cas());
+                if (is_deleted) {
+                    doc.collection_ref().insert(doc.id(), doc.content<nlohmann::json>());
+                } else {
+                    // logic needs to look for is_deleted (tombstone) when available
+                    doc.collection_ref().mutate_in(
+                        doc.id(),
+                        {
+                            mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
+                            mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
+                            mutate_in_spec::fulldoc_upsert(content)
+                        },
+                        mutate_in_options().cas(doc.cas()));
+                }
                 spdlog::trace("commit_docs replaced content of doc {} with {}", doc.id(), content.dump());
             } else {
                 spdlog::trace("commit_docs skipping document {}, no staged content", doc.id());
@@ -187,9 +195,15 @@ void
 tx::atr_cleanup_entry::remove_docs(boost::optional<std::vector<tx::doc_record>> docs, const transactions_cleanup& cleanup)
 {
     if (docs) {
-        do_per_doc(*docs, true, cleanup, [&](transaction_document& doc) {
+        do_per_doc(*docs, true, cleanup, [&](transaction_document& doc, bool is_deleted) {
             cleanup.config().cleanup_hooks().before_remove_doc(doc.id());
-            doc.collection_ref().remove(doc.id(), doc.cas());
+            if (is_deleted) {
+                doc.collection_ref().mutate_in(doc.id(),
+                                               { mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() },
+                                               mutate_in_options().access_deleted(true).cas(doc.cas()));
+            } else {
+                doc.collection_ref().remove(doc.id(), remove_options().cas(doc.cas()));
+            }
             spdlog::trace("remove_docs removed doc {}", doc.id());
         });
     }
@@ -199,10 +213,10 @@ void
 tx::atr_cleanup_entry::remove_docs_staged_for_removal(boost::optional<std::vector<tx::doc_record>> docs, const transactions_cleanup& cleanup)
 {
     if (docs) {
-        do_per_doc(*docs, true, cleanup, [&](transaction_document& doc) {
+        do_per_doc(*docs, true, cleanup, [&](transaction_document& doc, bool) {
             if (doc.links().is_document_being_removed()) {
                 cleanup.config().cleanup_hooks().before_remove_doc_staged_for_removal(doc.id());
-                doc.collection_ref().remove(doc.id(), doc.cas());
+                doc.collection_ref().remove(doc.id(), remove_options().cas(doc.cas()));
                 spdlog::trace("remove_docs_staged_for_removal removed doc {}", doc.id());
             } else {
                 spdlog::trace("remove_docs_staged_for_removal found document {} not marked for removal, skipping", doc.id());
@@ -215,12 +229,12 @@ void
 tx::atr_cleanup_entry::remove_txn_links(boost::optional<std::vector<tx::doc_record>> docs, const transactions_cleanup& cleanup)
 {
     if (docs) {
-        do_per_doc(*docs, false, cleanup, [&](transaction_document& doc) {
+        do_per_doc(*docs, false, cleanup, [&](transaction_document& doc, bool) {
             cleanup.config().cleanup_hooks().before_remove_links(doc.id());
             doc.collection_ref().mutate_in(doc.id(), {
                         mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
                         mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
-                    }, durability(cleanup.config()), doc.cas());
+                    }, mutate_in_options().durability(durability(cleanup.config())).access_deleted(true).cas(doc.cas()));
             spdlog::trace("remove_txn_links removed links for doc {}", doc.id());
         });
     }

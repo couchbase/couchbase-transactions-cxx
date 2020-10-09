@@ -152,6 +152,35 @@ TEST(MutateInTests, CanFullDocInsert)
     ASSERT_EQ(r2.value->get<nlohmann::json>(), new_content);
 }
 
+TEST(MutateInTests, CanMutateIfCorrectCas) {
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    upsert_random_doc(coll, id);
+    auto r0 = coll->get(id);
+    ASSERT_TRUE(r0.is_success());
+    auto cas = r0.cas;
+    auto r1 = coll->mutate_in(id,
+                             { mutate_in_spec::upsert("a", "string").xattr() },
+                             mutate_in_options().cas(cas));
+    ASSERT_TRUE(r1.is_success());
+    ASSERT_TRUE(r1.cas != cas);
+    auto r2 = coll->lookup_in(id, { lookup_in_spec::get("a").xattr() });
+    ASSERT_TRUE(r1.is_success());
+    ASSERT_EQ(std::string("string"), r2.values[0]->get<std::string>());
+}
+
+TEST(MutateInTests, CanNotMutateIfIncorrectCas) {
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    upsert_random_doc(coll, id);
+    auto r1 = coll->mutate_in(id,
+                             { mutate_in_spec::upsert("a", "string").xattr() },
+                             mutate_in_options().cas(100));
+    ASSERT_FALSE(r1.is_success());
+}
+
 TEST(MutateInTests, CanMutateMultipleSpecsWithPathsXattr) {
     auto c = ClientTestEnvironment::get_cluster();
     auto coll = c->bucket("default")->default_collection();
@@ -167,4 +196,159 @@ TEST(MutateInTests, CanMutateMultipleSpecsWithPathsXattr) {
                                   });
     ASSERT_EQ(0, r1.rc);
     ASSERT_EQ(r1.values[0]->get<nlohmann::json>(), nlohmann::json::parse("{\"x\":\"x\",\"y\":\"y\",\"z\":\"z\"}"));
+}
+
+TEST(MutateInTests, CanCreateAsDeleted) {
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr(),
+                                mutate_in_spec::insert("a.y", "y").xattr(),
+                                mutate_in_spec::insert("a.z", "z").xattr()
+                              },
+                              mutate_in_options().create_as_deleted(true));
+    ASSERT_EQ(0, r0.rc);
+    auto r1 = coll->get(id);
+    ASSERT_TRUE(r1.is_not_found());
+}
+
+TEST(MutateInTests, CanAccessDeleted) {
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr(),
+                                mutate_in_spec::insert("a.y", "y").xattr(),
+                                mutate_in_spec::insert("a.z", "z").xattr()
+                              },
+                              mutate_in_options().create_as_deleted(true));
+    ASSERT_EQ(0, r0.rc);
+
+    auto r1 = coll->mutate_in(id,
+                              { mutate_in_spec::upsert("a.zz", "zz").xattr(),
+                              },
+                              mutate_in_options().access_deleted(true));
+    ASSERT_TRUE(r1.is_success());
+    auto r2 = coll->lookup_in(id,
+                              { lookup_in_spec::get("a.zz").xattr() },
+                              lookup_in_options().access_deleted(true));
+    ASSERT_TRUE(r2.is_success());
+    ASSERT_EQ(r2.values[0]->get<std::string>(), std::string("zz"));
+}
+
+TEST(MutateInTests, CanMutateCreateAsDeletedWithCas) {
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr(),
+                                mutate_in_spec::insert("a.y", "y").xattr(),
+                                mutate_in_spec::insert("a.z", "z").xattr()
+                              },
+                              mutate_in_options().create_as_deleted(true));
+    ASSERT_EQ(0, r0.rc);
+
+    auto r1 = coll->mutate_in(id,
+                              { mutate_in_spec::upsert("a.zz", "zz").xattr() },
+                              mutate_in_options().access_deleted(true).create_as_deleted(true));
+    ASSERT_FALSE(r1.is_success());
+    ASSERT_EQ(r1.rc, 305);
+
+    auto r2 = coll->mutate_in(id,
+                              { mutate_in_spec::upsert("a.zz", "zz").xattr() },
+                              mutate_in_options().cas(r0.cas).access_deleted(true).create_as_deleted(true));
+    ASSERT_TRUE(r2.is_success());
+    auto r3 = coll->lookup_in(id, { lookup_in_spec::get("a.zz").xattr() }, lookup_in_options().access_deleted(true));
+    ASSERT_EQ("zz", r3.values[0]->get<std::string>());
+    ASSERT_TRUE(r3.cas != 0);
+    ASSERT_TRUE(r3.cas != r0.cas);
+}
+
+TEST(MutateInTests, CanNotMutateCreateAsDeletedWithWrongCas) {
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr(),
+                                mutate_in_spec::insert("a.y", "y").xattr(),
+                                mutate_in_spec::insert("a.z", "z").xattr()
+                              },
+                              mutate_in_options().create_as_deleted(true));
+    ASSERT_EQ(0, r0.rc);
+
+    auto r1 = coll->mutate_in(id,
+                              { mutate_in_spec::upsert("a.zz", "zz").xattr() },
+                              mutate_in_options().cas(100).access_deleted(true).create_as_deleted(true));
+    ASSERT_FALSE(r1.is_success());
+    ASSERT_EQ(r1.rc, 305);
+}
+
+TEST(MutateInTests, CanNotAccessDeleted) {
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr(),
+                                mutate_in_spec::insert("a.y", "y").xattr(),
+                                mutate_in_spec::insert("a.z", "z").xattr()
+                              },
+                              mutate_in_options().create_as_deleted(true));
+    ASSERT_EQ(0, r0.rc);
+
+    auto r1 = coll->mutate_in(id, { mutate_in_spec::upsert("a.zz", "zz").xattr() });
+    ASSERT_TRUE(r1.is_not_found());
+}
+
+TEST(MutateInTests, AccessDeleteOkWhenNotDeleted) {
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    upsert_random_doc(coll, id);
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr(),
+                                mutate_in_spec::insert("a.y", "y").xattr(),
+                                mutate_in_spec::insert("a.z", "z").xattr()
+                              },
+                              mutate_in_options().access_deleted(true));
+    ASSERT_TRUE(r0.is_success());
+    auto r1 = coll->lookup_in(id, { lookup_in_spec::get("a").xattr() });
+    ASSERT_TRUE(r1.is_success());
+    ASSERT_EQ(r1.values[0]->get<nlohmann::json>(), nlohmann::json::parse("{\"x\":\"x\",\"y\":\"y\",\"z\":\"z\"}"));
+}
+
+TEST(LookupInTests, CanNotAccessDeleted) {
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    auto r0 = coll->mutate_in(id, { mutate_in_spec::insert("a.x", "x").create_path().xattr(),
+                                    mutate_in_spec::insert("a.y", "y").xattr(),
+                                    mutate_in_spec::insert("a.z", "z").xattr()
+                                  }, mutate_in_options().create_as_deleted(true));
+    ASSERT_EQ(0, r0.rc);
+
+    auto r1 = coll->lookup_in(id, { lookup_in_spec::get("a").xattr(),
+                                  }, lookup_in_options().access_deleted(false));
+    ASSERT_TRUE(r1.is_not_found());
+
+}
+
+TEST(LookupInTests, CanAccessDeleted) {
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr(),
+                                mutate_in_spec::insert("a.y", "y").xattr(),
+                                mutate_in_spec::insert("a.z", "z").xattr()
+                              },
+                              mutate_in_options().create_as_deleted(true));
+    ASSERT_EQ(0, r0.rc);
+
+    auto r1 = coll->lookup_in(id,
+                              { lookup_in_spec::get("a").xattr() },
+                              lookup_in_options().access_deleted(true));
+    ASSERT_EQ(0, r1.rc);
+    ASSERT_EQ(r1.values[0]->get<nlohmann::json>(), nlohmann::json::parse("{\"x\":\"x\",\"y\":\"y\",\"z\":\"z\"}"));
+    ASSERT_TRUE(r1.is_deleted);
 }

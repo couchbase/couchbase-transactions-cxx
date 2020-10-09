@@ -19,7 +19,7 @@ namespace transactions
             nlohmann::json attempts = *res.values[0];
             return map_to_atr(collection, atr_id, res, attempts);
         } else {
-            throw std::runtime_error("got error while getting ATR " + atr_id + ": " + res.strerror());
+            throw client_error(res);
         }
     }
 
