@@ -41,12 +41,14 @@ TEST(SimpleClientClusterTests, ClusterConnect)
     auto c = ClientTestEnvironment::get_cluster();
     ASSERT_TRUE(c.get() != nullptr);
 }
+
 TEST(SimpleClientClusterTests, ClusterCopy)
 {
     auto c = ClientTestEnvironment::get_cluster();
     cluster copy = *c;
     ASSERT_FALSE(*c == copy);
 }
+
 TEST(SimpleClientClusterTests, CanGetBucket)
 {
     auto c = ClientTestEnvironment::get_cluster();
@@ -127,7 +129,7 @@ class SimpleClientCollectionTests : public ::testing::Test
             spdlog::info("successfully upserted, got {}", result);
             return;
         }
-        FAIL() << "couldn't upsert into bucket";
+        FAIL() << "couldn't upsert into bucket - " << result.strerror();
     }
 
     void TearDown() override

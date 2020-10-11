@@ -5,7 +5,6 @@
 #include <couchbase/client/bucket.hxx>
 #include <couchbase/client/collection.hxx>
 #include <couchbase/client/lookup_in_spec.hxx>
-
 #include <libcouchbase/couchbase.h>
 
 namespace cb = couchbase;
@@ -163,79 +162,105 @@ couchbase::store_impl(couchbase::collection* collection,
 }
 
 couchbase::result
+couchbase::collection::wrap_call_for_retry(std::function<result(void)> fn)
+{
+    int retries = 0;
+    result res;
+    while (retries < 10) {
+        res = fn();
+        if (res.is_success() || (res.rc != LCB_ERR_KVENGINE_INVALID_PACKET &&
+                                 res.rc != LCB_ERR_KVENGINE_UNKNOWN_ERROR)) {
+            break;
+        }
+        spdlog::trace("got {}, retrying (CCBC-1300)", res);
+        if (retries < 10) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
+        }
+        retries++;
+    }
+    return res;
+}
+
+couchbase::result
 couchbase::collection::get(const std::string& id, const get_options& opts)
 {
-    lcb_CMDGET* cmd;
-    lcb_cmdget_create(&cmd);
-    lcb_cmdget_key(cmd, id.data(), id.size());
-    lcb_cmdget_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-    if (opts.expiry()) {
-        // does a 'get and touch'
-        lcb_cmdget_expiry(cmd, *opts.expiry());
-    }
-    lcb_STATUS rc;
-    result res;
-    assert(bucket_->lcb_);
-    rc = lcb_get(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
-    lcb_cmdget_destroy(cmd);
-    if (rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to get (sched) document: ") + lcb_strerror_short(rc));
-    }
-    lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
-    return res;
+    return wrap_call_for_retry([&]()->result {
+        lcb_CMDGET* cmd;
+        lcb_cmdget_create(&cmd);
+        lcb_cmdget_key(cmd, id.data(), id.size());
+        lcb_cmdget_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        if (opts.expiry()) {
+            // does a 'get and touch'
+            lcb_cmdget_expiry(cmd, *opts.expiry());
+        }
+        lcb_STATUS rc;
+        assert(bucket_->lcb_);
+        result res;
+        rc = lcb_get(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
+        lcb_cmdget_destroy(cmd);
+        if (rc != LCB_SUCCESS) {
+            throw std::runtime_error(std::string("failed to get (sched) document: ") + lcb_strerror_short(rc));
+        }
+        lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
+        return res;
+    });
 }
 
 couchbase::result
 couchbase::collection::remove(const std::string& id, const remove_options& opts)
 {
-    lcb_CMDREMOVE* cmd;
-    lcb_cmdremove_create(&cmd);
-    lcb_cmdremove_key(cmd, id.data(), id.size());
-    if (opts.cas()) {
-        lcb_cmdremove_cas(cmd, *opts.cas());
-    }
-    lcb_cmdremove_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-    if (opts.durability()) {
-        lcb_cmdremove_durability(cmd, convert_durability(*opts.durability()));
-    }
-    lcb_STATUS rc;
-    result res;
-    assert(bucket_->lcb_);
-    rc = lcb_remove(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
-    lcb_cmdremove_destroy(cmd);
-    if (rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to remove (sched) document: ") + lcb_strerror_short(rc));
-    }
-    lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
-    return res;
+    return wrap_call_for_retry([&]()->result {
+        lcb_CMDREMOVE* cmd;
+        lcb_cmdremove_create(&cmd);
+        lcb_cmdremove_key(cmd, id.data(), id.size());
+        if (opts.cas()) {
+            lcb_cmdremove_cas(cmd, *opts.cas());
+        }
+        lcb_cmdremove_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        if (opts.durability()) {
+            lcb_cmdremove_durability(cmd, convert_durability(*opts.durability()));
+        }
+        lcb_STATUS rc;
+        assert(bucket_->lcb_);
+        result res;
+        rc = lcb_remove(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
+        lcb_cmdremove_destroy(cmd);
+        if (rc != LCB_SUCCESS) {
+            throw std::runtime_error(std::string("failed to remove (sched) document: ") + lcb_strerror_short(rc));
+        }
+        lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
+        return res;
+    });
 }
 
 couchbase::result
 couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_spec> specs, const mutate_in_options& opts)
 {
-    lcb_CMDSUBDOC* cmd;
-    lcb_cmdsubdoc_create(&cmd);
-    lcb_cmdsubdoc_key(cmd, id.data(), id.size());
-    lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-    uint64_t cas = opts.cas().value_or(0);
-    lcb_cmdsubdoc_cas(cmd, cas);
+    return wrap_call_for_retry([&]()->result {
+        lcb_CMDSUBDOC* cmd;
+        lcb_cmdsubdoc_create(&cmd);
+        lcb_cmdsubdoc_key(cmd, id.data(), id.size());
+        lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        uint64_t cas = opts.cas().value_or(0);
+        lcb_cmdsubdoc_cas(cmd, cas);
 
-    if (opts.create_as_deleted()) {
-        lcb_cmdsubdoc_create_as_deleted(cmd, true);
-        if (cas > 0) {
-            lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
-        } else {
-            lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_INSERT);
+        if (opts.create_as_deleted()) {
+            lcb_cmdsubdoc_create_as_deleted(cmd, true);
+            if (cas > 0) {
+                lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
+            } else {
+                lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_INSERT);
+            }
         }
-    }
-    if (opts.access_deleted()) {
-        lcb_cmdsubdoc_access_deleted(cmd, true);
-    }
-    lcb_SUBDOCSPECS* ops;
-    lcb_subdocspecs_create(&ops, specs.size());
-    size_t idx = 0;
-    for (const auto& spec : specs) {
-        switch (spec.type_) {
+        if (opts.access_deleted()) {
+            lcb_cmdsubdoc_access_deleted(cmd, true);
+        }
+        lcb_SUBDOCSPECS* ops;
+        lcb_subdocspecs_create(&ops, specs.size());
+        size_t idx = 0;
+        for (const auto& spec : specs) {
+            switch (spec.type_) {
             case mutate_in_spec_type::MUTATE_IN_UPSERT:
                 lcb_subdocspecs_dict_upsert(
                   ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size(), spec.value_.data(), spec.value_.size());
@@ -259,58 +284,61 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
             case mutate_in_spec_type::REMOVE:
                 lcb_subdocspecs_remove(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
                 break;
+            }
         }
-    }
-    lcb_cmdsubdoc_specs(cmd, ops);
-    if (opts.durability()) {
-        lcb_cmdsubdoc_durability(cmd, convert_durability(*opts.durability()));
-    }
-    lcb_STATUS rc;
-    result res;
-    assert(bucket_->lcb_);
-    rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
-    lcb_cmdsubdoc_destroy(cmd);
-    lcb_subdocspecs_destroy(ops);
-    if (rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to mutate (sched) sub-document: ") + lcb_strerror_short(rc));
-    }
-    lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
-    return res;
+        lcb_cmdsubdoc_specs(cmd, ops);
+        if (opts.durability()) {
+            lcb_cmdsubdoc_durability(cmd, convert_durability(*opts.durability()));
+        }
+        lcb_STATUS rc;
+        assert(bucket_->lcb_);
+        result res;
+        rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
+        lcb_cmdsubdoc_destroy(cmd);
+        lcb_subdocspecs_destroy(ops);
+        if (rc != LCB_SUCCESS) {
+            throw std::runtime_error(std::string("failed to mutate (sched) sub-document: ") + lcb_strerror_short(rc));
+        }
+        lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
+        return res;
+    });
 }
 
 couchbase::result
 couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_spec> specs, const lookup_in_options& opts)
 {
-    lcb_CMDSUBDOC* cmd;
-    lcb_cmdsubdoc_create(&cmd);
-    lcb_cmdsubdoc_key(cmd, id.data(), id.size());
-    lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-    if (opts.access_deleted()) {
-        lcb_cmdsubdoc_access_deleted(cmd, true);
-    }
-    lcb_SUBDOCSPECS* ops;
-    lcb_subdocspecs_create(&ops, specs.size());
-    size_t idx = 0;
-    for (const auto& spec : specs) {
-        switch (spec.type_) {
+    return wrap_call_for_retry([&]()->result {
+        lcb_CMDSUBDOC* cmd;
+        lcb_cmdsubdoc_create(&cmd);
+        lcb_cmdsubdoc_key(cmd, id.data(), id.size());
+        lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        if (opts.access_deleted()) {
+            lcb_cmdsubdoc_access_deleted(cmd, true);
+        }
+        lcb_SUBDOCSPECS* ops;
+        lcb_subdocspecs_create(&ops, specs.size());
+        size_t idx = 0;
+        for (const auto& spec : specs) {
+            switch (spec.type_) {
             case lookup_in_spec_type::LOOKUP_IN_GET:
                 lcb_subdocspecs_get(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
                 break;
             case lookup_in_spec_type::LOOKUP_IN_FULLDOC_GET:
                 lcb_subdocspecs_get(ops, idx++, spec.flags_, nullptr, 0);
                 break;
+            }
         }
-    }
-    lcb_cmdsubdoc_specs(cmd, ops);
-    lcb_STATUS rc;
-    result res;
-    assert(bucket_->lcb_);
-    rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
-    lcb_cmdsubdoc_destroy(cmd);
-    lcb_subdocspecs_destroy(ops);
-    if (rc != LCB_SUCCESS) {
-        throw std::runtime_error(std::string("failed to lookup (sched) sub-document: ") + lcb_strerror_short(rc));
-    }
-    lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
-    return res;
+        lcb_cmdsubdoc_specs(cmd, ops);
+        lcb_STATUS rc;
+        assert(bucket_->lcb_);
+        result res;
+        rc = lcb_subdoc(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
+        lcb_cmdsubdoc_destroy(cmd);
+        lcb_subdocspecs_destroy(ops);
+        if (rc != LCB_SUCCESS) {
+            throw std::runtime_error(std::string("failed to lookup (sched) sub-document: ") + lcb_strerror_short(rc));
+        }
+        lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
+        return res;
+    });
 }

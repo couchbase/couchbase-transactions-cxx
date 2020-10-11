@@ -24,6 +24,8 @@
 #include <couchbase/client/options.hxx>
 #include <string>
 #include <vector>
+#include <thread>
+#include <chrono>
 
 namespace couchbase
 {
@@ -63,6 +65,8 @@ class collection
         return store_impl(this, operation, id, payload, cas, level);
     }
 
+    result wrap_call_for_retry(std::function<result(void)> fn);
+
   public:
     explicit collection(std::shared_ptr<bucket> bucket, std::string scope, std::string name);
 
@@ -71,19 +75,25 @@ class collection
     template<typename Content>
     result upsert(const std::string& id, const Content& value, const upsert_options& opts = upsert_options())
     {
-        return store(store_operation::upsert, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none));
+        return wrap_call_for_retry([&]()->result {
+            return store(store_operation::upsert, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none));
+        });
     }
 
     template<typename Content>
     result insert(const std::string& id, const Content& value, const insert_options& opts = insert_options())
     {
-        return store(store_operation::insert, id, value, 0, opts.durability().value_or(durability_level::none));
+        return wrap_call_for_retry([&]()->result {
+            return store(store_operation::insert, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none));
+        });
     }
 
     template<typename Content>
     result replace(const std::string& id, const Content& value, const replace_options& opts = replace_options())
     {
-        return store(store_operation::replace, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none));
+        return wrap_call_for_retry([&]()->result {
+            return store(store_operation::replace, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none));
+        });
     }
 
     result remove(const std::string& id, const remove_options& opts = remove_options());
