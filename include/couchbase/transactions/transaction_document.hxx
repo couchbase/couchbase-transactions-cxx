@@ -20,7 +20,7 @@
 
 #include <boost/algorithm/string/split.hpp>
 
-#include <nlohmann/json.hpp>
+#include <couchbase/internal/nlohmann/json.hpp>
 
 #include <couchbase/client/collection.hxx>
 #include <couchbase/transactions/document_metadata.hxx>

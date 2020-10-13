@@ -54,9 +54,11 @@ add_subdirectory(deps/libcouchbase)
 if(BUILD_TESTS)
     add_subdirectory(deps/libcouchbase/contrib/gtest-1.8.1)
 endif()
-set(JSON_BuildTests OFF CACHE INTERNAL "")
-set(JSON_Install OFF CACHE INTERNAL "")
-add_subdirectory(deps/json)
+add_custom_target(json_include)
+add_custom_command(TARGET json_include PRE_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_SOURCE_DIR}/deps/json/single_include/nlohmann/json.hpp
+        ${CMAKE_BINARY_DIR}/generated/json/include/couchbase/internal/nlohmann/json.hpp)
 
 add_subdirectory(deps/spdlog)
 
@@ -77,7 +79,7 @@ message(STATUS "Boost_LIBRARIES: ${Boost_LIBRARIES}")
 include_directories(include)
 include_directories(BEFORE
         ${PROJECT_SOURCE_DIR}/deps/spdlog/include
-        ${PROJECT_SOURCE_DIR}/deps/json/include
+        ${PROJECT_BINARY_DIR}/generated/json/include
         ${PROJECT_SOURCE_DIR}/deps/libcouchbase/include
         ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated)
 
@@ -91,11 +93,11 @@ set_property(TARGET client_cxx PROPERTY VISIBILITY_INLINES_HIDDEN ON)
 target_link_libraries(client_cxx
                       PRIVATE
                       ${CMAKE_THREAD_LIBS_INIT}
-                      nlohmann_json::nlohmann_json
                       spdlog::spdlog
                       ${Boost_LIBRARIES}
                       couchbaseS)
 set_target_properties(client_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
+add_dependencies(client_cxx json_include)
 #============ END CLIENT ====================================================================
 # =========== BEGIN TRANSACTIONS ============================================================
 file(GLOB_RECURSE transactions_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/transactions/*.hxx)
@@ -103,10 +105,10 @@ file(GLOB_RECURSE transactions_src_FILES ${PROJECT_SOURCE_DIR}/src/transactions/
 add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions_src_FILES})
 target_link_libraries(transactions_cxx
                       ${CMAKE_THREAD_LIBS_INIT}
-                      nlohmann_json::nlohmann_json
                       spdlog::spdlog
                       ${Boost_LIBRARIES}
                       client_cxx)
+add_dependencies(transactions_cxx json_include)
 set_target_properties(transactions_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
 # =========== END TRANSACTIONS ================================================================
 # =========== BEGIN DOCS ======================================================================
@@ -151,6 +153,8 @@ add_custom_target(tarball
 
 include(GNUInstallDirs)
 install(TARGETS transactions_cxx DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(FILES ${CMAKE_SOURCE_DIR}/deps/json/single_include/nlohmann/json.hpp
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/couchbase/internal/nlohmann)
 install(DIRECTORY include/couchbase
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         FILES_MATCHING PATTERN *.hxx)

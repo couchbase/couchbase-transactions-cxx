@@ -21,7 +21,7 @@
 
 #include <boost/optional.hpp>
 
-#include <nlohmann/json.hpp>
+#include <couchbase/internal/nlohmann/json.hpp>
 
 #include <couchbase/transactions/active_transaction_record.hxx>
 #include <couchbase/transactions/transaction_fields.hxx>

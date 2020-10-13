@@ -17,8 +17,8 @@
 #pragma once
 
 #include <boost/optional.hpp>
+#include <couchbase/internal/nlohmann/json.hpp>
 #include <couchbase/support.hxx>
-#include <nlohmann/json.hpp>
 #include <spdlog/fmt/ostr.h>
 #include <string>
 #include <vector>

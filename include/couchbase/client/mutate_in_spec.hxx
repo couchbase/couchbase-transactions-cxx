@@ -18,7 +18,7 @@
 
 #include <string>
 
-#include <nlohmann/json.hpp>
+#include <couchbase/internal/nlohmann/json.hpp>
 
 namespace couchbase
 {
