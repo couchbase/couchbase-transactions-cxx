@@ -43,10 +43,42 @@ class bucket : public std::enable_shared_from_this<bucket>
     bucket(lcb_st* instance, const std::string& name);
     std::shared_ptr<class collection> find_or_create_collection(const std::string& name);
   public:
+    /**
+     * Get the default collection for this bucket
+     *
+     * @return Returns a shared pointer to the default collection for this bucket.
+     */
     std::shared_ptr<class collection> default_collection();
+    /**
+     * @brief Get a collection by name.
+     *
+     * @param name of an existing collection in this bucket.
+     * @return shared pointer to a the collection.
+     */
     std::shared_ptr<class collection> collection(const std::string& name);
+    /**
+     *  @brief Get collection name
+     *
+     *  Return the collection name.
+     *
+     * @return constant string containing this collection's name.  Note the default
+     *         collection is _default.
+     */
     const std::string name() const { return name_; };
+    /**
+     * @brief Close connection to this bucket
+     *
+     * Once you call this, this object will no longer be connected to the cluster.  This
+     * means any collection objects created from this bucket (all of whom share this
+     * connection) will also not be connected.  Called in destructor, but here in case you
+     * one needs it
+     */
     void close();
+    /**
+     *  @brief Destroy the bucket
+     *
+     * Calls close(), which disconnects the bucket from the cluster, then destroys the object.
+     */
     ~bucket();
     bool operator==(const bucket& b) const { return lcb_ == b.lcb_; }
 };

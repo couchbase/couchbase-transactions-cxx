@@ -22,7 +22,6 @@
 #include <thread>
 
 #include <couchbase/client/collection.hxx>
-#include <couchbase/client/exceptions.hxx>
 #include <couchbase/transactions/attempt_context_testing_hooks.hxx>
 #include <couchbase/transactions/attempt_state.hxx>
 #include <couchbase/transactions/exceptions.hxx>
@@ -95,124 +94,6 @@ namespace transactions
             auto retval = do_get(collection, id);
             hooks_.after_get_complete(this, id);
             return retval;
-        }
-
-        // TODO: this should return boost::optional::<TransactionGetResult>
-        boost::optional<transaction_document> do_get(std::shared_ptr<collection> collection, const std::string& id) {
-            result res;
-            try {
-                check_if_done();
-                check_expiry_pre_commit(STAGE_GET, id);
-
-                staged_mutation* own_write = check_for_own_write(collection, id);
-                if (own_write) {
-                    spdlog::info("found own-write of mutated doc {}", id);
-                    return transaction_document::create_from(
-                            own_write->doc(), own_write->content<const nlohmann::json&>(), transaction_document_status::OWN_WRITE);
-                }
-                staged_mutation* own_remove = staged_mutations_.find_remove(collection, id);
-                if (own_remove) {
-                    spdlog::info("found own-write of removed doc {}", id);
-                    return {};
-                }
-
-                hooks_.before_doc_get(this, id);
-
-                auto doc_res = get_doc(collection, id);
-                if (!doc_res) {
-                    return {};
-                }
-                auto doc = doc_res->first;
-                if (doc.links().is_document_in_transaction()) {
-                    boost::optional<active_transaction_record> atr =
-                        active_transaction_record::get_atr(collection, doc.links().atr_id().value());
-                    if (atr) {
-                        active_transaction_record& atr_doc = atr.value();
-                        boost::optional<atr_entry> entry;
-                        for (auto& e : atr_doc.entries()) {
-                            if (doc.links().staged_attempt_id().value() == e.attempt_id()) {
-                                entry.emplace(e);
-                                break;
-                            }
-                        }
-                        bool ignore_doc = false;
-                        auto content = doc.content<nlohmann::json>();
-                        auto status = doc.status();
-                        if (entry) {
-                            if (doc.links().staged_attempt_id() && entry->attempt_id() == attempt_id()) {
-                                // Attempt is reading its own writes
-                                // This is here as backup, it should be returned from the in-memory cache instead
-                                content = doc.links().staged_content<nlohmann::json>();
-                                status = transaction_document_status::OWN_WRITE;
-                            } else {
-                                switch (entry->state()) {
-                                    case couchbase::transactions::attempt_state::COMMITTED:
-                                        if (doc.links().is_document_being_removed()) {
-                                            ignore_doc = true;
-                                        } else {
-                                            content = doc.links().staged_content<nlohmann::json>();
-                                            status = transaction_document_status::IN_TXN_COMMITTED;
-                                        }
-                                        break;
-                                    default:
-                                        status = transaction_document_status::IN_TXN_OTHER;
-                                        if (doc.content<nlohmann::json>().empty()) {
-                                            // This document is being inserted, so should not be visible yet
-                                            ignore_doc = true;
-                                        }
-                                        break;
-                                }
-                            }
-                        } else {
-                            // Don't know if transaction was committed or rolled back. Should not happen as ATR should stick around long
-                            // enough
-                            status = transaction_document_status::AMBIGUOUS;
-                            if (content.empty()) {
-                                // This document is being inserted, so should not be visible yet
-                                ignore_doc = true;
-                            }
-                        }
-                        if (ignore_doc) {
-                            return {};
-                        } else {
-                            return transaction_document::create_from(doc, content, status);
-                        }
-                    } else {
-                        // failed to get the ATR
-                        if (doc.content<nlohmann::json>().empty()) {
-                            // this document is being inserted, so should not be visible yet
-                            return {};
-                        } else {
-                            doc.status(transaction_document_status::AMBIGUOUS);
-                            return doc;
-                        }
-                    }
-                } else  {
-                    if (res.is_deleted) {
-                        // doc has been deleted, not in txn, so don't return it
-                        return {};
-                    }
-                }
-                return doc;
-            } catch (const client_error& e) {
-                error_class ec = e.ec();
-                switch(ec) {
-                    case FAIL_EXPIRY:
-                        throw error_wrapper(ec, e.what(), false, true, EXPIRED);
-                    case FAIL_DOC_NOT_FOUND:
-                        return {};
-                    case FAIL_TRANSIENT:
-                        throw error_wrapper(ec, e.what(), true, true);
-                    case FAIL_HARD:
-                        throw error_wrapper(ec, e.what(), false, false);
-                    default:
-                        {
-                            std::string what(fmt::format("got error while getting doc {}: {}", id, e.what()));
-                            spdlog::warn(what);
-                            throw error_wrapper(FAIL_OTHER, what);
-                        }
-                }
-            }
         }
 
         /**
@@ -838,6 +719,125 @@ namespace transactions
 
         void select_atr_if_needed(std::shared_ptr<collection> collection, const std::string& id);
 
+        // TODO: this should return boost::optional::<TransactionGetResult>
+        boost::optional<transaction_document> do_get(std::shared_ptr<collection> collection, const std::string& id) {
+            result res;
+            try {
+                check_if_done();
+                check_expiry_pre_commit(STAGE_GET, id);
+
+                staged_mutation* own_write = check_for_own_write(collection, id);
+                if (own_write) {
+                    spdlog::info("found own-write of mutated doc {}", id);
+                    return transaction_document::create_from(
+                            own_write->doc(), own_write->content<const nlohmann::json&>(), transaction_document_status::OWN_WRITE);
+                }
+                staged_mutation* own_remove = staged_mutations_.find_remove(collection, id);
+                if (own_remove) {
+                    spdlog::info("found own-write of removed doc {}", id);
+                    return {};
+                }
+
+                hooks_.before_doc_get(this, id);
+
+                auto doc_res = get_doc(collection, id);
+                if (!doc_res) {
+                    return {};
+                }
+                auto doc = doc_res->first;
+                if (doc.links().is_document_in_transaction()) {
+                    boost::optional<active_transaction_record> atr =
+                        active_transaction_record::get_atr(collection, doc.links().atr_id().value());
+                    if (atr) {
+                        active_transaction_record& atr_doc = atr.value();
+                        boost::optional<atr_entry> entry;
+                        for (auto& e : atr_doc.entries()) {
+                            if (doc.links().staged_attempt_id().value() == e.attempt_id()) {
+                                entry.emplace(e);
+                                break;
+                            }
+                        }
+                        bool ignore_doc = false;
+                        auto content = doc.content<nlohmann::json>();
+                        auto status = doc.status();
+                        if (entry) {
+                            if (doc.links().staged_attempt_id() && entry->attempt_id() == attempt_id()) {
+                                // Attempt is reading its own writes
+                                // This is here as backup, it should be returned from the in-memory cache instead
+                                content = doc.links().staged_content<nlohmann::json>();
+                                status = transaction_document_status::OWN_WRITE;
+                            } else {
+                                switch (entry->state()) {
+                                    case couchbase::transactions::attempt_state::COMMITTED:
+                                        if (doc.links().is_document_being_removed()) {
+                                            ignore_doc = true;
+                                        } else {
+                                            content = doc.links().staged_content<nlohmann::json>();
+                                            status = transaction_document_status::IN_TXN_COMMITTED;
+                                        }
+                                        break;
+                                    default:
+                                        status = transaction_document_status::IN_TXN_OTHER;
+                                        if (doc.content<nlohmann::json>().empty()) {
+                                            // This document is being inserted, so should not be visible yet
+                                            ignore_doc = true;
+                                        }
+                                        break;
+                                }
+                            }
+                        } else {
+                            // Don't know if transaction was committed or rolled back. Should not happen as ATR should stick around long
+                            // enough
+                            status = transaction_document_status::AMBIGUOUS;
+                            if (content.empty()) {
+                                // This document is being inserted, so should not be visible yet
+                                ignore_doc = true;
+                            }
+                        }
+                        if (ignore_doc) {
+                            return {};
+                        } else {
+                            return transaction_document::create_from(doc, content, status);
+                        }
+                    } else {
+                        // failed to get the ATR
+                        if (doc.content<nlohmann::json>().empty()) {
+                            // this document is being inserted, so should not be visible yet
+                            return {};
+                        } else {
+                            doc.status(transaction_document_status::AMBIGUOUS);
+                            return doc;
+                        }
+                    }
+                } else  {
+                    if (res.is_deleted) {
+                        // doc has been deleted, not in txn, so don't return it
+                        return {};
+                    }
+                }
+                return doc;
+            } catch (const client_error& e) {
+                error_class ec = e.ec();
+                switch(ec) {
+                    case FAIL_EXPIRY:
+                        throw error_wrapper(ec, e.what(), false, true, EXPIRED);
+                    case FAIL_DOC_NOT_FOUND:
+                        return {};
+                    case FAIL_TRANSIENT:
+                        throw error_wrapper(ec, e.what(), true, true);
+                    case FAIL_HARD:
+                        throw error_wrapper(ec, e.what(), false, false);
+                    default:
+                        {
+                            std::string what(fmt::format("got error while getting doc {}: {}", id, e.what()));
+                            spdlog::warn(what);
+                            throw error_wrapper(FAIL_OTHER, what);
+                        }
+                }
+            }
+        }
+
+
         boost::optional<std::pair<transaction_document, couchbase::result>> get_doc(std::shared_ptr<couchbase::collection> collection, const std::string& id)
         {
             try {
@@ -966,7 +966,7 @@ namespace transactions
                                 case FAIL_TRANSIENT:
                                 case FAIL_PATH_NOT_FOUND:
                                     spdlog::trace("transient error trying to get doc in insert - retrying txn");
-                                    throw error_wrapper(ec, "error handling found doc in insert", true, true);
+                                    throw error_wrapper(get_err.ec(), "error handling found doc in insert", true, true);
                                 default:
                                     throw;
                             }

@@ -35,7 +35,8 @@ cb::bucket::find_or_create_collection(const std::string& collection)
         return c->scope() == scope_name && c->name() == collection_name;
     });
     if (it == collections_.end()) {
-        collections_.push_back(std::make_shared<cb::collection>(shared_from_this(), scope_name, collection_name));
+
+        collections_.push_back(std::shared_ptr<cb::collection>(new cb::collection(shared_from_this(), scope_name, collection_name)));
         return collections_.back();
     }
     return *it;

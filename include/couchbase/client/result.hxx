@@ -25,6 +25,63 @@
 
 namespace couchbase
 {
+/**
+ * @brief The result of an operation on a cluster.
+ *
+ * This encapsulates the server response to an operation.  For example:
+ *
+ * @code{.cpp}
+ * std::string key = "somekey";
+ * result res = collection->get(key);
+ * if (res.is_success()) {
+ *     auto doc = res.value.get<nlohmann::json>();
+ * } else {
+ *     cerr << "error getting " << key << ":" << res.strerror();
+ * }
+ * @endcode
+ *
+ * If the operation returns multiple results, like a lookup_in, then
+ * @ref result::values is used instead:
+ *
+ * @code{.cpp}
+ * std::string key = "somekey";
+ * result res = collection->lookup_in(key, {lookup_in_spec::get("name"), lookup_in_spec::get("address")});
+ * if (res.is_success()) {
+ *     auto name = res.values[0]->get<std::string>();
+ *     auto address = res.values[1]->get<std::string>();
+ * } else {
+ *     cerr << "error getting " << key << ":" << res.strerror();
+ * }
+ * @endcode
+ *
+ * If you define a to_json and from_json on an object, you can serialize/deserialize into it directly:
+ *
+ * @code{.cpp}
+ * struct Person {
+ *     std::string name;
+ *     std::string address
+ * };
+ *
+ * void
+ * to_json(nlohmann::json& j, const Person& p) {
+ *    j = nlohmann::json({ {"name", p.name} , {"address", p.address}};
+ * }
+ *
+ * void
+ * from_json(const nlohmann::json& j, Person& p) {
+ *    j.at("name").get_to(p.name);
+ *    j.at("address").get_to(p.address);
+ * }
+ *
+ * auto res = collection.get(key);
+ * if (res.is_success()) {
+ *     Person p = res.value->get<Person>();
+ *     cout << "name=" << p.name << ",address=" << p.address;
+ * } else {
+ *     cerr << "error getting " << key << ":" << res.strerror();
+ * }
+ * @endcode
+ */
 struct result {
     uint32_t rc;
     uint64_t cas;
@@ -36,6 +93,11 @@ struct result {
     bool is_deleted;
 
     result() : rc(0), cas(0), datatype(0), flags(0), is_deleted(0) {}
+    /**
+     * Get description of error
+     *
+     * @return String describing the error code.
+     */
     CB_NODISCARD std::string strerror() const;
     CB_NODISCARD bool is_not_found() const;
     CB_NODISCARD bool is_success() const;

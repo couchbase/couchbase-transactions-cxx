@@ -22,22 +22,44 @@ namespace couchbase
 class collection;
 
 enum class lookup_in_spec_type { LOOKUP_IN_GET, LOOKUP_IN_FULLDOC_GET };
-
+/**
+ * @brief Specify specific elements in a document to look up
+ *
+ * Used in @ref collection::lookup_in, you can specify a specific path
+ * within a document to return.  See @ref collection::lookup_in.
+ *
+ */
 class lookup_in_spec
 {
     friend collection;
 
   public:
+    /**
+     * Get everything at a specific path.
+     *
+     * @param path The dot-separated path you are interested in.
+     * @return A new lookup_in_spec.
+     */
     static lookup_in_spec get(const std::string& path)
     {
         return lookup_in_spec(lookup_in_spec_type::LOOKUP_IN_GET, path);
     }
 
+    /**
+     * Get entire doc.
+     *
+     * @return A new lookup_in_spec.
+     */
     static lookup_in_spec fulldoc_get()
     {
         return lookup_in_spec(lookup_in_spec_type::LOOKUP_IN_FULLDOC_GET);
     }
 
+    /**
+     *  Specify the lookup is on xattrs, rather than the document body.
+     *
+     * @return Reference to the spec, so you can chain the calls.
+     */
     lookup_in_spec& xattr();
 
   private:
