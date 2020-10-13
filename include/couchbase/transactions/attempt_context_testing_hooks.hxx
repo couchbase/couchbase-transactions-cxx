@@ -17,6 +17,8 @@
 
 #include <functional>
 
+#include <boost/optional.hpp>
+
 namespace couchbase
 {
 namespace transactions

@@ -16,10 +16,9 @@
 
 #pragma once
 
-#include "attempt_state.hxx"
-#include "uid_generator.hxx"
 #include <string>
 #include <vector>
+#include <couchbase/transactions/attempt_state.hxx>
 
 namespace couchbase
 {
@@ -35,14 +34,8 @@ namespace transactions
         std::string id;
         attempt_state state;
         std::vector<mutation_token> mutation_tokens;
-        transaction_attempt()
-          : id(uid_generator::next())
-          , state(attempt_state::NOT_STARTED){};
-        void add_mutation_token()
-        {
-            mutation_token t;
-            mutation_tokens.push_back(t);
-        }
+        transaction_attempt();
+        void add_mutation_token();
     };
 } // namespace transactions
 } // namespace couchbase

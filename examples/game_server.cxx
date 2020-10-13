@@ -1,12 +1,33 @@
 #include <iostream>
+#include <random>
 #include <string>
 
 #include <couchbase/client/cluster.hxx>
 #include <couchbase/transactions.hxx>
-#include <couchbase/transactions/uid_generator.hxx>
 
 using namespace std;
 using namespace couchbase;
+
+std::string
+make_uuid()
+{
+    static std::random_device dev;
+    static std::mt19937 rng(dev());
+
+    uniform_int_distribution<int> dist(0, 15);
+
+    const char* v = "0123456789abcdef";
+    const bool dash[] = { 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0 };
+
+    string res;
+    for (int i = 0; i < 16; i++) {
+        if (dash[i])
+            res += "-";
+        res += v[dist(rng)];
+        res += v[dist(rng)];
+    }
+    return res;
+}
 
 struct Player {
     int experience;
@@ -151,10 +172,10 @@ main(int argc, const char* argv[])
     auto collection = bucket->default_collection();
 
     string player_id = "player_data";
-    Player player_data{ 14248, 23832, "player", 141, true, "Jane", transactions::uid_generator::next() };
+    Player player_data{ 14248, 23832, "player", 141, true, "Jane", make_uuid() };
 
     string monster_id = "a_grue";
-    Monster monster_data{ 91, 4000, 0.19239324085462631, "monster", "Grue", transactions::uid_generator::next() };
+    Monster monster_data{ 91, 4000, 0.19239324085462631, "monster", "Grue", make_uuid() };
 
     collection->upsert(player_id, player_data);
     cout << "Upserted sample player document: " << player_id << endl;
@@ -169,7 +190,7 @@ main(int argc, const char* argv[])
     bool monster_exists = true;
     while (monster_exists) {
         cout << "Monster exists -- lets hit it!" << endl;
-        game_server.player_hits_monster(transactions::uid_generator::next(), rand() % 8000, player_id, monster_id);
+        game_server.player_hits_monster(make_uuid(), rand() % 8000, player_id, monster_id);
         auto result = collection->get(monster_id);
         monster_exists = result.is_success();
     }

@@ -2,3 +2,5 @@
 /.idea
 # this file is generated
 include/couchbase/support.hxx
+/docs
+!docs/Doxyfile

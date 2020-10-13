@@ -31,6 +31,7 @@ namespace couchbase
 {
 namespace transactions
 {
+
     struct atr_entry {
       public:
         atr_entry() = default;
@@ -71,7 +72,7 @@ namespace transactions
             int expires_after_ms = expires_after_ms_ ? *expires_after_ms_ : 0; // see java impl.
             if (timestamp_start_ms_) {
                 std::uint32_t expires_after_ms = *expires_after_ms_;
-                return (cas_ms - *timestamp_start_ms_)  > expires_after_ms + safety_margin;
+                return (cas_ms - *timestamp_start_ms_) > expires_after_ms + safety_margin;
             }
             return false;
         }

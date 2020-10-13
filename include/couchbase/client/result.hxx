@@ -19,7 +19,6 @@
 #include <boost/optional.hpp>
 #include <couchbase/internal/nlohmann/json.hpp>
 #include <couchbase/support.hxx>
-#include <spdlog/fmt/ostr.h>
 #include <string>
 #include <vector>
 

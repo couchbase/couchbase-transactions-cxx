@@ -2,12 +2,13 @@
 #include <fstream>
 #include <cstdlib>
 #include <gtest/gtest.h>
-#include <spdlog/spdlog.h>
-#include <nlohmann/json.hpp>
-#include "couchbase/client/cluster.hxx"
+#include <couchbase/internal/nlohmann/json.hpp>
+#include <couchbase/client/cluster.hxx>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/uuid/uuid_generators.hpp>
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/ostr.h>
 
 // hack, until I get gtest working a bit better and can execute
 // tests through make with proper working directory.

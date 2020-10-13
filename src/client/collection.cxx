@@ -6,6 +6,7 @@
 #include <couchbase/client/collection.hxx>
 #include <couchbase/client/lookup_in_spec.hxx>
 #include <libcouchbase/couchbase.h>
+#include <spdlog/fmt/ostr.h>
 
 namespace cb = couchbase;
 

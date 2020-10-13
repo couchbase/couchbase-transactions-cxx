@@ -178,10 +178,8 @@ namespace transactions
         void do_throw(const transaction_context context) const
         {
             if (_to_raise == FAILED_POST_COMMIT) {
-                spdlog::trace("failed post commit - not throwing exception");
                 return;
             }
-            spdlog::trace("throwing final error {}", _to_raise == FAILED ? "FAILED" : "EXPIRED");
             throw _to_raise == FAILED ? throw transaction_failed(*this, context) : transaction_expired(*this, context);
         }
         error_class ec() const

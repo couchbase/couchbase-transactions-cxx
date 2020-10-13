@@ -9,20 +9,20 @@
 #include <couchbase/transactions/client_record.hxx>
 #include <couchbase/transactions/transaction_fields.hxx>
 #include <couchbase/transactions/transactions_cleanup.hxx>
-#include <couchbase/transactions/uid_generator.hxx>
-#include <couchbase/transactions/logging.hxx>
+
 #include "atr_ids.hxx"
+#include "logging.hxx"
+#include "uid_generator.hxx"
 
 namespace tx = couchbase::transactions;
 
 tx::transactions_cleanup_attempt::transactions_cleanup_attempt(const tx::atr_cleanup_entry& entry)
-    : success_(false)
-    , atr_id_(entry.atr_id_)
-    , attempt_id_(entry.attempt_id_)
-    , atr_bucket_name_(entry.atr_collection_->bucket_name())
+  : success_(false)
+  , atr_id_(entry.atr_id_)
+  , attempt_id_(entry.attempt_id_)
+  , atr_bucket_name_(entry.atr_collection_->bucket_name())
 {
 }
-
 
 tx::transactions_cleanup::transactions_cleanup(couchbase::cluster& cluster, const tx::transaction_config& config)
   : cluster_(cluster)
@@ -30,7 +30,7 @@ tx::transactions_cleanup::transactions_cleanup(couchbase::cluster& cluster, cons
   , client_uuid_(uid_generator::next())
 {
     // TODO: re-enable after fixing the loop
-    //lost_attempts_thr = std::thread(std::bind(&transactions_cleanup::lost_attempts_loop, this));
+    // lost_attempts_thr = std::thread(std::bind(&transactions_cleanup::lost_attempts_loop, this));
 
     if (config_.cleanup_client_attempts()) {
         running_ = true;
@@ -212,7 +212,7 @@ void
 tx::transactions_cleanup::force_cleanup_attempts(std::vector<transactions_cleanup_attempt>& results)
 {
     spdlog::trace("starting force_cleanup_attempts");
-    while(atr_queue_.size() > 0) {
+    while (atr_queue_.size() > 0) {
         auto entry = atr_queue_.pop(false);
         if (!entry) {
             spdlog::error("pop failed to return entry, but queue size {}", atr_queue_.size());
@@ -243,17 +243,17 @@ tx::transactions_cleanup::attempts_loop()
                 auto backoff_duration = std::chrono::milliseconds(10000);
                 entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
                 spdlog::info("got error '{}' cleaning {}, will retry in {} seconds",
-                              e.what(),
-                              entry,
-                              std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
+                             e.what(),
+                             entry,
+                             std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
                 atr_queue_.push(*entry);
             } catch (...) {
                 // TODO: perhaps in config later?
                 auto backoff_duration = std::chrono::milliseconds(10000);
                 entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
                 spdlog::info("got error cleaning {}, will retry in {} seconds",
-                              entry,
-                              std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
+                             entry,
+                             std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
                 atr_queue_.push(*entry);
             }
         }
@@ -263,7 +263,8 @@ tx::transactions_cleanup::attempts_loop()
 }
 
 void
-tx::transactions_cleanup::add_attempt(attempt_context& ctx) {
+tx::transactions_cleanup::add_attempt(attempt_context& ctx)
+{
     if (ctx.attempt_state() == tx::attempt_state::NOT_STARTED) {
         spdlog::trace("attempt not started, not adding to cleanup");
         return;
