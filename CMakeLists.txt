@@ -86,7 +86,10 @@ include_directories(BEFORE
 file(GLOB_RECURSE client_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/client/*.hxx)
 file(GLOB_RECURSE client_src_FILES ${PROJECT_SOURCE_DIR}/src/client/*.cxx)
 add_definitions(-DBOOST_UUID_RANDOM_GENERATOR_COMPAT)
-add_library(client_cxx SHARED ${client_include_FILES} ${client_src_FILES})
+add_library(client_cxx STATIC ${client_include_FILES} ${client_src_FILES})
+set_property(TARGET client_cxx PROPERTY C_VISIBILITY_PRESET hidden)
+set_property(TARGET client_cxx PROPERTY CXX_VISIBILITY_PRESET hidden)
+set_property(TARGET client_cxx PROPERTY VISIBILITY_INLINES_HIDDEN ON)
 target_link_libraries(client_cxx
                       PRIVATE
                       ${CMAKE_THREAD_LIBS_INIT}
