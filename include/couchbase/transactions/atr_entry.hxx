@@ -69,7 +69,6 @@ namespace transactions
         CB_NODISCARD bool has_expired(std::uint32_t safety_margin = 0) const
         {
             std::uint32_t cas_ms = cas_ / 1000000;
-            int expires_after_ms = expires_after_ms_ ? *expires_after_ms_ : 0; // see java impl.
             if (timestamp_start_ms_) {
                 std::uint32_t expires_after_ms = *expires_after_ms_;
                 return (cas_ms - *timestamp_start_ms_) > expires_after_ms + safety_margin;

@@ -1,4 +1,4 @@
-/*build*/
+/*build*
 /.idea
 # this file is generated
 include/couchbase/support.hxx
