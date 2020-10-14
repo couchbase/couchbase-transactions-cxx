@@ -22,7 +22,7 @@ namespace transactions
     {
         // put a new transaction_attempt in the context...
         overall_.add_attempt();
-        spdlog::trace("added new attempt id {} state {}", attempt_id(), attempt_state());
+        spdlog::trace("added new attempt id {} state {}", id(), state());
     }
 
     transaction_document attempt_context::get(std::shared_ptr<couchbase::collection> collection, const std::string& id)
@@ -56,7 +56,7 @@ namespace transactions
 
             std::vector<mutate_in_spec> specs = {
                 mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                mutate_in_spec::upsert(ATTEMPT_ID, attempt_id()).xattr().create_path(),
+                mutate_in_spec::upsert(ATTEMPT_ID, id()).xattr().create_path(),
                 mutate_in_spec::insert(STAGED_DATA, content).xattr().create_path(),
                 mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr().create_path(),
                 mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).xattr(),
@@ -163,7 +163,7 @@ namespace transactions
             atr_collection_ = collection;
             overall_.atr_collection(collection->name());
             overall_.atr_id(*atr_id_);
-            attempt_state(attempt_state::NOT_STARTED);
+            state(attempt_state::NOT_STARTED);
             spdlog::info("first mutated doc in transaction is \"{}\" on vbucket {}, so using atr \"{}\"", id, vbucket_id, atr_id_.value());
         }
     }
@@ -225,7 +225,7 @@ namespace transactions
             spdlog::info("about to remove remove doc {} with cas {}", document.id(), document.cas());
             std::vector<mutate_in_spec> specs = {
                 mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                mutate_in_spec::upsert(ATTEMPT_ID, attempt_id()).create_path().xattr(),
+                mutate_in_spec::upsert(ATTEMPT_ID, id()).create_path().xattr(),
                 mutate_in_spec::upsert(ATR_ID, atr_id_.value()).create_path().xattr(),
                 mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).create_path().xattr(),
                 mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).create_path().xattr(),
@@ -270,10 +270,10 @@ namespace transactions
 
     void attempt_context::commit()
     {
-        spdlog::info("commit {}", attempt_id());
+        spdlog::info("commit {}", id());
         check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {});
         if (atr_collection_ && atr_id_ && !is_done_) {
-            std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
+            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
             std::vector<mutate_in_spec> specs({
               mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMMITTED)).xattr(),
               mutate_in_spec::upsert(prefix + ATR_FIELD_START_COMMIT, "${Mutation.CAS}").xattr().expand_macro(),
@@ -286,12 +286,12 @@ namespace transactions
                     r = atr_collection_->mutate_in(atr_id_.value(), specs);
                     hooks_.after_atr_commit(this);
                 });
-                attempt_state(attempt_state::COMMITTED);
+                state(attempt_state::COMMITTED);
                 std::vector<transaction_document> docs;
                 staged_mutations_.commit(*this);
                 try {
                     // if this succeeds, set ATR to COMPLETED
-                    std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
+                    std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
                     std::vector<mutate_in_spec> specs({
                       mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMPLETED)).xattr(),
                       mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
@@ -303,7 +303,7 @@ namespace transactions
                     wrap_collection_call(atr_res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
                     spdlog::trace("setting attempt state COMPLETED for attempt {}", atr_id_.value());
                     hooks_.after_atr_complete(this);
-                    attempt_state(attempt_state::COMPLETED);
+                    state(attempt_state::COMPLETED);
                 } catch (const client_error& er) {
                     error_class ec = er.ec();
                     switch (ec) {
@@ -320,8 +320,7 @@ namespace transactions
                     case FAIL_HARD:
                         throw error_wrapper(ec, e.what(), false, false);
                     default:
-                        spdlog::error(
-                          "failed to commit transaction {}, attempt {}, with error {}", transaction_id(), attempt_id(), e.what());
+                        spdlog::error("failed to commit transaction {}, attempt {}, with error {}", transaction_id(), id(), e.what());
                 }
             }
         } else {
@@ -342,7 +341,7 @@ namespace transactions
         spdlog::info("rolling back");
         // check for expiry
         check_expiry_during_commit_or_rollback(STAGE_ROLLBACK, boost::none);
-        if (!atr_id_ || !atr_collection_ || attempt_state() == attempt_state::NOT_STARTED) {
+        if (!atr_id_ || !atr_collection_ || state() == attempt_state::NOT_STARTED) {
             // TODO: check this, but if we try to rollback an empty txn, we should
             // prevent a subsequent commit
             spdlog::trace("rollback called on txn with no mutations");
@@ -358,7 +357,7 @@ namespace transactions
         // We do 3 things - set the atr to abort
         //                - unstage the docs
         //                - set atr to ROLLED_BACK
-        std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
+        std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
         std::vector<mutate_in_spec> specs({
           mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::ABORTED)).xattr(),
           mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, "${Mutation.CAS}").xattr().expand_macro(),
@@ -406,13 +405,13 @@ namespace transactions
             });
             result atr_res;
             wrap_collection_call(atr_res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
-            attempt_state(attempt_state::ROLLED_BACK);
+            state(attempt_state::ROLLED_BACK);
             hooks_.after_atr_rolled_back(this);
             is_done_ = true;
             // TODO: deal with errors mutating ATR record, and retries perhaps?
         } catch (const client_error& e) {
             error_class ec = e.ec();
-            spdlog::error("rollback transaction {}, attempt {} fail with error {}", transaction_id(), attempt_id(), e.what());
+            spdlog::error("rollback transaction {}, attempt {} fail with error {}", transaction_id(), id(), e.what());
             if (ec == FAIL_HARD) {
                 throw error_wrapper(ec, e.what(), false, false);
             }
@@ -424,10 +423,10 @@ namespace transactions
         bool over = overall_.has_expired_client_side(config_);
         bool hook = hooks_.has_expired_client_side(this, place, doc_id);
         if (over) {
-            spdlog::info("{} expired in {}", attempt_id(), place);
+            spdlog::info("{} expired in {}", id(), place);
         }
         if (hook) {
-            spdlog::info("{} fake expiry in {}", attempt_id(), place);
+            spdlog::info("{} fake expiry in {}", id(), place);
         }
         return over || hook;
     }
@@ -435,8 +434,7 @@ namespace transactions
     void attempt_context::check_expiry_pre_commit(std::string stage, boost::optional<const std::string> doc_id)
     {
         if (has_expired_client_side(stage, std::move(doc_id))) {
-            spdlog::info(
-              "{} has expired in stage {}, entering expiry-overtime mode - will make one attempt to rollback", attempt_id(), stage);
+            spdlog::info("{} has expired in stage {}, entering expiry-overtime mode - will make one attempt to rollback", id(), stage);
 
             // [EXP-ROLLBACK] Combo of setting this mode and throwing AttemptExpired will result in a attempt to rollback, which will
             // ignore expiries, and bail out if anything fails
@@ -450,12 +448,11 @@ namespace transactions
         // [EXP-COMMIT-OVERTIME]
         if (!expiry_overtime_mode_) {
             if (has_expired_client_side(stage, std::move(doc_id))) {
-                spdlog::info(
-                  "{} has expired in stage {}, entering expiry-overtime mode (one attempt to complete commit)", attempt_id(), stage);
+                spdlog::info("{} has expired in stage {}, entering expiry-overtime mode (one attempt to complete commit)", id(), stage);
                 expiry_overtime_mode_ = true;
             }
         } else {
-            spdlog::info("{} ignoring expiry in stage {}  as in expiry-overtime mode", attempt_id(), stage);
+            spdlog::info("{} ignoring expiry in stage {}  as in expiry-overtime mode", id(), stage);
         }
     }
 
@@ -472,7 +469,7 @@ namespace transactions
     void attempt_context::set_atr_pending_if_first_mutation(std::shared_ptr<collection> collection)
     {
         if (staged_mutations_.empty()) {
-            std::string prefix(ATR_FIELD_ATTEMPTS + "." + attempt_id() + ".");
+            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
             if (!atr_id_) {
                 throw error_wrapper(FAIL_OTHER, std::string("ATR ID is not initialized"));
             }
@@ -494,7 +491,7 @@ namespace transactions
                           .xattr() },
                       mutate_in_options().durability(durability(config_)));
                 });
-                attempt_state(attempt_state::PENDING);
+                state(attempt_state::PENDING);
                 spdlog::info("set ATR {}/{}/{} to Pending, got CAS (start time) {}",
                              collection->bucket_name(),
                              collection->name(),
@@ -626,7 +623,7 @@ namespace transactions
                     auto content = doc.content<nlohmann::json>();
                     auto status = doc.status();
                     if (entry) {
-                        if (doc.links().staged_attempt_id() && entry->attempt_id() == attempt_id()) {
+                        if (doc.links().staged_attempt_id() && entry->attempt_id() == this->id()) {
                             // Attempt is reading its own writes
                             // This is here as backup, it should be returned from the in-memory cache instead
                             content = doc.links().staged_content<nlohmann::json>();
@@ -748,7 +745,7 @@ namespace transactions
                   id,
                   {
                     mutate_in_spec::insert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                    mutate_in_spec::insert(ATTEMPT_ID, attempt_id()).create_path().xattr(),
+                    mutate_in_spec::insert(ATTEMPT_ID, this->id()).create_path().xattr(),
                     mutate_in_spec::insert(ATR_ID, atr_id_.value()).create_path().xattr(),
                     mutate_in_spec::insert(STAGED_DATA, content).create_path().xattr(),
                     mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).create_path().xattr(),
@@ -767,7 +764,7 @@ namespace transactions
                                     collection->scope(),
                                     collection->name(),
                                     overall_.transaction_id(),
-                                    attempt_id(),
+                                    this->id(),
                                     nlohmann::json(content),
                                     boost::none,
                                     boost::none,

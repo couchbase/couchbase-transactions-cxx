@@ -171,17 +171,17 @@ namespace transactions
             return overall_.transaction_id();
         }
 
-        CB_NODISCARD const std::string& attempt_id()
+        CB_NODISCARD const std::string& id()
         {
             return overall_.current_attempt().id;
         }
 
-        CB_NODISCARD const attempt_state attempt_state()
+        CB_NODISCARD const attempt_state state()
         {
             return overall_.current_attempt().state;
         }
 
-        void attempt_state(couchbase::transactions::attempt_state s)
+        void state(couchbase::transactions::attempt_state s)
         {
             overall_.current_attempt().state = s;
         }

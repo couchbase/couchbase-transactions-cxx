@@ -265,15 +265,15 @@ tx::transactions_cleanup::attempts_loop()
 void
 tx::transactions_cleanup::add_attempt(attempt_context& ctx)
 {
-    if (ctx.attempt_state() == tx::attempt_state::NOT_STARTED) {
+    if (ctx.state() == tx::attempt_state::NOT_STARTED) {
         spdlog::trace("attempt not started, not adding to cleanup");
         return;
     }
     if (config_.cleanup_client_attempts()) {
-        spdlog::trace("adding attempt {} to cleanup queue", ctx.attempt_id());
+        spdlog::trace("adding attempt {} to cleanup queue", ctx.id());
         atr_queue_.push(ctx);
     } else {
-        spdlog::trace("not cleaning client attempts, ignoring {}", ctx.attempt_id());
+        spdlog::trace("not cleaning client attempts, ignoring {}", ctx.id());
     }
 }
 void

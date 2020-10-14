@@ -1,12 +1,11 @@
 #include <couchbase/transactions.hxx>
 
-
 namespace tx = couchbase::transactions;
 
 tx::transactions::transactions(couchbase::cluster& cluster, const transaction_config& config)
-    : cluster_(cluster)
-    , config_(config)
-    , cleanup_(cluster_, config_)
+  : cluster_(cluster)
+  , config_(config)
+  , cleanup_(cluster_, config_)
 {
     spdlog::info("couchbase transactions {} creating new transaction object", VERSION_STR);
 }
@@ -29,7 +28,7 @@ tx::transactions::run(const logic& logic)
     tx::transaction_context overall;
     while (overall.num_attempts() < max_attempts_) {
         tx::attempt_context ctx(this, overall, config_);
-        spdlog::info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.attempt_id());
+        spdlog::info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.id());
         try {
             logic(ctx);
             if (!ctx.is_done()) {
@@ -65,7 +64,7 @@ tx::transactions::run(const logic& logic)
             ctx.rollback();
             cleanup_.add_attempt(ctx);
             break;
-        } catch(...) {
+        } catch (...) {
             spdlog::error("got unexpected error, rolling back");
             ctx.rollback();
             cleanup_.add_attempt(ctx);
@@ -73,10 +72,10 @@ tx::transactions::run(const logic& logic)
         }
     }
     return tx::transaction_result{ overall.transaction_id(),
-        overall.atr_id(),
-        overall.atr_collection(),
-        overall.attempts(),
-        overall.current_attempt().state == attempt_state::COMPLETED };
+                                   overall.atr_id(),
+                                   overall.atr_collection(),
+                                   overall.attempts(),
+                                   overall.current_attempt().state == attempt_state::COMPLETED };
 }
 
 void
