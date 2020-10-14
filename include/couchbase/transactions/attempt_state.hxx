@@ -29,7 +29,7 @@ namespace transactions
         /**
          * The attempt finished very early.
          */
-        NOT_STARTED,
+        NOT_STARTED = 0,
 
         /**
          * Any call to one of the mutation methods - <code>insert</code>, <code>replace</code>, <code>remove</code> - will update the

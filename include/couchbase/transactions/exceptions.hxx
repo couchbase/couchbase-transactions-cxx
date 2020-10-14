@@ -26,18 +26,18 @@ namespace couchbase
 namespace transactions
 {
     enum error_class {
+        FAIL_HARD = 0,
         FAIL_OTHER,
         FAIL_TRANSIENT,
-        FAIL_DOC_NOT_FOUND,
-        FAIL_DOC_ALREADY_EXISTS,
-        FAIL_PATH_NOT_FOUND,
-        FAIL_PATH_ALREADY_EXISTS,
-        FAIL_WRITE_WRITE_CONFLICT,
-        FAIL_CAS_MISMATCH,
-        FAIL_HARD,
         FAIL_AMBIGUOUS,
-        FAIL_EXPIRY,
-        FAIL_ATR_FULL
+        FAIL_DOC_ALREADY_EXISTS,
+        FAIL_DOC_NOT_FOUND,
+        FAIL_PATH_NOT_FOUND,
+        FAIL_CAS_MISMATCH,
+        FAIL_WRITE_WRITE_CONFLICT,
+        FAIL_ATR_FULL,
+        FAIL_PATH_ALREADY_EXISTS,
+        FAIL_EXPIRY
     };
 
     error_class error_class_from_result(const couchbase::result& res);
