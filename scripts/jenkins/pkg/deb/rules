@@ -17,6 +17,6 @@ override_dh_strip:
 
 override_dh_auto_configure:
 	echo "usr/include/*" > debian/couchbase-transactions.install
-	echo "usr/lib/$(DEB_HOST_MULTIARCH)/libtransactions_cxx.so.*" >> debian/couchbase-transactions.install
+	echo "usr/lib/$(DEB_HOST_MULTIARCH)/libtransactions_cxx.so*" >> debian/couchbase-transactions.install
 	dh_auto_configure $(DH_AC_FLAGS)
 
