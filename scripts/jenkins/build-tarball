@@ -45,8 +45,13 @@ set -e
 rm -rf "${BUILD_DIR}" "${SOURCES_DIR}"
 mkdir -p "${BUILD_DIR}" "${SOURCES_DIR}"
 cd "${BUILD_DIR}"
-cmake -DBUILD_DOC=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF ${EXTRA_CMAKE_FLAGS} "${PROJECT_ROOT}"
+cmake -DBUILD_DOC=ON -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF ${EXTRA_CMAKE_FLAGS} "${PROJECT_ROOT}"
 make tarball
 TARBALL_NAME=$(find . -name "couchbase-transactions-*.tar.gz")
 cp "${TARBALL_NAME}" "${SOURCES_DIR}/"
 basename "${TARBALL_NAME}" > "${SOURCES_DIR}/tarball-name.txt"
+
+make docs
+BASENAME=$(basename ${TARBALL_NAME} .tar.gz)
+mv docs "${BASENAME}"
+tar zcf "docs-${BASENAME}.tar.gz" "${BASENAME}"
