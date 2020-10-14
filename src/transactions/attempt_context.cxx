@@ -31,10 +31,11 @@ namespace transactions
     {
         auto result = get_optional(collection, id);
         if (result) {
+            spdlog::trace("get returning {}", *result);
             return result.get();
         }
         spdlog::error("Document with id {} not found", id);
-        throw error_wrapper(FAIL_OTHER, "Document not found");
+        throw error_wrapper(FAIL_DOC_NOT_FOUND, "Document not found");
     }
 
     boost::optional<transaction_document> attempt_context::get_optional(std::shared_ptr<couchbase::collection> collection,
@@ -50,6 +51,7 @@ namespace transactions
                                                       const nlohmann::json& content)
     {
         try {
+            spdlog::trace("replacing {} with {}", document, content);
             check_if_done();
             select_atr_if_needed(collection, document.id());
             check_and_handle_blocking_transactions(document);
@@ -260,12 +262,20 @@ namespace transactions
         } catch (const client_error& e) {
             error_class ec = e.ec();
             switch (ec) {
+                case FAIL_EXPIRY:
+                    expiry_overtime_mode_ = true;
+                    throw error_wrapper(ec, e.what(), false, true, EXPIRED);
+                case FAIL_DOC_NOT_FOUND:
+                case FAIL_DOC_ALREADY_EXISTS:
+                case FAIL_CAS_MISMATCH:
+                    throw error_wrapper(ec, e.what(), true, true, FAILED);
+                case FAIL_TRANSIENT:
+                case FAIL_AMBIGUOUS:
+                    throw error_wrapper(ec, e.what(), true, true, FAILED);
                 case FAIL_HARD:
-                    throw error_wrapper(ec, e.what(), false, false);
+                    throw error_wrapper(ec, e.what(), false, false, FAILED);
                 default:
-                    auto msg = std::string("failed to remove document: ") + e.what();
-                    spdlog::error(msg);
-                    throw error_wrapper(FAIL_OTHER, msg);
+                    throw error_wrapper(ec, e.what());
             }
         }
     }
@@ -585,7 +595,6 @@ namespace transactions
 
     boost::optional<transaction_document> attempt_context::do_get(std::shared_ptr<collection> collection, const std::string& id)
     {
-        result res;
         try {
             check_if_done();
             check_expiry_pre_commit(STAGE_GET, id);
@@ -609,7 +618,9 @@ namespace transactions
                 return {};
             }
             auto doc = doc_res->first;
+            auto get_doc_res = doc_res->second;
             if (doc.links().is_document_in_transaction()) {
+                spdlog::trace("doc {} in transaction", doc);
                 boost::optional<active_transaction_record> atr =
                   active_transaction_record::get_atr(collection, doc.links().atr_id().value());
                 if (atr) {
@@ -674,7 +685,8 @@ namespace transactions
                     }
                 }
             } else {
-                if (res.is_deleted) {
+                if (get_doc_res.is_deleted) {
+                    spdlog::trace("doc not in txn, and is_deleted, so not returning it.");
                     // doc has been deleted, not in txn, so don't return it
                     return {};
                 }
