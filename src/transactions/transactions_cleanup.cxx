@@ -2,6 +2,7 @@
 #include <functional>
 #include <iostream>
 
+#include <spdlog/fmt/ostr.h>
 #include <unistd.h>
 
 #include <couchbase/client/cluster.hxx>

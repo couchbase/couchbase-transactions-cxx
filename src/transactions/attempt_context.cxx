@@ -1,5 +1,7 @@
 #include <couchbase/client/collection.hxx>
 
+#include <spdlog/fmt/ostr.h>
+
 #include <couchbase/transactions.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/attempt_state.hxx>

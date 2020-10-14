@@ -15,6 +15,9 @@
  */
 
 #include <boost/optional/optional_io.hpp>
+#include <spdlog/fmt/ostr.h>
+#include <spdlog/spdlog.h>
+
 #include <couchbase/transactions.hxx>
 #include <couchbase/transactions/atr_cleanup_entry.hxx>
 #include <couchbase/transactions/exceptions.hxx>

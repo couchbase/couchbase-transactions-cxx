@@ -1,3 +1,5 @@
+#include <spdlog/spdlog.h>
+
 #include <couchbase/transactions.hxx>
 
 namespace tx = couchbase::transactions;

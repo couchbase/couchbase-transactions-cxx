@@ -19,7 +19,6 @@
 #include <boost/optional.hpp>
 #include <couchbase/client/result.hxx>
 #include <couchbase/transactions/transaction_context.hxx>
-#include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace couchbase
@@ -46,21 +45,20 @@ namespace transactions
     class client_error : public std::runtime_error
     {
       private:
-          error_class _ec;
-          uint32_t _rc;
+        error_class _ec;
+        uint32_t _rc;
+
       public:
         explicit client_error(const couchbase::result& res)
-            : runtime_error(res.strerror())
-            , _ec(error_class_from_result(res))
-            , _rc(res.rc)
+          : runtime_error(res.strerror())
+          , _ec(error_class_from_result(res))
+          , _rc(res.rc)
         {
         }
         explicit client_error(error_class ec, const std::string& what)
-            : runtime_error(what)
-            , _ec(ec)
+          : runtime_error(what)
+          , _ec(ec)
         {
-
-            spdlog::trace("creating client error with ec {}", _ec);
         }
         error_class ec() const
         {
@@ -128,41 +126,39 @@ namespace transactions
                                bool retry = false,
                                bool rollback = true,
                                final_error to_raise = FAILED)
-            : std::runtime_error(what)
-            , _ec(ec)
-            , _retry(retry)
-            , _rollback(rollback)
-            , _to_raise(to_raise)
-            {
-                validate();
-            }
-        explicit error_wrapper(const client_error& client_err,
-                               bool retry = false,
-                               bool rollback = true,
-                               final_error to_raise = FAILED)
-            : std::runtime_error(client_err.what())
-            , _ec(client_err.ec())
-            , _retry(retry)
-            , _rollback(rollback)
-            , _to_raise(to_raise)
-            {
-                validate();
-            }
+          : std::runtime_error(what)
+          , _ec(ec)
+          , _retry(retry)
+          , _rollback(rollback)
+          , _to_raise(to_raise)
+        {
+            validate();
+        }
+        explicit error_wrapper(const client_error& client_err, bool retry = false, bool rollback = true, final_error to_raise = FAILED)
+          : std::runtime_error(client_err.what())
+          , _ec(client_err.ec())
+          , _retry(retry)
+          , _rollback(rollback)
+          , _to_raise(to_raise)
+        {
+            validate();
+        }
         explicit error_wrapper(error_class ec,
                                const std::runtime_error& cause,
                                bool retry = false,
                                bool rollback = true,
                                final_error to_raise = FAILED)
-            : std::runtime_error(cause)
-            , _ec(ec)
-            , _retry(retry)
-            , _rollback(rollback)
-            , _to_raise(to_raise)
-            {
-                validate();
-            }
+          : std::runtime_error(cause)
+          , _ec(ec)
+          , _retry(retry)
+          , _rollback(rollback)
+          , _to_raise(to_raise)
+        {
+            validate();
+        }
 
-        void validate() {
+        void validate()
+        {
             // you can't retry without rollback.
             assert(!(_retry && !_rollback));
         }

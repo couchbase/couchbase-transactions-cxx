@@ -26,7 +26,6 @@
 #include <couchbase/transactions/document_metadata.hxx>
 #include <couchbase/transactions/transaction_document_status.hxx>
 #include <couchbase/transactions/transaction_links.hxx>
-#include <spdlog/fmt/ostr.h>
 #include <utility>
 
 namespace couchbase
@@ -99,7 +98,6 @@ namespace transactions
 
         static transaction_document create_from(collection& collection, std::string id, result res, transaction_document_status status)
         {
-            spdlog::trace("creating doc from {}", res);
             boost::optional<std::string> atr_id;
             boost::optional<std::string> transaction_id;
             boost::optional<std::string> attempt_id;
@@ -173,17 +171,17 @@ namespace transactions
             }
 
             transaction_links links(atr_id,
-                    atr_bucket_name,
-                    atr_scope_name,
-                    atr_collection_name,
-                    transaction_id,
-                    attempt_id,
-                    staged_content,
-                    cas_pre_txn,
-                    revid_pre_txn,
-                    exptime_pre_txn,
-                    crc32_of_staging,
-                    op);
+                                    atr_bucket_name,
+                                    atr_scope_name,
+                                    atr_collection_name,
+                                    transaction_id,
+                                    attempt_id,
+                                    staged_content,
+                                    cas_pre_txn,
+                                    revid_pre_txn,
+                                    exptime_pre_txn,
+                                    crc32_of_staging,
+                                    op);
             document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc, crc32_from_doc);
             return transaction_document(id, content, res.cas, collection, links, status, boost::make_optional(md));
         }
