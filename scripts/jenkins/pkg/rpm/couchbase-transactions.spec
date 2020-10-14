@@ -48,5 +48,6 @@ Couchbase distributed transactions in the C++ application.
 
 %files -n %{name}
 %{_libdir}/libtransactions_cxx.so*
+%{_libdir}/libclient_cxx.so*
 %{_includedir}/couchbase/*
 %license LICENCE.md
