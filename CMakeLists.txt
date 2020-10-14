@@ -54,11 +54,11 @@ add_subdirectory(deps/libcouchbase)
 if(BUILD_TESTS)
     add_subdirectory(deps/libcouchbase/contrib/gtest-1.8.1)
 endif()
-add_custom_target(json_include)
-add_custom_command(TARGET json_include PRE_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_SOURCE_DIR}/deps/json/single_include/nlohmann/json.hpp
-        ${CMAKE_BINARY_DIR}/generated/json/include/couchbase/internal/nlohmann/json.hpp)
+
+configure_file(
+    ${PROJECT_SOURCE_DIR}/deps/json/single_include/nlohmann/json.hpp
+    ${PROJECT_SOURCE_DIR}/include/couchbase/internal/nlohmann/json.hpp
+    COPYONLY)
 
 add_subdirectory(deps/spdlog)
 
@@ -97,7 +97,6 @@ target_link_libraries(client_cxx
                       ${Boost_LIBRARIES}
                       couchbaseS)
 set_target_properties(client_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
-add_dependencies(client_cxx json_include)
 #============ END CLIENT ====================================================================
 # =========== BEGIN TRANSACTIONS ============================================================
 file(GLOB_RECURSE transactions_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/transactions/*.hxx)
@@ -108,7 +107,6 @@ target_link_libraries(transactions_cxx
                       spdlog::spdlog
                       ${Boost_LIBRARIES}
                       client_cxx)
-add_dependencies(transactions_cxx json_include)
 set_target_properties(transactions_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
 # =========== END TRANSACTIONS ================================================================
 # =========== BEGIN DOCS ======================================================================
