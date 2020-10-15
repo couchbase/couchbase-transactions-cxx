@@ -35,7 +35,7 @@ namespace transactions
             return result.get();
         }
         spdlog::error("Document with id {} not found", id);
-        throw error_wrapper(FAIL_DOC_NOT_FOUND, "Document not found");
+        throw transaction_operation_failed(FAIL_DOC_NOT_FOUND, "Document not found");
     }
 
     boost::optional<transaction_document> attempt_context::get_optional(std::shared_ptr<couchbase::collection> collection,
@@ -99,18 +99,18 @@ namespace transactions
             switch (ec) {
                 case FAIL_EXPIRY:
                     expiry_overtime_mode_ = true;
-                    throw error_wrapper(ec, e.what(), false, true, EXPIRED);
+                    throw transaction_operation_failed(ec, e.what()).expired();
                 case FAIL_DOC_NOT_FOUND:
                 case FAIL_DOC_ALREADY_EXISTS:
                 case FAIL_CAS_MISMATCH:
-                    throw error_wrapper(ec, e.what(), true, true, FAILED);
+                    throw transaction_operation_failed(ec, e.what()).retry();
                 case FAIL_TRANSIENT:
                 case FAIL_AMBIGUOUS:
-                    throw error_wrapper(ec, e.what(), true, true, FAILED);
+                    throw transaction_operation_failed(ec, e.what()).retry();
                 case FAIL_HARD:
-                    throw error_wrapper(ec, e.what(), false, false, FAILED);
+                    throw transaction_operation_failed(ec, e.what()).no_rollback();
                 default:
-                    throw error_wrapper(ec, e.what());
+                    throw transaction_operation_failed(ec, e.what());
             }
         }
     }
@@ -123,7 +123,8 @@ namespace transactions
             check_if_done();
             select_atr_if_needed(collection, id);
             if (check_for_own_write(collection, id)) {
-                throw error_wrapper(FAIL_OTHER, "cannot insert a document that has already been mutated in this transaction");
+                throw transaction_operation_failed(FAIL_OTHER,
+                                                   "cannot insert a document that has already been mutated in this transaction");
             }
             check_expiry_pre_commit(STAGE_INSERT, id);
             set_atr_pending_if_first_mutation(collection);
@@ -131,24 +132,24 @@ namespace transactions
         } catch (const client_error& e) {
             error_class ec = e.ec();
             if (expiry_overtime_mode_) {
-                throw error_wrapper(FAIL_EXPIRY, "attempt timed out", false, true, EXPIRED);
+                throw transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired();
             }
             switch (ec) {
                 case FAIL_EXPIRY:
                     expiry_overtime_mode_ = true;
-                    throw error_wrapper(ec, "attempt timed-out", false, true, EXPIRED);
+                    throw transaction_operation_failed(ec, "attempt timed-out").expired();
                 case FAIL_TRANSIENT:
-                    throw error_wrapper(ec, "transient error in insert", true, true);
+                    throw transaction_operation_failed(ec, "transient error in insert").retry();
                 case FAIL_AMBIGUOUS:
                     // DELAY, then retry.
                     overall_.retry_delay(config_);
                     return insert(collection, id, content);
                 case FAIL_OTHER:
-                    throw error_wrapper(ec, e.what(), false);
+                    throw transaction_operation_failed(ec, e.what());
                 case FAIL_HARD:
-                    throw error_wrapper(ec, e.what(), false, false);
+                    throw transaction_operation_failed(ec, e.what()).no_rollback();
                 default:
-                    throw error_wrapper(FAIL_OTHER, e.what(), true, true);
+                    throw transaction_operation_failed(FAIL_OTHER, e.what()).retry();
             }
         }
     }
@@ -207,9 +208,9 @@ namespace transactions
                     }
                 }
                 // if we are here, there is still a write-write conflict
-                throw error_wrapper(FAIL_WRITE_WRITE_CONFLICT, "document is in another transaction", true, true);
+                throw transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, "document is in another transaction").retry();
             } catch (const client_error& e) {
-                throw error_wrapper(e.ec(), e.what(), true, true);
+                throw transaction_operation_failed(e.ec(), e.what()).retry();
             }
         }
     }
@@ -264,18 +265,18 @@ namespace transactions
             switch (ec) {
                 case FAIL_EXPIRY:
                     expiry_overtime_mode_ = true;
-                    throw error_wrapper(ec, e.what(), false, true, EXPIRED);
+                    throw transaction_operation_failed(ec, e.what()).expired();
                 case FAIL_DOC_NOT_FOUND:
                 case FAIL_DOC_ALREADY_EXISTS:
                 case FAIL_CAS_MISMATCH:
-                    throw error_wrapper(ec, e.what(), true, true, FAILED);
+                    throw transaction_operation_failed(ec, e.what()).retry();
                 case FAIL_TRANSIENT:
                 case FAIL_AMBIGUOUS:
-                    throw error_wrapper(ec, e.what(), true, true, FAILED);
+                    throw transaction_operation_failed(ec, e.what()).retry();
                 case FAIL_HARD:
-                    throw error_wrapper(ec, e.what(), false, false, FAILED);
+                    throw transaction_operation_failed(ec, e.what()).no_rollback();
                 default:
-                    throw error_wrapper(ec, e.what());
+                    throw transaction_operation_failed(ec, e.what());
             }
         }
     }
@@ -320,7 +321,7 @@ namespace transactions
                     error_class ec = er.ec();
                     switch (ec) {
                         case FAIL_HARD:
-                            throw error_wrapper(ec, er.what(), false, false);
+                            throw transaction_operation_failed(ec, er.what()).no_rollback();
                         default:
                             spdlog::info("ignoring error marking ATR completed: {}", er.what());
                     }
@@ -330,7 +331,7 @@ namespace transactions
                 error_class ec = e.ec();
                 switch (ec) {
                     case FAIL_HARD:
-                        throw error_wrapper(ec, e.what(), false, false);
+                        throw transaction_operation_failed(ec, e.what()).no_rollback();
                     default:
                         spdlog::error("failed to commit transaction {}, attempt {}, with error {}", transaction_id(), id(), e.what());
                 }
@@ -343,7 +344,7 @@ namespace transactions
                 return;
             } else {
                 // do not rollback or retry
-                throw error_wrapper(FAIL_OTHER, std::string("calling commit on attempt that is already completed"), false, false);
+                throw transaction_operation_failed(FAIL_OTHER, "calling commit on attempt that is already completed").no_rollback();
             }
         }
     }
@@ -364,7 +365,7 @@ namespace transactions
             std::string msg("Transaction already done, cannot rollback");
             spdlog::error(msg);
             // need to raise a FAIL_OTHER which is not retryable or rollback-able
-            throw error_wrapper(FAIL_OTHER, msg, false, false);
+            throw transaction_operation_failed(FAIL_OTHER, msg).no_rollback();
         }
         // We do 3 things - set the atr to abort
         //                - unstage the docs
@@ -425,7 +426,7 @@ namespace transactions
             error_class ec = e.ec();
             spdlog::error("rollback transaction {}, attempt {} fail with error {}", transaction_id(), id(), e.what());
             if (ec == FAIL_HARD) {
-                throw error_wrapper(ec, e.what(), false, false);
+                throw transaction_operation_failed(ec, e.what()).no_rollback();
             }
         }
     }
@@ -483,7 +484,7 @@ namespace transactions
         if (staged_mutations_.empty()) {
             std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
             if (!atr_id_) {
-                throw error_wrapper(FAIL_OTHER, std::string("ATR ID is not initialized"));
+                throw transaction_operation_failed(FAIL_OTHER, std::string("ATR ID is not initialized"));
             }
             insure_atr_exists(collection);
             result res;
@@ -512,16 +513,16 @@ namespace transactions
             } catch (const client_error& e) {
                 spdlog::trace("caught {}, ec={}", e.what(), e.ec());
                 if (expiry_overtime_mode_) {
-                    throw error_wrapper(FAIL_EXPIRY, e.what(), false, false, EXPIRED);
+                    throw transaction_operation_failed(FAIL_EXPIRY, e.what()).no_rollback().expired();
                 }
                 error_class ec = e.ec();
                 switch (ec) {
                     case FAIL_EXPIRY:
                         expiry_overtime_mode_ = true;
                         // this should trigger rollback (unlike the above when already in overtime mode)
-                        throw error_wrapper(ec, e.what(), false, true, EXPIRED);
+                        throw transaction_operation_failed(ec, e.what()).expired();
                     case FAIL_ATR_FULL:
-                        throw error_wrapper(ec, e.what());
+                        throw transaction_operation_failed(ec, e.what());
                     case FAIL_PATH_ALREADY_EXISTS:
                         // assuming this got resolved, moving on as if ok
                         break;
@@ -531,11 +532,11 @@ namespace transactions
                         return set_atr_pending_if_first_mutation(collection);
                     case FAIL_TRANSIENT:
                         // Retry txn
-                        throw error_wrapper(ec, e.what(), true, true, FAILED);
+                        throw transaction_operation_failed(ec, e.what()).retry();
                     case FAIL_HARD:
-                        throw error_wrapper(ec, e.what(), false, false, FAILED);
+                        throw transaction_operation_failed(ec, e.what()).no_rollback();
                     default:
-                        throw error_wrapper(ec, e.what(), false, true, FAILED);
+                        throw transaction_operation_failed(ec, e.what());
                 }
             }
             start_time_server_ = std::chrono::nanoseconds(res.cas);
@@ -581,7 +582,8 @@ namespace transactions
     void attempt_context::check_if_done()
     {
         if (is_done_) {
-            throw error_wrapper(FAIL_OTHER, "Cannot perform operations after transaction has been committed or rolled back", false, false);
+            throw transaction_operation_failed(FAIL_OTHER, "Cannot perform operations after transaction has been committed or rolled back")
+              .no_rollback();
         }
     }
 
@@ -696,17 +698,17 @@ namespace transactions
             error_class ec = e.ec();
             switch (ec) {
                 case FAIL_EXPIRY:
-                    throw error_wrapper(ec, e.what(), false, true, EXPIRED);
+                    throw transaction_operation_failed(ec, e.what()).expired();
                 case FAIL_DOC_NOT_FOUND:
                     return {};
                 case FAIL_TRANSIENT:
-                    throw error_wrapper(ec, e.what(), true, true);
+                    throw transaction_operation_failed(ec, e.what()).retry();
                 case FAIL_HARD:
-                    throw error_wrapper(ec, e.what(), false, false);
+                    throw transaction_operation_failed(ec, e.what()).no_rollback();
                 default: {
                     std::string what(fmt::format("got error while getting doc {}: {}", id, e.what()));
                     spdlog::warn(what);
-                    throw error_wrapper(FAIL_OTHER, what);
+                    throw transaction_operation_failed(FAIL_OTHER, what);
                 }
             }
         }
@@ -792,14 +794,14 @@ namespace transactions
         } catch (const client_error& e) {
             error_class ec = e.ec();
             if (expiry_overtime_mode_) {
-                throw error_wrapper(FAIL_EXPIRY, "attempt timed out", false, true, EXPIRED);
+                throw transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired();
             }
             switch (ec) {
                 case FAIL_EXPIRY:
                     expiry_overtime_mode_ = true;
-                    throw error_wrapper(ec, "attempt timed-out", false, true, EXPIRED);
+                    throw transaction_operation_failed(ec, "attempt timed-out").expired();
                 case FAIL_TRANSIENT:
-                    throw error_wrapper(ec, "transient error in insert", true, true);
+                    throw transaction_operation_failed(ec, "transient error in insert").retry();
                 case FAIL_AMBIGUOUS:
                     // DELAY, then retry.
                     overall_.retry_delay(config_);
@@ -826,7 +828,7 @@ namespace transactions
                             }
                             if (!doc.links().is_document_in_transaction()) {
                                 // doc was inserted outside txn elsewhere
-                                throw error_wrapper(FAIL_DOC_ALREADY_EXISTS, std::string("document already exists"), false, true);
+                                throw transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, "document already exists");
                             }
                             check_and_handle_blocking_transactions(doc);
                             // if the check didn't throw, we can retry staging with cas
@@ -835,25 +837,26 @@ namespace transactions
                             return create_staged_insert(collection, id, content, doc.cas());
                         } else {
                             // no doc now, just retry entire txn
-                            throw error_wrapper(
-                              FAIL_DOC_NOT_FOUND, "insert failed as the doc existed, but now seems to not exist", true, true);
+                            throw transaction_operation_failed(FAIL_DOC_NOT_FOUND,
+                                                               "insert failed as the doc existed, but now seems to not exist")
+                              .retry();
                         }
-                    } catch (const error_wrapper& get_err) {
+                    } catch (const transaction_operation_failed& get_err) {
                         switch (get_err.ec()) {
                             case FAIL_TRANSIENT:
                             case FAIL_PATH_NOT_FOUND:
                                 spdlog::trace("transient error trying to get doc in insert - retrying txn");
-                                throw error_wrapper(get_err.ec(), "error handling found doc in insert", true, true);
+                                throw transaction_operation_failed(get_err.ec(), "error handling found doc in insert").retry();
                             default:
                                 throw;
                         }
                     }
                 case FAIL_OTHER:
-                    throw error_wrapper(ec, e.what(), false);
+                    throw transaction_operation_failed(ec, e.what());
                 case FAIL_HARD:
-                    throw error_wrapper(ec, e.what(), false, false);
+                    throw transaction_operation_failed(ec, e.what()).no_rollback();
                 default:
-                    throw error_wrapper(FAIL_OTHER, e.what(), true, true);
+                    throw transaction_operation_failed(FAIL_OTHER, e.what()).retry();
             }
         }
     }

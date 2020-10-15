@@ -149,7 +149,7 @@ tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& ite
         error_class ec = e.ec();
         if (ctx.expiry_overtime_mode_) {
             // TODO new final exception type expired_post_commit
-            throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
+            throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
         }
         switch(ec) {
             case FAIL_AMBIGUOUS:
@@ -158,12 +158,12 @@ tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& ite
             case FAIL_CAS_MISMATCH:
             case FAIL_DOC_ALREADY_EXISTS:
                 if (ambiguity_resolution_mode) {
-                    throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
+                    throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
                 }
                 ctx.overall_.retry_delay(ctx.config_);
                 return commit_doc(ctx, item, true);
             default:
-                throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
+                throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
         }
     }
 }
@@ -182,14 +182,14 @@ void
         error_class ec = e.ec();
         if (ctx.expiry_overtime_mode_) {
             // TODO new final exception type expired_post_commit
-            throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
+            throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
         }
         switch (ec) {
             case FAIL_AMBIGUOUS:
                 ctx.overall_.retry_delay(ctx.config_);
                 return remove_doc(ctx, item);
             default:
-                throw error_wrapper(ec, e.what(), false, false, FAILED_POST_COMMIT);
+                throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
         }
     }
 }

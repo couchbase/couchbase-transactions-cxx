@@ -38,8 +38,8 @@ tx::transactions::run(const logic& logic)
             }
             cleanup_.add_attempt(ctx);
             break;
-        } catch (const error_wrapper& er) {
-            spdlog::error("got error_wrapper {}", er.what());
+        } catch (const transaction_operation_failed& er) {
+            spdlog::error("got transaction_operation_failed {}", er.what());
             // first rollback if appropriate.  Almost always is.
             if (er.should_rollback()) {
                 spdlog::trace("got rollback-able exception, rolling back");

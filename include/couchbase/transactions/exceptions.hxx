@@ -112,65 +112,88 @@ namespace transactions
         }
     };
 
-    /** error_wrapper
+    /** transaction_operation_failed
      *
      * All exceptions within a transaction are, or are converted to an exception derived
      * from this.  The transaciton logic then consumes them to decide to retry, or rollback
      * the transaction.
      */
-    class error_wrapper : public std::runtime_error
+    class transaction_operation_failed : public std::runtime_error
     {
       public:
-        explicit error_wrapper(error_class ec,
-                               const std::string& what,
-                               bool retry = false,
-                               bool rollback = true,
-                               final_error to_raise = FAILED)
+        explicit transaction_operation_failed(error_class ec, const std::string& what)
           : std::runtime_error(what)
           , _ec(ec)
-          , _retry(retry)
-          , _rollback(rollback)
-          , _to_raise(to_raise)
+          , _retry(false)
+          , _rollback(true)
+          , _to_raise(FAILED)
         {
-            validate();
         }
-        explicit error_wrapper(const client_error& client_err, bool retry = false, bool rollback = true, final_error to_raise = FAILED)
+        explicit transaction_operation_failed(const client_error& client_err)
           : std::runtime_error(client_err.what())
           , _ec(client_err.ec())
-          , _retry(retry)
-          , _rollback(rollback)
-          , _to_raise(to_raise)
+          , _retry(false)
+          , _rollback(true)
+          , _to_raise(FAILED)
         {
-            validate();
         }
-        explicit error_wrapper(error_class ec,
-                               const std::runtime_error& cause,
-                               bool retry = false,
-                               bool rollback = true,
-                               final_error to_raise = FAILED)
+        explicit transaction_operation_failed(error_class ec, const std::runtime_error& cause)
           : std::runtime_error(cause)
           , _ec(ec)
-          , _retry(retry)
-          , _rollback(rollback)
-          , _to_raise(to_raise)
+          , _retry(false)
+          , _rollback(true)
+          , _to_raise(FAILED)
         {
-            validate();
         }
 
-        void validate()
+
+        // Retry is false by default, this makes it true
+        transaction_operation_failed& retry()
         {
-            // you can't retry without rollback.
-            assert(!(_retry && !_rollback));
+            _retry = true;
+            validate();
+            return *this;
+        }
+
+        // Rollback defaults to true, this sets it to false
+        transaction_operation_failed& no_rollback()
+        {
+            _rollback = false;
+            validate();
+            return *this;
+        }
+
+        // Defaults to FAILED, this sets it to EXPIRED
+        transaction_operation_failed& expired()
+        {
+            _to_raise = EXPIRED;
+            validate();
+            return *this;
+        }
+
+        // Defaults to FAILED, sets to FAILED_POST_COMMIT
+        transaction_operation_failed& failed_post_commit()
+        {
+            _to_raise = FAILED_POST_COMMIT;
+            validate();
+            return *this;
+        }
+
+        error_class ec() const
+        {
+            return _ec;
+        }
+
+        bool should_rollback() const
+        {
+            return _rollback;
         }
 
         bool should_retry() const
         {
             return _retry;
         }
-        bool should_rollback() const
-        {
-            return _rollback;
-        }
+
         void do_throw(const transaction_context context) const
         {
             if (_to_raise == FAILED_POST_COMMIT) {
@@ -178,37 +201,18 @@ namespace transactions
             }
             throw _to_raise == FAILED ? throw transaction_failed(*this, context) : transaction_expired(*this, context);
         }
-        error_class ec() const
-        {
-            return _ec;
-        }
-
       private:
         error_class _ec;
         bool _retry;
         bool _rollback;
         final_error _to_raise;
-    };
 
-    class document_already_in_transaction : public error_wrapper
-    {
-      public:
-        /**
-         * This is retryable - note the error wrapper constructor has true for retry and false for rollback
-         */
-        explicit document_already_in_transaction(const std::string& what)
-          : error_wrapper(FAIL_WRITE_WRITE_CONFLICT, what, true, true)
+        void validate()
         {
+            // you can't retry without rollback.
+            assert(!(_retry && !_rollback));
         }
-    };
 
-    class attempt_expired : public error_wrapper
-    {
-      public:
-        explicit attempt_expired(const std::string& what)
-          : error_wrapper(FAIL_EXPIRY, what, false, true, EXPIRED)
-        {
-        }
     };
 
     namespace internal
