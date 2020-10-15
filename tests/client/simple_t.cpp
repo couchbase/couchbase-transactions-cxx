@@ -119,7 +119,7 @@ class SimpleClientCollectionTests : public ::testing::Test
     void SetUp() override
     {
         // no need to ask for the bucket or cluster if we already have 'em
-       _coll = ClientTestEnvironment::get_cluster()->bucket("default")->default_collection();
+        _coll = ClientTestEnvironment::get_cluster()->bucket("default")->default_collection();
 
         // new id every time
         _id = ClientTestEnvironment::get_uuid();

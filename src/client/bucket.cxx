@@ -40,7 +40,6 @@ cb::bucket::find_or_create_collection(const std::string& collection)
         return collections_.back();
     }
     return *it;
-
 }
 
 std::shared_ptr<cb::collection>
@@ -73,12 +72,14 @@ cb::bucket::bucket(lcb_st* instance, const std::string& name)
     }
 }
 
-cb::bucket::~bucket() {
+cb::bucket::~bucket()
+{
     close();
 }
 
 void
-cb::bucket::close() {
+cb::bucket::close()
+{
     spdlog::trace("bucket shutting down - lcb_ = {}", (void*)lcb_);
     if (lcb_ != nullptr) {
         lcb_destroy(lcb_);

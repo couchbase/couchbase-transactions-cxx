@@ -1,29 +1,32 @@
 #pragma once
-#include <fstream>
-#include <cstdlib>
-#include <gtest/gtest.h>
-#include <couchbase/internal/nlohmann/json.hpp>
-#include <couchbase/client/cluster.hxx>
 #include <boost/uuid/uuid.hpp>
-#include <boost/uuid/uuid_io.hpp>
 #include <boost/uuid/uuid_generators.hpp>
-#include <spdlog/spdlog.h>
+#include <boost/uuid/uuid_io.hpp>
+#include <couchbase/client/cluster.hxx>
+#include <couchbase/internal/nlohmann/json.hpp>
+#include <cstdlib>
+#include <fstream>
+#include <gtest/gtest.h>
 #include <spdlog/fmt/ostr.h>
+#include <spdlog/spdlog.h>
 
 // hack, until I get gtest working a bit better and can execute
 // tests through make with proper working directory.
 #define CONFIG_FILE_NAME "../tests/config.json"
 #define ENV_CONNECTION_STRING "TXN_CONNECTION_STRING"
 
-class ClientTestEnvironment : public ::testing::Environment {
+class ClientTestEnvironment : public ::testing::Environment
+{
   public:
-    void SetUp() override {
+    void SetUp() override
+    {
         // for tests, really chatty logs may be useful.
         spdlog::set_level(spdlog::level::trace);
         get_cluster();
     }
 
-    static const nlohmann::json& get_conf() {
+    static const nlohmann::json& get_conf()
+    {
         // read config.json
         static nlohmann::json conf;
         if (conf.empty()) {
@@ -37,21 +40,23 @@ class ClientTestEnvironment : public ::testing::Environment {
             }
         }
         return conf;
-
     }
 
-    static std::shared_ptr<couchbase::cluster> get_cluster() {
+    static std::shared_ptr<couchbase::cluster> get_cluster()
+    {
         auto conf = get_conf();
         static auto cluster = std::make_shared<couchbase::cluster>(conf["connection_string"], conf["username"], conf["password"]);
         return cluster;
     }
 
-    static std::string get_uuid() {
+    static std::string get_uuid()
+    {
         static auto generator = boost::uuids::random_generator();
         return boost::uuids::to_string(generator());
     }
 
-    static std::shared_ptr<couchbase::collection> get_default_collection(const std::string& bucket_name) {
+    static std::shared_ptr<couchbase::collection> get_default_collection(const std::string& bucket_name)
+    {
         auto c = get_cluster();
         auto b = c->bucket(bucket_name);
         return b->default_collection();

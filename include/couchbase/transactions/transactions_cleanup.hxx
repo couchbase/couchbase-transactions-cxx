@@ -17,8 +17,8 @@
 #pragma once
 
 #include <couchbase/client/cluster.hxx>
-#include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/atr_cleanup_entry.hxx>
+#include <couchbase/transactions/transaction_config.hxx>
 
 #include <thread>
 
@@ -31,22 +31,44 @@ namespace transactions
     // only really used when we force cleanup, in tests
     class transactions_cleanup_attempt
     {
-       private:
+      private:
         const std::string atr_id_;
         const std::string attempt_id_;
         const std::string atr_bucket_name_;
         bool success_;
         attempt_state state_;
+
       public:
         transactions_cleanup_attempt(const atr_cleanup_entry&);
 
-        CB_NODISCARD bool success() const { return success_; }
-        void success(bool success) { success_ = success; }
-        CB_NODISCARD const std::string atr_id() const { return atr_id_; }
-        CB_NODISCARD const std::string attempt_id() const { return attempt_id_; }
-        CB_NODISCARD const std::string atr_bucket_name() const { return atr_bucket_name_; }
-        CB_NODISCARD attempt_state state() const { return state_; }
-        void state(attempt_state state) { state_ = state; }
+        CB_NODISCARD bool success() const
+        {
+            return success_;
+        }
+        void success(bool success)
+        {
+            success_ = success;
+        }
+        CB_NODISCARD const std::string atr_id() const
+        {
+            return atr_id_;
+        }
+        CB_NODISCARD const std::string attempt_id() const
+        {
+            return attempt_id_;
+        }
+        CB_NODISCARD const std::string atr_bucket_name() const
+        {
+            return atr_bucket_name_;
+        }
+        CB_NODISCARD attempt_state state() const
+        {
+            return state_;
+        }
+        void state(attempt_state state)
+        {
+            state_ = state;
+        }
     };
 
     class transactions_cleanup
@@ -96,7 +118,7 @@ namespace transactions
         atr_cleanup_queue atr_queue_;
         std::thread cleanup_thr_;
 
-        bool running_ { true };
+        bool running_{ true };
     };
 } // namespace transactions
 } // namespace couchbase

@@ -2,8 +2,8 @@
 #include <stdexcept>
 #include <utility>
 
-#include <couchbase/client/cluster.hxx>
 #include <couchbase/client/bucket.hxx>
+#include <couchbase/client/cluster.hxx>
 #include <couchbase/client/result.hxx>
 #include <couchbase/support.hxx>
 #include <libcouchbase/couchbase.h>
@@ -22,20 +22,19 @@ cb::cluster::cluster(std::string cluster_address, std::string user_name, std::st
 }
 
 cb::cluster::cluster(const cluster& cluster)
-    : cluster_address_(cluster.cluster_address_)
-    , lcb_(nullptr)
-    , user_name_(cluster.user_name_)
-    , password_(cluster.password_)
+  : cluster_address_(cluster.cluster_address_)
+  , lcb_(nullptr)
+  , user_name_(cluster.user_name_)
+  , password_(cluster.password_)
 {
     spdlog::info("couchbase client library {} attempting to connect to {}", VERSION_STR, cluster_address_);
     connect();
 }
 
 bool
-cb::cluster::operator==(const cluster& other) const{
-    return cluster_address_ == other.cluster_address_ &&
-           user_name_ == other.user_name_ &&
-           password_ == other.password_ &&
+cb::cluster::operator==(const cluster& other) const
+{
+    return cluster_address_ == other.cluster_address_ && user_name_ == other.user_name_ && password_ == other.password_ &&
            lcb_ == other.lcb_;
 }
 
@@ -49,9 +48,8 @@ cb::cluster::bucket(const std::string& name)
 {
     connect();
     std::unique_lock<std::mutex> lock(mutex_);
-    auto it = std::find_if(open_buckets_.begin(), open_buckets_.end(), [&](const std::shared_ptr<cb::bucket>& b) {
-        return b->name() == name;
-    });
+    auto it =
+      std::find_if(open_buckets_.begin(), open_buckets_.end(), [&](const std::shared_ptr<cb::bucket>& b) { return b->name() == name; });
     if (it != open_buckets_.end()) {
         return *it;
     }

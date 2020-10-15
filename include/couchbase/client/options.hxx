@@ -15,14 +15,15 @@
  */
 
 #pragma once
-#include <chrono>
-#include <couchbase/support.hxx>
+#include <boost/logic/tribool.hpp>
 #include <boost/optional.hpp>
 #include <boost/optional/optional_io.hpp>
-#include <boost/logic/tribool.hpp>
+#include <chrono>
+#include <couchbase/support.hxx>
 
 /** @file */
-namespace couchbase {
+namespace couchbase
+{
 
 /**
  * @brief durability_level
@@ -31,15 +32,14 @@ namespace couchbase {
  * want the opreation to not return until the document is in memory, or
  * on disk, within the cluster.
  */
-enum class durability_level
-{
-    none,                            /**< Primary node has the mutation in-memory (this is the fastest, and the default). */
-    majority,                        /**< a majority of nodes have the document in-memory. */
-    majority_and_persist_to_active,  /**< a majority of nodes have the document in-memory, and the primary has persisted it to disk */
-    persist_to_majority              /**< a mojority of nodes have persisted the document to disk.*/
+enum class durability_level {
+    none,                           /**< Primary node has the mutation in-memory (this is the fastest, and the default). */
+    majority,                       /**< a majority of nodes have the document in-memory. */
+    majority_and_persist_to_active, /**< a majority of nodes have the document in-memory, and the primary has persisted it to disk */
+    persist_to_majority             /**< a mojority of nodes have persisted the document to disk.*/
 };
 
-template <typename T>
+template<typename T>
 class common_options
 {
     /**
@@ -51,29 +51,32 @@ class common_options
     boost::optional<std::chrono::milliseconds> timeout_;
 
   public:
-      /**
-       *  @brief get timeout
-       *
-       * Get the timeout set in this object.
-       *
-       * @return The timeout value.
-       */
-      CB_NODISCARD boost::optional<std::chrono::milliseconds> timeout() { return timeout; }
-      /**
-       *  @brief Set timeout
-       *
-       * @param timeout Set the timeout for this option object.
-       * @return reference to this options class.  Makes these calls chainable.
-       */
-      T& timeout(std::chrono::milliseconds timeout)
-      {
-          timeout_ = timeout;
-          return *static_cast<T*>(this);
-      }
+    /**
+     *  @brief get timeout
+     *
+     * Get the timeout set in this object.
+     *
+     * @return The timeout value.
+     */
+    CB_NODISCARD boost::optional<std::chrono::milliseconds> timeout()
+    {
+        return timeout_;
+    }
+    /**
+     *  @brief Set timeout
+     *
+     * @param timeout Set the timeout for this option object.
+     * @return reference to this options class.  Makes these calls chainable.
+     */
+    T& timeout(std::chrono::milliseconds timeout)
+    {
+        timeout_ = timeout;
+        return *static_cast<T*>(this);
+    }
 };
 
 template<typename T>
-class common_mutate_options: public common_options<T>
+class common_mutate_options : public common_options<T>
 {
     /**
      *  @brief Options common to mutation operations
@@ -88,7 +91,10 @@ class common_mutate_options: public common_options<T>
      *
      * @returns The cas, if set.
      */
-    CB_NODISCARD boost::optional<uint64_t> cas() const { return cas_; }
+    CB_NODISCARD boost::optional<uint64_t> cas() const
+    {
+        return cas_;
+    }
     /**
      * @brief Set cas
      *
@@ -106,7 +112,10 @@ class common_mutate_options: public common_options<T>
      *
      * @return the @ref durability_level set in this object.
      */
-    CB_NODISCARD boost::optional<durability_level> durability() const { return durability_; }
+    CB_NODISCARD boost::optional<durability_level> durability() const
+    {
+        return durability_;
+    }
     /**
      * @brief Set durability
      *
@@ -128,13 +137,17 @@ class get_options : public common_options<get_options>
   private:
     // TODO: ponder a clearer way to set expiry.  Perhaps a duration _or_ time point?
     boost::optional<uint32_t> expiry_;
+
   public:
     /**
      *  @brief Get expiry
      *
      * @return expiry set in this object, if any.
      */
-    CB_NODISCARD boost::optional<uint32_t> expiry() const { return expiry_; }
+    CB_NODISCARD boost::optional<uint32_t> expiry() const
+    {
+        return expiry_;
+    }
     /**
      * @brief Set expiry
      *
@@ -154,23 +167,23 @@ class get_options : public common_options<get_options>
     }
 };
 
-class upsert_options: public common_mutate_options<upsert_options>
+class upsert_options : public common_mutate_options<upsert_options>
 {
 };
 
-class replace_options: public common_mutate_options<replace_options>
+class replace_options : public common_mutate_options<replace_options>
 {
 };
 
-class remove_options: public common_mutate_options<remove_options>
+class remove_options : public common_mutate_options<remove_options>
 {
 };
 
-class insert_options: public common_mutate_options<insert_options>
+class insert_options : public common_mutate_options<insert_options>
 {
 };
 
-class lookup_in_options: public common_options<lookup_in_options>
+class lookup_in_options : public common_options<lookup_in_options>
 {
   private:
     boost::tribool access_deleted_;
@@ -184,7 +197,10 @@ class lookup_in_options: public common_options<lookup_in_options>
      *
      *  @return The access_deleted flag.
      */
-    CB_NODISCARD boost::tribool access_deleted() const { return access_deleted_; }
+    CB_NODISCARD boost::tribool access_deleted() const
+    {
+        return access_deleted_;
+    }
     /**
      * @brief Set access_deleted flag
      *
@@ -210,7 +226,10 @@ class mutate_in_options : public common_mutate_options<mutate_in_options>
      *
      * @return The state of the create_as_deleted flag.
      */
-    CB_NODISCARD boost::tribool create_as_deleted() const { return create_as_deleted_; }
+    CB_NODISCARD boost::tribool create_as_deleted() const
+    {
+        return create_as_deleted_;
+    }
     /**
      * @brief Set create_as_deleted
      *
@@ -233,7 +252,10 @@ class mutate_in_options : public common_mutate_options<mutate_in_options>
      *
      *  @return The access_deleted flag.
      */
-    CB_NODISCARD boost::tribool access_deleted() const { return access_deleted_; }
+    CB_NODISCARD boost::tribool access_deleted() const
+    {
+        return access_deleted_;
+    }
     /**
      * @brief Set access_deleted flag
      *

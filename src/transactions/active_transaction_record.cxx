@@ -16,8 +16,7 @@ namespace transactions
      * Looks like: "0x000058a71dd25c15"
      * Want:        0x155CD21DA7580000   (1539336197457313792 in base10, an epoch time in millionths of a second)
      */
-    inline uint64_t
-    active_transaction_record::parse_mutation_cas(const std::string& cas)
+    inline uint64_t active_transaction_record::parse_mutation_cas(const std::string& cas)
     {
         if (cas.empty()) {
             return 0;
@@ -35,8 +34,7 @@ namespace transactions
         return ret / 1000000;
     }
 
-    inline boost::optional<std::vector<doc_record>>
-    active_transaction_record::process_document_ids(nlohmann::json& entry, std::string key)
+    inline boost::optional<std::vector<doc_record>> active_transaction_record::process_document_ids(nlohmann::json& entry, std::string key)
     {
         if (entry.count(key) == 0) {
             return {};
@@ -49,38 +47,37 @@ namespace transactions
         return std::move(records);
     }
 
-    inline active_transaction_record
-    active_transaction_record::map_to_atr(std::shared_ptr<collection> collection,
-                                          const std::string& atr_id,
-                                          result& res,
-                                          nlohmann::json& attempts)
+    inline active_transaction_record active_transaction_record::map_to_atr(std::shared_ptr<collection> collection,
+                                                                           const std::string& atr_id,
+                                                                           result& res,
+                                                                           nlohmann::json& attempts)
     {
         std::vector<atr_entry> entries;
         entries.resize(attempts.size());
         for (auto& element : attempts.items()) {
             auto& val = element.value();
             entries.emplace_back(collection->bucket_name(),
-                    atr_id,
-                    element.key(),
-                    attempt_state_value(val[ATR_FIELD_STATUS].get<std::string>()),
-                    parse_mutation_cas(val.value(ATR_FIELD_START_TIMESTAMP, "")),
-                    parse_mutation_cas(val.value(ATR_FIELD_START_COMMIT, "")),
-                    parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_COMPLETE, "")),
-                    parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_START, "")),
-                    parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "")),
-                    val.count(ATR_FIELD_EXPIRES_AFTER_MSECS)
-                    ? boost::make_optional(val[ATR_FIELD_EXPIRES_AFTER_MSECS].get<std::uint32_t>())
-                    : boost::optional<std::uint32_t>(),
-                    process_document_ids(val, ATR_FIELD_DOCS_INSERTED),
-                    process_document_ids(val, ATR_FIELD_DOCS_REPLACED),
-                    process_document_ids(val, ATR_FIELD_DOCS_REMOVED),
-                    res.cas);
+                                 atr_id,
+                                 element.key(),
+                                 attempt_state_value(val[ATR_FIELD_STATUS].get<std::string>()),
+                                 parse_mutation_cas(val.value(ATR_FIELD_START_TIMESTAMP, "")),
+                                 parse_mutation_cas(val.value(ATR_FIELD_START_COMMIT, "")),
+                                 parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_COMPLETE, "")),
+                                 parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_START, "")),
+                                 parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "")),
+                                 val.count(ATR_FIELD_EXPIRES_AFTER_MSECS)
+                                   ? boost::make_optional(val[ATR_FIELD_EXPIRES_AFTER_MSECS].get<std::uint32_t>())
+                                   : boost::optional<std::uint32_t>(),
+                                 process_document_ids(val, ATR_FIELD_DOCS_INSERTED),
+                                 process_document_ids(val, ATR_FIELD_DOCS_REPLACED),
+                                 process_document_ids(val, ATR_FIELD_DOCS_REMOVED),
+                                 res.cas);
         }
         return active_transaction_record(atr_id, collection, res.cas, std::move(entries));
     }
 
-    boost::optional<active_transaction_record>
-    active_transaction_record::get_atr(std::shared_ptr<collection> collection, const std::string& atr_id)
+    boost::optional<active_transaction_record> active_transaction_record::get_atr(std::shared_ptr<collection> collection,
+                                                                                  const std::string& atr_id)
     {
         result res = collection->lookup_in(atr_id,
                                            {
@@ -95,7 +92,6 @@ namespace transactions
             throw client_error(res);
         }
     }
-
 
 } // namespace transactions
 } // namespace couchbase

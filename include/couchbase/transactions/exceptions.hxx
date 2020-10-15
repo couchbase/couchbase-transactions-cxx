@@ -45,28 +45,29 @@ namespace transactions
     class client_error : public std::runtime_error
     {
       private:
-        error_class _ec;
-        uint32_t _rc;
+        error_class ec_;
+        uint32_t rc_;
 
       public:
         explicit client_error(const couchbase::result& res)
           : runtime_error(res.strerror())
-          , _ec(error_class_from_result(res))
-          , _rc(res.rc)
+          , ec_(error_class_from_result(res))
+          , rc_(res.rc)
         {
         }
         explicit client_error(error_class ec, const std::string& what)
           : runtime_error(what)
-          , _ec(ec)
+          , ec_(ec)
+          , rc_(0) // only slightly better than uninitialized.  Consider boost::optional<uint32_t>
         {
         }
         error_class ec() const
         {
-            return _ec;
+            return ec_;
         }
         uint32_t rc() const
         {
-            return _rc;
+            return rc_;
         }
     };
 
@@ -123,34 +124,33 @@ namespace transactions
       public:
         explicit transaction_operation_failed(error_class ec, const std::string& what)
           : std::runtime_error(what)
-          , _ec(ec)
-          , _retry(false)
-          , _rollback(true)
-          , _to_raise(FAILED)
+          , ec_(ec)
+          , retry_(false)
+          , rollback_(true)
+          , to_raise_(FAILED)
         {
         }
         explicit transaction_operation_failed(const client_error& client_err)
           : std::runtime_error(client_err.what())
-          , _ec(client_err.ec())
-          , _retry(false)
-          , _rollback(true)
-          , _to_raise(FAILED)
+          , ec_(client_err.ec())
+          , retry_(false)
+          , rollback_(true)
+          , to_raise_(FAILED)
         {
         }
         explicit transaction_operation_failed(error_class ec, const std::runtime_error& cause)
           : std::runtime_error(cause)
-          , _ec(ec)
-          , _retry(false)
-          , _rollback(true)
-          , _to_raise(FAILED)
+          , ec_(ec)
+          , retry_(false)
+          , rollback_(true)
+          , to_raise_(FAILED)
         {
         }
-
 
         // Retry is false by default, this makes it true
         transaction_operation_failed& retry()
         {
-            _retry = true;
+            retry_ = true;
             validate();
             return *this;
         }
@@ -158,7 +158,7 @@ namespace transactions
         // Rollback defaults to true, this sets it to false
         transaction_operation_failed& no_rollback()
         {
-            _rollback = false;
+            rollback_ = false;
             validate();
             return *this;
         }
@@ -166,7 +166,7 @@ namespace transactions
         // Defaults to FAILED, this sets it to EXPIRED
         transaction_operation_failed& expired()
         {
-            _to_raise = EXPIRED;
+            to_raise_ = EXPIRED;
             validate();
             return *this;
         }
@@ -174,45 +174,45 @@ namespace transactions
         // Defaults to FAILED, sets to FAILED_POST_COMMIT
         transaction_operation_failed& failed_post_commit()
         {
-            _to_raise = FAILED_POST_COMMIT;
+            to_raise_ = FAILED_POST_COMMIT;
             validate();
             return *this;
         }
 
         error_class ec() const
         {
-            return _ec;
+            return ec_;
         }
 
         bool should_rollback() const
         {
-            return _rollback;
+            return rollback_;
         }
 
         bool should_retry() const
         {
-            return _retry;
+            return retry_;
         }
 
         void do_throw(const transaction_context context) const
         {
-            if (_to_raise == FAILED_POST_COMMIT) {
+            if (to_raise_ == FAILED_POST_COMMIT) {
                 return;
             }
-            throw _to_raise == FAILED ? throw transaction_failed(*this, context) : transaction_expired(*this, context);
+            throw to_raise_ == FAILED ? throw transaction_failed(*this, context) : transaction_expired(*this, context);
         }
+
       private:
-        error_class _ec;
-        bool _retry;
-        bool _rollback;
-        final_error _to_raise;
+        error_class ec_;
+        bool retry_;
+        bool rollback_;
+        final_error to_raise_;
 
         void validate()
         {
             // you can't retry without rollback.
-            assert(!(_retry && !_rollback));
+            assert(!(retry_ && !rollback_));
         }
-
     };
 
     namespace internal

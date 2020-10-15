@@ -22,14 +22,18 @@ namespace couchbase
 {
 namespace transactions
 {
-    namespace {
-        int noop1(const std::string& id) {
+    namespace
+    {
+        int noop1(const std::string& id)
+        {
             return 1;
         }
-        int noop2() {
+        int noop2()
+        {
             return 1;
         }
-        void noop3() {
+        void noop3()
+        {
             return;
         }
     } // namespace
@@ -51,6 +55,5 @@ namespace transactions
         std::function<void(void)> on_cleanup_docs_completed = noop3;
         std::function<void(void)> on_cleanup_completed = noop3;
     };
-} // transactions
-} // couchbase
-
+} // namespace transactions
+} // namespace couchbase

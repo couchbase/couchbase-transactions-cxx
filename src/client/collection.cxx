@@ -169,8 +169,7 @@ couchbase::collection::wrap_call_for_retry(std::function<result(void)> fn)
     result res;
     while (retries < 10) {
         res = fn();
-        if (res.is_success() || (res.rc != LCB_ERR_KVENGINE_INVALID_PACKET &&
-                                 res.rc != LCB_ERR_KVENGINE_UNKNOWN_ERROR)) {
+        if (res.is_success() || (res.rc != LCB_ERR_KVENGINE_INVALID_PACKET && res.rc != LCB_ERR_KVENGINE_UNKNOWN_ERROR)) {
             break;
         }
         spdlog::trace("got {}, retrying (CCBC-1300)", res);
@@ -186,7 +185,7 @@ couchbase::collection::wrap_call_for_retry(std::function<result(void)> fn)
 couchbase::result
 couchbase::collection::get(const std::string& id, const get_options& opts)
 {
-    return wrap_call_for_retry([&]()->result {
+    return wrap_call_for_retry([&]() -> result {
         lcb_CMDGET* cmd;
         lcb_cmdget_create(&cmd);
         lcb_cmdget_key(cmd, id.data(), id.size());
@@ -211,7 +210,7 @@ couchbase::collection::get(const std::string& id, const get_options& opts)
 couchbase::result
 couchbase::collection::remove(const std::string& id, const remove_options& opts)
 {
-    return wrap_call_for_retry([&]()->result {
+    return wrap_call_for_retry([&]() -> result {
         lcb_CMDREMOVE* cmd;
         lcb_cmdremove_create(&cmd);
         lcb_cmdremove_key(cmd, id.data(), id.size());
@@ -238,7 +237,7 @@ couchbase::collection::remove(const std::string& id, const remove_options& opts)
 couchbase::result
 couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_spec> specs, const mutate_in_options& opts)
 {
-    return wrap_call_for_retry([&]()->result {
+    return wrap_call_for_retry([&]() -> result {
         lcb_CMDSUBDOC* cmd;
         lcb_cmdsubdoc_create(&cmd);
         lcb_cmdsubdoc_key(cmd, id.data(), id.size());
@@ -262,29 +261,29 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
         size_t idx = 0;
         for (const auto& spec : specs) {
             switch (spec.type_) {
-            case mutate_in_spec_type::MUTATE_IN_UPSERT:
-                lcb_subdocspecs_dict_upsert(
-                  ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size(), spec.value_.data(), spec.value_.size());
-                break;
-            case mutate_in_spec_type::MUTATE_IN_INSERT:
-                lcb_subdocspecs_dict_add(
-                  ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size(), spec.value_.data(), spec.value_.size());
-                break;
-            case mutate_in_spec_type::MUTATE_IN_FULLDOC_UPSERT:
-                lcb_subdocspecs_replace(ops, idx++, spec.flags_, nullptr, 0, spec.value_.data(), spec.value_.size());
-                if (!opts.create_as_deleted()) {
-                    lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
-                }
-                break;
-            case mutate_in_spec_type::MUTATE_IN_FULLDOC_INSERT:
-                lcb_subdocspecs_replace(ops, idx++, spec.flags_, nullptr, 0, spec.value_.data(), spec.value_.size());
-                if (!opts.create_as_deleted()) {
-                    lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_INSERT);
-                }
-                break;
-            case mutate_in_spec_type::REMOVE:
-                lcb_subdocspecs_remove(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
-                break;
+                case mutate_in_spec_type::MUTATE_IN_UPSERT:
+                    lcb_subdocspecs_dict_upsert(
+                      ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size(), spec.value_.data(), spec.value_.size());
+                    break;
+                case mutate_in_spec_type::MUTATE_IN_INSERT:
+                    lcb_subdocspecs_dict_add(
+                      ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size(), spec.value_.data(), spec.value_.size());
+                    break;
+                case mutate_in_spec_type::MUTATE_IN_FULLDOC_UPSERT:
+                    lcb_subdocspecs_replace(ops, idx++, spec.flags_, nullptr, 0, spec.value_.data(), spec.value_.size());
+                    if (!opts.create_as_deleted()) {
+                        lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
+                    }
+                    break;
+                case mutate_in_spec_type::MUTATE_IN_FULLDOC_INSERT:
+                    lcb_subdocspecs_replace(ops, idx++, spec.flags_, nullptr, 0, spec.value_.data(), spec.value_.size());
+                    if (!opts.create_as_deleted()) {
+                        lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_INSERT);
+                    }
+                    break;
+                case mutate_in_spec_type::REMOVE:
+                    lcb_subdocspecs_remove(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
+                    break;
             }
         }
         lcb_cmdsubdoc_specs(cmd, ops);
@@ -308,7 +307,7 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
 couchbase::result
 couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_spec> specs, const lookup_in_options& opts)
 {
-    return wrap_call_for_retry([&]()->result {
+    return wrap_call_for_retry([&]() -> result {
         lcb_CMDSUBDOC* cmd;
         lcb_cmdsubdoc_create(&cmd);
         lcb_cmdsubdoc_key(cmd, id.data(), id.size());
@@ -321,12 +320,12 @@ couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_sp
         size_t idx = 0;
         for (const auto& spec : specs) {
             switch (spec.type_) {
-            case lookup_in_spec_type::LOOKUP_IN_GET:
-                lcb_subdocspecs_get(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
-                break;
-            case lookup_in_spec_type::LOOKUP_IN_FULLDOC_GET:
-                lcb_subdocspecs_get(ops, idx++, spec.flags_, nullptr, 0);
-                break;
+                case lookup_in_spec_type::LOOKUP_IN_GET:
+                    lcb_subdocspecs_get(ops, idx++, spec.flags_, spec.path_.data(), spec.path_.size());
+                    break;
+                case lookup_in_spec_type::LOOKUP_IN_FULLDOC_GET:
+                    lcb_subdocspecs_get(ops, idx++, spec.flags_, nullptr, 0);
+                    break;
             }
         }
         lcb_cmdsubdoc_specs(cmd, ops);

@@ -33,13 +33,9 @@ namespace transactions
     class active_transaction_record
     {
       public:
-        static boost::optional<active_transaction_record> get_atr(std::shared_ptr<collection> collection,
-                                                                  const std::string& atr_id);
+        static boost::optional<active_transaction_record> get_atr(std::shared_ptr<collection> collection, const std::string& atr_id);
 
-        active_transaction_record(std::string id,
-                                  std::shared_ptr<collection> collection,
-                                  uint64_t cas,
-                                  std::vector<atr_entry> entries)
+        active_transaction_record(std::string id, std::shared_ptr<collection> collection, uint64_t cas, std::vector<atr_entry> entries)
           : id_(std::move(id))
           , collection_(collection)
           , cas_ns_(cas)

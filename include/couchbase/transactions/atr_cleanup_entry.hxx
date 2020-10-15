@@ -16,16 +16,16 @@
 
 #pragma once
 
-#include <memory>
-#include <queue>
-#include <string>
-#include <thread>
-#include <chrono>
 #include <boost/optional/optional.hpp>
+#include <chrono>
 #include <couchbase/client/collection.hxx>
 #include <couchbase/transactions/atr_entry.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/transaction_document.hxx>
+#include <memory>
+#include <queue>
+#include <string>
+#include <thread>
 
 namespace couchbase
 {

@@ -16,9 +16,9 @@
 
 #pragma once
 
+#include <couchbase/transactions/attempt_state.hxx>
 #include <string>
 #include <vector>
-#include <couchbase/transactions/attempt_state.hxx>
 
 namespace couchbase
 {

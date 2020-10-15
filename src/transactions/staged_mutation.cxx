@@ -1,9 +1,9 @@
-#include <utility>
-#include <spdlog/spdlog.h>
 #include <couchbase/client/result.hxx>
+#include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/staged_mutation.hxx>
 #include <couchbase/transactions/transaction_fields.hxx>
-#include <couchbase/transactions/attempt_context.hxx>
+#include <spdlog/spdlog.h>
+#include <utility>
 
 namespace tx = couchbase::transactions;
 
@@ -93,9 +93,10 @@ tx::staged_mutation_queue::find_remove(std::shared_ptr<couchbase::collection> co
     return nullptr;
 }
 void
-tx::staged_mutation_queue::iterate(std::function<void(staged_mutation&)> op) {
+tx::staged_mutation_queue::iterate(std::function<void(staged_mutation&)> op)
+{
     std::unique_lock<std::mutex> lock(mutex_);
-    for (auto& item: queue_) {
+    for (auto& item : queue_) {
         op(item);
     }
 }
@@ -118,27 +119,25 @@ tx::staged_mutation_queue::commit(attempt_context& ctx)
 }
 
 void
-tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& item, bool ambiguity_resolution_mode) {
+tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& item, bool ambiguity_resolution_mode)
+{
     try {
         ctx.check_expiry_during_commit_or_rollback(STAGE_COMMIT_DOC, boost::optional<const std::string>(item.doc().id()));
         ctx.hooks_.before_doc_committed(&ctx, item.doc().id());
 
         // move staged content into doc
         result res;
-        if(item.type() == staged_mutation_type::INSERT) {
-            ctx.wrap_collection_call(res, [&](result& r) {
-                r = item.doc().collection_ref().insert(item.doc().id(),
-                                                       item.doc().content<nlohmann::json>());
-            });
+        if (item.type() == staged_mutation_type::INSERT) {
+            ctx.wrap_collection_call(
+              res, [&](result& r) { r = item.doc().collection_ref().insert(item.doc().id(), item.doc().content<nlohmann::json>()); });
         } else {
             ctx.wrap_collection_call(res, [&](result& r) {
-            r = item.doc().collection_ref().mutate_in(
-                    item.doc().id(),
-                    {
-                        mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
-                        mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
-                    },
-                    mutate_in_options().cas(item.doc().cas()));
+                r = item.doc().collection_ref().mutate_in(item.doc().id(),
+                                                          {
+                                                            mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
+                                                            mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
+                                                          },
+                                                          mutate_in_options().cas(item.doc().cas()));
             });
         }
         // TODO: mutation tokens
@@ -151,7 +150,7 @@ tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& ite
             // TODO new final exception type expired_post_commit
             throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
         }
-        switch(ec) {
+        switch (ec) {
             case FAIL_AMBIGUOUS:
                 ctx.overall_.retry_delay(ctx.config_);
                 return commit_doc(ctx, item, true);
@@ -169,14 +168,14 @@ tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& ite
 }
 
 void
-    tx::staged_mutation_queue::remove_doc(attempt_context& ctx, staged_mutation& item) {
+tx::staged_mutation_queue::remove_doc(attempt_context& ctx, staged_mutation& item)
+{
     try {
         ctx.check_expiry_during_commit_or_rollback(STAGE_REMOVE_DOC, boost::optional<const std::string>(item.doc().id()));
         ctx.hooks_.before_doc_removed(&ctx, item.doc().id());
         result res;
-        ctx.wrap_collection_call(res, [&](result& r) {
-            r = item.doc().collection_ref().remove(item.doc().id(), remove_options().cas(item.doc().cas()));
-        });
+        ctx.wrap_collection_call(
+          res, [&](result& r) { r = item.doc().collection_ref().remove(item.doc().id(), remove_options().cas(item.doc().cas())); });
         // TODO:mutation tokens
     } catch (const client_error& e) {
         error_class ec = e.ec();
