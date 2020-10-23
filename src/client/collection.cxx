@@ -47,6 +47,25 @@ get_callback(lcb_INSTANCE*, int, const lcb_RESPGET* resp)
 }
 
 static void
+exists_callback(lcb_INSTANCE*, int, const lcb_RESPEXISTS* resp)
+{
+    cb::result* res = nullptr;
+    lcb_respexists_cookie(resp, reinterpret_cast<void**>(&res));
+    res->rc = lcb_respexists_status(resp);
+    if (res->rc == LCB_SUCCESS) {
+        if (lcb_respexists_is_found(resp)) {
+            lcb_respexists_cas(resp, &res->cas);
+            res->value.emplace(true);
+        } else {
+            res->value.emplace(false);
+        }
+    } else {
+        res->value.emplace(false);
+    }
+    spdlog::trace("get_callback returning {}", *res);
+}
+
+static void
 remove_callback(lcb_INSTANCE*, int, const lcb_RESPREMOVE* resp)
 {
     cb::result* res = nullptr;
@@ -100,6 +119,7 @@ cb::collection::collection(std::shared_ptr<bucket> bucket, std::string scope, st
     assert(bucket_->lcb_);
     lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_STORE, reinterpret_cast<lcb_RESPCALLBACK>(store_callback));
     lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_GET, reinterpret_cast<lcb_RESPCALLBACK>(get_callback));
+    lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_EXISTS, reinterpret_cast<lcb_RESPCALLBACK>(exists_callback));
     lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_REMOVE, reinterpret_cast<lcb_RESPCALLBACK>(remove_callback));
     lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_SDLOOKUP, reinterpret_cast<lcb_RESPCALLBACK>(subdoc_callback));
     lcb_install_callback(bucket_->lcb_, LCB_CALLBACK_SDMUTATE, reinterpret_cast<lcb_RESPCALLBACK>(subdoc_callback));
@@ -201,6 +221,27 @@ couchbase::collection::get(const std::string& id, const get_options& opts)
         lcb_cmdget_destroy(cmd);
         if (rc != LCB_SUCCESS) {
             throw std::runtime_error(std::string("failed to get (sched) document: ") + lcb_strerror_short(rc));
+        }
+        lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
+        return res;
+    });
+}
+
+couchbase::result
+couchbase::collection::exists(const std::string& id, const exists_options& opts)
+{
+    return wrap_call_for_retry([&]() -> result {
+        lcb_CMDEXISTS* cmd;
+        lcb_cmdexists_create(&cmd);
+        lcb_cmdexists_key(cmd, id.data(), id.size());
+        lcb_cmdexists_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        lcb_STATUS rc;
+        assert(bucket_->lcb_);
+        result res;
+        rc = lcb_exists(bucket_->lcb_, reinterpret_cast<void*>(&res), cmd);
+        lcb_cmdexists_destroy(cmd);
+        if (rc != LCB_SUCCESS) {
+            throw std::runtime_error(std::string("failed to exists (sched) document: ") + lcb_strerror_short(rc));
         }
         lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
         return res;

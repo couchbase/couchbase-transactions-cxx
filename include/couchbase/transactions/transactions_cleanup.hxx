@@ -20,6 +20,8 @@
 #include <couchbase/transactions/atr_cleanup_entry.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 
+#include <atomic>
+#include <condition_variable>
 #include <thread>
 
 namespace couchbase
@@ -103,22 +105,31 @@ namespace transactions
         void close();
 
       private:
-        void lost_attempts_loop();
-
         // since cluster cannot be used in multiple threads, copy it
         // and config. Mutable since const version of this class return
         // non const ref to cluster.
         mutable couchbase::cluster cluster_;
         const transaction_config config_;
+        const std::chrono::milliseconds cleanup_loop_delay_{ 100 };
 
-        std::thread lost_attempts_thr;
+        std::thread lost_attempts_thr_;
+        std::thread cleanup_thr_;
+        atr_cleanup_queue atr_queue_;
+        mutable std::condition_variable cv_;
+        mutable std::mutex mutex_;
+
         const std::string client_uuid_;
 
         void attempts_loop();
-        atr_cleanup_queue atr_queue_;
-        std::thread cleanup_thr_;
 
-        bool running_{ true };
+        template<class R, class P>
+        bool interruptable_wait(std::chrono::duration<R, P> time);
+
+        void lost_attempts_loop();
+        std::pair<size_t, size_t> get_active_clients(std::shared_ptr<couchbase::collection> coll);
+        void clean_lost_attempts_in_bucket(const std::string& bucket_name);
+
+        std::atomic<bool> running_{ false };
     };
 } // namespace transactions
 } // namespace couchbase

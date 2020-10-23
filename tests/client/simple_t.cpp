@@ -142,6 +142,29 @@ class SimpleClientCollectionTests : public ::testing::Test
     std::string _id;
 };
 
+TEST_F(SimpleClientCollectionTests, CanExists)
+{
+    auto res = _coll->exists(_id);
+    ASSERT_TRUE(res.is_success());
+    ASSERT_TRUE(res.value->get<bool>());
+    ASSERT_TRUE(res.cas > 0);
+}
+
+TEST_F(SimpleClientCollectionTests, ExistsWhenNotExists)
+{
+    auto id = ClientTestEnvironment::get_uuid();
+    auto res = _coll->exists(id);
+    ASSERT_FALSE(res.value->get<bool>());
+}
+
+TEST_F(SimpleClientCollectionTests, ExistsWhenDeleted)
+{
+    auto r0 = _coll->remove(_id);
+    ASSERT_TRUE(r0.is_success());
+    auto r1 = _coll->exists(_id);
+    ASSERT_FALSE(r1.value->get<bool>());
+}
+
 TEST_F(SimpleClientCollectionTests, CanInsert)
 {
     auto id = ClientTestEnvironment::get_uuid();

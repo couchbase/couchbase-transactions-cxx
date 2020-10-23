@@ -29,15 +29,16 @@ tx::transactions_cleanup::transactions_cleanup(couchbase::cluster& cluster, cons
   : cluster_(cluster)
   , config_(config)
   , client_uuid_(uid_generator::next())
+  , running_(false)
 {
-    // TODO: re-enable after fixing the loop
-    // lost_attempts_thr = std::thread(std::bind(&transactions_cleanup::lost_attempts_loop, this));
+    if (config_.cleanup_lost_attempts()) {
+        running_ = true;
+        lost_attempts_thr_ = std::thread(std::bind(&transactions_cleanup::lost_attempts_loop, this));
+    }
 
     if (config_.cleanup_client_attempts()) {
         running_ = true;
         cleanup_thr_ = std::thread(std::bind(&transactions_cleanup::attempts_loop, this));
-    } else {
-        running_ = false;
     }
 }
 
@@ -78,129 +79,138 @@ parse_mutation_cas(const std::string& cas)
 #define FIELD_EXPIRES "expires_ms"
 #define SAFETY_MARGIN_EXPIRY_MS 2000
 
+template<class R, class P>
+bool
+tx::transactions_cleanup::interruptable_wait(std::chrono::duration<R, P> delay)
+{
+    // wait for specified time, _or_ until the condition variable changes
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (!running_.load()) {
+        return false;
+    }
+    return cv_.wait_for(lock, delay, [&] { return running_.load(); });
+}
+
+void
+tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucket_name)
+{
+    spdlog::trace("lost attempts cleanup for {} starting", bucket_name);
+    // each thread needs its own cluster, copy cluster_
+    auto c = cluster_;
+    auto coll = c.bucket(bucket_name)->default_collection();
+    auto idx_pair = get_active_clients(coll);
+    auto start_idx = idx_pair.first;
+    auto increment = idx_pair.second;
+    auto all_atrs = atr_ids::all();
+    spdlog::trace("found {} other active clients", increment);
+    for (auto it = all_atrs.begin() + start_idx; it < all_atrs.end(); it += increment) {
+        // clean the ATR entry
+        std::string atr_id = *it;
+        if (!running_.load()) {
+            spdlog::trace("lost attempts cleanup of {} complete", bucket_name);
+            return;
+        }
+        try {
+            auto res = coll->exists(atr_id);
+            if (res.value->get<bool>()) {
+                auto atr = active_transaction_record::get_atr(coll, atr_id);
+                if (atr) {
+                    // ok, loop through the attempts and clean them all.  The entry will check if expired, nothing
+                    // much to do here except call clean.
+                    for (const auto& entry : atr->entries()) {
+                        atr_cleanup_entry cleanup_entry(entry, coll, *this);
+                        try {
+                            cleanup_entry.clean();
+                        } catch (const std::runtime_error& e) {
+                            spdlog::error("cleanup of {} failed: {}, moving on", cleanup_entry, e.what());
+                        }
+                    }
+                }
+            }
+        } catch (const std::runtime_error& err) {
+            spdlog::error("cleanup of atr {} failed with {}, moving on", atr_id, err.what());
+        }
+    }
+    spdlog::trace("lost attempts cleanup of {} complete", bucket_name);
+}
+
+std::pair<size_t, size_t>
+tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collection> coll)
+{
+    // Write our cient record, return offset, increment to use
+    coll->mutate_in(CLIENT_RECORD_DOC_ID,
+                    {
+                      mutate_in_spec::upsert("dummy", nullptr).xattr(),
+                    });
+    auto res = coll->lookup_in(CLIENT_RECORD_DOC_ID, { lookup_in_spec::get(FIELD_CLIENTS).xattr() });
+    std::vector<std::string> expired_client_uids;
+    std::vector<std::string> active_client_uids;
+    if (res.is_success()) {
+        for (auto& client : res.values[0]->items()) {
+            const auto& other_client_uuid = client.key();
+            auto cl = client.value();
+            uint64_t cas_ms = res.cas / 1000000;
+            uint64_t heartbeat_ms = parse_mutation_cas(cl[FIELD_HEARTBEAT].get<std::string>());
+            auto expires_ms = cl[FIELD_EXPIRES].get<uint64_t>();
+            uint64_t expired_period = cas_ms - heartbeat_ms;
+            bool has_expired = expired_period >= expires_ms;
+            if (has_expired && other_client_uuid != client_uuid_) {
+                expired_client_uids.push_back(other_client_uuid);
+            } else {
+                active_client_uids.push_back(other_client_uuid);
+            }
+        }
+    }
+    if (std::find(active_client_uids.begin(), active_client_uids.end(), client_uuid_) == active_client_uids.end()) {
+        active_client_uids.push_back(client_uuid_);
+    }
+    std::vector<mutate_in_spec> specs;
+    specs.push_back(mutate_in_spec::upsert(std::string(FIELD_CLIENTS) + "." + client_uuid_ + "." + FIELD_HEARTBEAT, "${Mutation.CAS}")
+                      .xattr()
+                      .create_path()
+                      .expand_macro());
+    specs.push_back(mutate_in_spec::upsert(std::string(FIELD_CLIENTS) + "." + client_uuid_ + "." + FIELD_EXPIRES,
+                                           config_.cleanup_window().count() / 2 + SAFETY_MARGIN_EXPIRY_MS)
+                      .xattr()
+                      .create_path());
+    for (auto idx = 0; idx < std::min(expired_client_uids.size(), (size_t)14); idx++) {
+        specs.push_back(mutate_in_spec::remove(std::string(FIELD_CLIENTS) + "." + expired_client_uids[idx]).xattr());
+    }
+    coll->mutate_in(CLIENT_RECORD_DOC_ID, specs);
+
+    std::sort(active_client_uids.begin(), active_client_uids.end());
+    size_t this_idx =
+      std::distance(active_client_uids.begin(), std::find(active_client_uids.begin(), active_client_uids.end(), client_uuid_));
+    std::list<std::string> atrs_to_handle;
+    auto all_atrs = atr_ids::all();
+    return { this_idx, active_client_uids.size() };
+}
+
 void
 tx::transactions_cleanup::lost_attempts_loop()
 {
-    auto names = cluster_.buckets();
-    std::list<std::thread> workers;
-    for (const auto& name : names) {
-        auto bkt = cluster_.bucket(name);
-        auto uid = client_uuid_;
-        auto config = config_;
-        auto col = bkt->default_collection();
-        workers.emplace_back([&]() {
-            while (running_) {
-                col->mutate_in(CLIENT_RECORD_DOC_ID,
-                               {
-                                 mutate_in_spec::upsert("dummy", nullptr).xattr(),
-                               });
-                auto res = col->lookup_in(CLIENT_RECORD_DOC_ID, { lookup_in_spec::get(FIELD_CLIENTS).xattr() });
-                std::vector<std::string> expired_client_uids;
-                std::vector<std::string> active_client_uids;
-                for (auto& client : res.values[0]->items()) {
-                    const auto& other_client_uid = client.key();
-                    auto cl = client.value();
-                    uint64_t cas_ms = res.cas / 1000000;
-                    uint64_t heartbeat_ms = parse_mutation_cas(cl[FIELD_HEARTBEAT].get<std::string>());
-                    auto expires_ms = cl[FIELD_EXPIRES].get<uint64_t>();
-                    uint64_t expired_period = cas_ms - heartbeat_ms;
-                    bool has_expired = expired_period >= expires_ms;
-                    if (has_expired && other_client_uid != uid) {
-                        expired_client_uids.push_back(other_client_uid);
-                    } else {
-                        active_client_uids.push_back(other_client_uid);
-                    }
-                }
-                if (std::find(active_client_uids.begin(), active_client_uids.end(), uid) == active_client_uids.end()) {
-                    active_client_uids.push_back(uid);
-                }
-                std::vector<mutate_in_spec> specs;
-                specs.push_back(mutate_in_spec::upsert(std::string(FIELD_CLIENTS) + "." + uid + "." + FIELD_HEARTBEAT, "${Mutation.CAS}")
-                                  .xattr()
-                                  .create_path()
-                                  .expand_macro());
-                specs.push_back(mutate_in_spec::upsert(std::string(FIELD_CLIENTS) + "." + uid + "." + FIELD_EXPIRES,
-                                                       config.cleanup_window().count() / 2 + SAFETY_MARGIN_EXPIRY_MS)
-                                  .xattr()
-                                  .create_path());
-                for (auto idx = 0; idx < std::min(expired_client_uids.size(), (size_t)14); idx++) {
-                    specs.push_back(mutate_in_spec::remove(std::string(FIELD_CLIENTS) + "." + expired_client_uids[idx]).xattr());
-                }
-                col->mutate_in(CLIENT_RECORD_DOC_ID, specs);
-
-                std::sort(active_client_uids.begin(), active_client_uids.end());
-                size_t this_idx =
-                  std::distance(active_client_uids.begin(), std::find(active_client_uids.begin(), active_client_uids.end(), uid));
-                std::list<std::string> atrs_to_handle;
-                auto all_atrs = atr_ids::all();
-                size_t num_active_clients = active_client_uids.size();
-                for (auto it = all_atrs.begin() + this_idx; it < all_atrs.end() + num_active_clients; it += num_active_clients) {
-                    // clean the ATR entry
-                    std::string atr_id = *it;
-                    col->mutate_in(atr_id, { mutate_in_spec::upsert("dummy", nullptr).xattr() });
-                    result atr = col->lookup_in(atr_id, { lookup_in_spec::get(ATR_FIELD_ATTEMPTS).xattr() });
-                    uint64_t cas_ms = atr.cas / 1000000;
-                    for (auto& kv : atr.values[0]->items()) {
-                        const auto& attempt_id = kv.key();
-                        auto entry = kv.value();
-                        std::string status = entry[ATR_FIELD_STATUS].get<std::string>();
-                        uint64_t start_ms = parse_mutation_cas(entry[ATR_FIELD_START_TIMESTAMP].get<std::string>());
-                        uint64_t commit_ms = parse_mutation_cas(entry[ATR_FIELD_START_COMMIT].get<std::string>());
-                        uint64_t complete_ms = parse_mutation_cas(entry[ATR_FIELD_TIMESTAMP_COMPLETE].get<std::string>());
-                        uint64_t rollback_ms = parse_mutation_cas(entry[ATR_FIELD_TIMESTAMP_ROLLBACK_START].get<std::string>());
-                        uint64_t rolledback_ms = parse_mutation_cas(entry[ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE].get<std::string>());
-                        int expires_after_ms = entry[ATR_FIELD_EXPIRES_AFTER_MSECS].get<int>();
-                        auto inserted_ids = entry[ATR_FIELD_DOCS_INSERTED];
-                        auto replaced_ids = entry[ATR_FIELD_DOCS_REPLACED];
-                        auto removed_ids = entry[ATR_FIELD_DOCS_REMOVED];
-
-                        const uint64_t safety_margin_ms = 2500;
-                        bool has_expired = false;
-                        if (start_ms > 0) {
-                            has_expired = (cas_ms - start_ms) > (expires_after_ms + safety_margin_ms);
-                        }
-                        if (!has_expired) {
-                            continue;
-                        }
-                        if (status == "COMMITTED") {
-                            for (auto& id : inserted_ids) {
-                                result doc = col->lookup_in(id.get<std::string>(),
-                                                            {
-                                                              lookup_in_spec::get(ATR_ID).xattr(),
-                                                              lookup_in_spec::get(TRANSACTION_ID).xattr(),
-                                                              lookup_in_spec::get(ATTEMPT_ID).xattr(),
-                                                              lookup_in_spec::get(STAGED_DATA).xattr(),
-                                                              lookup_in_spec::get(ATR_BUCKET_NAME).xattr(),
-                                                              lookup_in_spec::get(ATR_COLL_NAME).xattr(),
-                                                              lookup_in_spec::get(TRANSACTION_RESTORE_PREFIX_ONLY).xattr(),
-                                                              lookup_in_spec::get(TYPE).xattr(),
-                                                              lookup_in_spec::get("$document").xattr(),
-                                                              lookup_in_spec::fulldoc_get(),
-                                                            });
-                            }
-                        } else if (status == "ABORTED") {
-                            // TODO:
-                        } else if (status == "PENDING") {
-                            // TODO:
-                        } else {
-                            // TODO:
-                        }
-                    }
-                }
-
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    while (interruptable_wait(config_.cleanup_window())) {
+        auto names = cluster_.buckets();
+        spdlog::info("creating {} tasks to clean buckets", names.size());
+        // TODO consider std::async here.
+        std::list<std::thread> workers;
+        for (const auto& name : names) {
+            workers.emplace_back([&]() { clean_lost_attempts_in_bucket(name); });
+        }
+        for (auto& thr : workers) {
+            if (thr.joinable()) {
+                thr.join();
             }
-        });
-    }
-    for (auto& thr : workers) {
-        thr.join();
+        }
+        spdlog::info("lost txn loops complete, scheduled to run again in {} ms", config_.cleanup_window().count());
     }
 }
+
 void
 tx::transactions_cleanup::force_cleanup_entry(atr_cleanup_entry& entry, transactions_cleanup_attempt& attempt)
 {
     try {
-        entry.clean(*this, &attempt);
+        entry.clean();
         attempt.success(true);
 
     } catch (const std::runtime_error& e) {
@@ -221,7 +231,7 @@ tx::transactions_cleanup::force_cleanup_attempts(std::vector<transactions_cleanu
         }
         results.emplace_back(*entry);
         try {
-            entry->clean(*this, &(results.back()));
+            entry->clean();
             results.back().success(true);
         } catch (std::runtime_error& e) {
             results.back().success(false);
@@ -233,32 +243,36 @@ void
 tx::transactions_cleanup::attempts_loop()
 {
     spdlog::info("cleanup attempts loop starting...");
-    while (running_) {
-        auto entry = atr_queue_.pop();
-        if (entry) {
-            spdlog::trace("beginning cleanup on {}", *entry);
-            try {
-                entry->clean(*this);
-            } catch (const std::runtime_error& e) {
-                // TODO: perhaps in config later?
-                auto backoff_duration = std::chrono::milliseconds(10000);
-                entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
-                spdlog::info("got error '{}' cleaning {}, will retry in {} seconds",
-                             e.what(),
-                             entry,
-                             std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
-                atr_queue_.push(*entry);
-            } catch (...) {
-                // TODO: perhaps in config later?
-                auto backoff_duration = std::chrono::milliseconds(10000);
-                entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
-                spdlog::info("got error cleaning {}, will retry in {} seconds",
-                             entry,
-                             std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
-                atr_queue_.push(*entry);
+    while (interruptable_wait(cleanup_loop_delay_)) {
+        while (auto entry = atr_queue_.pop()) {
+            if (!running_.load()) {
+                spdlog::info("attempts_loop stopping - {} entries on queue", atr_queue_.size());
+                return;
+            }
+            if (entry) {
+                spdlog::trace("beginning cleanup on {}", *entry);
+                try {
+                    entry->clean();
+                } catch (const std::runtime_error& e) {
+                    // TODO: perhaps in config later?
+                    auto backoff_duration = std::chrono::milliseconds(10000);
+                    entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
+                    spdlog::info("got error '{}' cleaning {}, will retry in {} seconds",
+                                 e.what(),
+                                 entry,
+                                 std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
+                    atr_queue_.push(*entry);
+                } catch (...) {
+                    // TODO: perhaps in config later?
+                    auto backoff_duration = std::chrono::milliseconds(10000);
+                    entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
+                    spdlog::info("got error cleaning {}, will retry in {} seconds",
+                                 entry,
+                                 std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
+                    atr_queue_.push(*entry);
+                }
             }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     spdlog::info("attempts_loop stopping - {} entries on queue", atr_queue_.size());
 }
@@ -277,17 +291,25 @@ tx::transactions_cleanup::add_attempt(attempt_context& ctx)
         spdlog::trace("not cleaning client attempts, ignoring {}", ctx.id());
     }
 }
+
 void
 tx::transactions_cleanup::close()
 {
-    running_ = false;
-    // TODO: re-enable after fixing the loop
-    // lost_attempts_thr.join();
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        running_ = false;
+        cv_.notify_all();
+    }
     if (cleanup_thr_.joinable()) {
         cleanup_thr_.join();
-        spdlog::info("cleanup closed");
+        spdlog::info("cleanup attempt thread closed");
+    }
+    if (lost_attempts_thr_.joinable()) {
+        lost_attempts_thr_.join();
+        spdlog::info("lost attempts thread closed");
     }
 }
+
 tx::transactions_cleanup::~transactions_cleanup()
 {
     close();

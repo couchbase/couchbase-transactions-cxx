@@ -32,74 +32,101 @@ tx::compare_atr_entries::operator()(atr_cleanup_entry& lhs, atr_cleanup_entry& r
 {
     return lhs.min_start_time_ > rhs.min_start_time_;
 }
+// wait a bit after an attempt is expired before cleaning it.
+const uint32_t tx::atr_cleanup_entry::safety_margin_ms_ = 2500;
+
+tx::atr_cleanup_entry::atr_cleanup_entry(const atr_entry& entry,
+                                         std::shared_ptr<couchbase::collection> atr_coll,
+                                         const transactions_cleanup& cleanup)
+  : atr_id_(entry.atr_id())
+  , attempt_id_(entry.attempt_id())
+  , check_if_expired_(true)
+  , atr_collection_(atr_coll)
+  , atr_entry_(&entry)
+  , cleanup_(&cleanup)
+{
+}
 
 tx::atr_cleanup_entry::atr_cleanup_entry(attempt_context& ctx)
   : atr_id_(ctx.atr_id())
   , attempt_id_(ctx.id())
   , min_start_time_(std::chrono::system_clock::now())
   , check_if_expired_(false)
+  , atr_entry_(nullptr)
+  , cleanup_(&ctx.parent_->cleanup())
 {
     // add expiration time to min start time - see java impl.
     min_start_time_ += std::chrono::duration_cast<std::chrono::milliseconds>(ctx.config_.expiration_time());
     // need the collection to be safe to use in cleanup thread, so get it from
     // the cleanup's cluster.
-    atr_collection_ = ctx.parent_->cleanup().cluster().bucket(ctx.atr_collection_->bucket_name())->collection(ctx.atr_collection_->name());
+    atr_collection_ = cleanup_->cluster().bucket(ctx.atr_collection_->bucket_name())->collection(ctx.atr_collection_->name());
 }
 
 void
-tx::atr_cleanup_entry::clean(const transactions_cleanup& cleanup, transactions_cleanup_attempt* result)
+tx::atr_cleanup_entry::clean(transactions_cleanup_attempt* result)
 {
     spdlog::info("cleaning {}", *this);
-    // get atr entry
-    auto atr = tx::active_transaction_record::get_atr(atr_collection_, atr_id_);
-    if (atr) {
-        // now get the specific attempt
-        auto it =
-          std::find_if(atr->entries().begin(), atr->entries().end(), [&](const atr_entry& e) { return e.attempt_id() == attempt_id_; });
-        if (it != atr->entries().end()) {
-            auto& entry = *it;
-            if (result) {
-                result->state(entry.state());
+    // get atr entry if needed
+    if (nullptr == atr_entry_) {
+        auto atr = tx::active_transaction_record::get_atr(atr_collection_, atr_id_);
+        if (atr) {
+            // now get the specific attempt
+            auto it =
+              std::find_if(atr->entries().begin(), atr->entries().end(), [&](const atr_entry& e) { return e.attempt_id() == attempt_id_; });
+            if (it != atr->entries().end()) {
+                atr_entry_ = &(*it);
+            } else {
+                spdlog::trace("could not find attempt {}, nothing to clean", attempt_id_);
+                return;
             }
-            cleanup_docs(entry, cleanup);
-            cleanup.config().cleanup_hooks().on_cleanup_docs_completed();
-            cleanup_entry(entry, cleanup);
-            cleanup.config().cleanup_hooks().on_cleanup_completed();
+        } else {
+            spdlog::trace("could not find atr {} in collection {}, nothing to clean", atr_id_, atr_collection_->name());
+            return;
         }
     }
+    if (check_if_expired_ && !atr_entry_->has_expired(safety_margin_ms_)) {
+        spdlog::info("{} not expired, nothing to clean", *this);
+        return;
+    }
+    if (result) {
+        result->state(atr_entry_->state());
+    }
+    cleanup_docs();
+    cleanup_->config().cleanup_hooks().on_cleanup_docs_completed();
+    cleanup_entry();
+    cleanup_->config().cleanup_hooks().on_cleanup_completed();
     spdlog::info("cleaned {}", *this);
     return;
 }
 void
-tx::atr_cleanup_entry::cleanup_docs(const atr_entry& entry, const transactions_cleanup& cleanup)
+tx::atr_cleanup_entry::cleanup_docs()
 {
-    switch (entry.state()) {
+    switch (atr_entry_->state()) {
         case tx::attempt_state::COMMITTED:
-            commit_docs(entry.inserted_ids(), cleanup);
-            commit_docs(entry.replaced_ids(), cleanup);
-            remove_docs_staged_for_removal(entry.removed_ids(), cleanup);
-            // half-finished commit
+            commit_docs(atr_entry_->inserted_ids());
+            commit_docs(atr_entry_->replaced_ids());
+            remove_docs_staged_for_removal(atr_entry_->removed_ids());
+        // half-finished commit
         case tx::attempt_state::ABORTED:
             // half finished rollback
-            remove_docs(entry.inserted_ids(), cleanup);
-            remove_txn_links(entry.replaced_ids(), cleanup);
-            remove_txn_links(entry.removed_ids(), cleanup);
+            remove_docs(atr_entry_->inserted_ids());
+            remove_txn_links(atr_entry_->replaced_ids());
+            remove_txn_links(atr_entry_->removed_ids());
         default:
-            spdlog::trace("attempt in {}, nothing to do in cleanup_docs", attempt_state_name(entry.state()));
+            spdlog::trace("attempt in {}, nothing to do in cleanup_docs", attempt_state_name(atr_entry_->state()));
     }
 }
 
 void
 tx::atr_cleanup_entry::do_per_doc(std::vector<tx::doc_record> docs,
                                   bool require_crc_to_match,
-                                  const transactions_cleanup& cleanup,
                                   const std::function<void(transaction_document&, bool)>& call)
 {
     for (auto& dr : docs) {
-        auto collection = cleanup.cluster().bucket(dr.bucket_name())->collection(dr.collection_name());
+        auto collection = cleanup_->cluster().bucket(dr.bucket_name())->collection(dr.collection_name());
         try {
             couchbase::result res;
-            cleanup.config().cleanup_hooks().before_doc_get(dr.id());
+            cleanup_->config().cleanup_hooks().before_doc_get(dr.id());
             wrap_collection_call(res, [&](result& r) {
                 r = collection->lookup_in(dr.id(),
                                           { lookup_in_spec::get(ATR_ID).xattr(),
@@ -164,13 +191,13 @@ durability(const tx::transaction_config& config)
 }
 
 void
-tx::atr_cleanup_entry::commit_docs(boost::optional<std::vector<tx::doc_record>> docs, const transactions_cleanup& cleanup)
+tx::atr_cleanup_entry::commit_docs(boost::optional<std::vector<tx::doc_record>> docs)
 {
     if (docs) {
-        do_per_doc(*docs, true, cleanup, [&](tx::transaction_document& doc, bool is_deleted) {
+        do_per_doc(*docs, true, [&](tx::transaction_document& doc, bool is_deleted) {
             if (doc.links().has_staged_content()) {
                 nlohmann::json content = doc.links().staged_content<nlohmann::json>();
-                cleanup.config().cleanup_hooks().before_commit_doc(doc.id());
+                cleanup_->config().cleanup_hooks().before_commit_doc(doc.id());
                 if (is_deleted) {
                     doc.collection_ref().insert(doc.id(), doc.content<nlohmann::json>());
                 } else {
@@ -189,11 +216,11 @@ tx::atr_cleanup_entry::commit_docs(boost::optional<std::vector<tx::doc_record>> 
     }
 }
 void
-tx::atr_cleanup_entry::remove_docs(boost::optional<std::vector<tx::doc_record>> docs, const transactions_cleanup& cleanup)
+tx::atr_cleanup_entry::remove_docs(boost::optional<std::vector<tx::doc_record>> docs)
 {
     if (docs) {
-        do_per_doc(*docs, true, cleanup, [&](transaction_document& doc, bool is_deleted) {
-            cleanup.config().cleanup_hooks().before_remove_doc(doc.id());
+        do_per_doc(*docs, true, [&](transaction_document& doc, bool is_deleted) {
+            cleanup_->config().cleanup_hooks().before_remove_doc(doc.id());
             if (is_deleted) {
                 doc.collection_ref().mutate_in(doc.id(),
                                                { mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() },
@@ -207,13 +234,12 @@ tx::atr_cleanup_entry::remove_docs(boost::optional<std::vector<tx::doc_record>> 
 }
 
 void
-tx::atr_cleanup_entry::remove_docs_staged_for_removal(boost::optional<std::vector<tx::doc_record>> docs,
-                                                      const transactions_cleanup& cleanup)
+tx::atr_cleanup_entry::remove_docs_staged_for_removal(boost::optional<std::vector<tx::doc_record>> docs)
 {
     if (docs) {
-        do_per_doc(*docs, true, cleanup, [&](transaction_document& doc, bool) {
+        do_per_doc(*docs, true, [&](transaction_document& doc, bool) {
             if (doc.links().is_document_being_removed()) {
-                cleanup.config().cleanup_hooks().before_remove_doc_staged_for_removal(doc.id());
+                cleanup_->config().cleanup_hooks().before_remove_doc_staged_for_removal(doc.id());
                 doc.collection_ref().remove(doc.id(), remove_options().cas(doc.cas()));
                 spdlog::trace("remove_docs_staged_for_removal removed doc {}", doc.id());
             } else {
@@ -224,18 +250,18 @@ tx::atr_cleanup_entry::remove_docs_staged_for_removal(boost::optional<std::vecto
 }
 
 void
-tx::atr_cleanup_entry::remove_txn_links(boost::optional<std::vector<tx::doc_record>> docs, const transactions_cleanup& cleanup)
+tx::atr_cleanup_entry::remove_txn_links(boost::optional<std::vector<tx::doc_record>> docs)
 {
     if (docs) {
-        do_per_doc(*docs, false, cleanup, [&](transaction_document& doc, bool) {
-            cleanup.config().cleanup_hooks().before_remove_links(doc.id());
+        do_per_doc(*docs, false, [&](transaction_document& doc, bool) {
+            cleanup_->config().cleanup_hooks().before_remove_links(doc.id());
             doc.collection_ref().mutate_in(
               doc.id(),
               {
                 mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
                 mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
               },
-              mutate_in_options().durability(durability(cleanup.config())).access_deleted(true).cas(doc.cas()));
+              mutate_in_options().durability(durability(cleanup_->config())).access_deleted(true).cas(doc.cas()));
             spdlog::trace("remove_txn_links removed links for doc {}", doc.id());
         });
     }
@@ -252,10 +278,10 @@ tx::atr_cleanup_entry::wrap_collection_call(result& res, std::function<void(resu
 }
 
 void
-tx::atr_cleanup_entry::cleanup_entry(const atr_entry& entry, const transactions_cleanup& cleanup)
+tx::atr_cleanup_entry::cleanup_entry()
 {
     try {
-        cleanup.config().cleanup_hooks().before_atr_remove();
+        cleanup_->config().cleanup_hooks().before_atr_remove();
         couchbase::result res;
         auto coll = atr_collection_;
         wrap_collection_call(res, [&](result& r) {

@@ -57,31 +57,33 @@ namespace transactions
         std::shared_ptr<couchbase::collection> atr_collection_;
         std::chrono::time_point<std::chrono::system_clock> min_start_time_;
         bool check_if_expired_;
+        const transactions_cleanup* cleanup_;
+        static const uint32_t safety_margin_ms_;
+
+        // we may construct from an atr_entry -- if so hold on to it and avoid lookup later.
+        const atr_entry* atr_entry_;
+
         friend class compare_atr_entries;
 
-        void cleanup_docs(const atr_entry& entry, const transactions_cleanup& cleanup);
-        void cleanup_entry(const atr_entry& entry, const transactions_cleanup& cleanup);
-        void commit_docs(boost::optional<std::vector<doc_record>> docs, const transactions_cleanup& cleanup);
-        void remove_docs(boost::optional<std::vector<doc_record>> docs, const transactions_cleanup& cleanup);
-        void remove_docs_staged_for_removal(boost::optional<std::vector<doc_record>> docs, const transactions_cleanup& cleanup);
-        void remove_txn_links(boost::optional<std::vector<doc_record>> docs, const transactions_cleanup& cleanup);
+        void cleanup_docs();
+        void cleanup_entry();
+        void commit_docs(boost::optional<std::vector<doc_record>> docs);
+        void remove_docs(boost::optional<std::vector<doc_record>> docs);
+        void remove_docs_staged_for_removal(boost::optional<std::vector<doc_record>> docs);
+        void remove_txn_links(boost::optional<std::vector<doc_record>> docs);
         // TODO: consolidate with attempt_context version of this
         void wrap_collection_call(couchbase::result& res, std::function<void(couchbase::result&)> call);
         void do_per_doc(std::vector<doc_record> docs,
                         bool require_crc_to_match,
-                        const transactions_cleanup& cleanup,
                         const std::function<void(transaction_document&, bool)>& call);
 
       public:
         explicit atr_cleanup_entry(attempt_context& ctx);
-        atr_cleanup_entry(const std::string& atr_id, const std::string& attempt_id, std::shared_ptr<couchbase::collection> atr_collection)
-          : atr_id_(atr_id)
-          , attempt_id_(attempt_id)
-          , atr_collection_(atr_collection)
-          , min_start_time_(std::chrono::system_clock::now())
-        {
-        }
-        void clean(const transactions_cleanup& cleanup, transactions_cleanup_attempt* result = nullptr);
+        explicit atr_cleanup_entry(const atr_entry& entry,
+                                   std::shared_ptr<couchbase::collection> atr_coll,
+                                   const transactions_cleanup& cleanup);
+
+        void clean(transactions_cleanup_attempt* result = nullptr);
         bool ready() const;
 
         template<typename OStream>

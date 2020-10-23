@@ -16,16 +16,16 @@
 
 #pragma once
 
+#include <chrono>
 #include <couchbase/client/bucket.hxx>
 #include <couchbase/client/lookup_in_spec.hxx>
 #include <couchbase/client/mutate_in_spec.hxx>
+#include <couchbase/client/options.hxx>
 #include <couchbase/client/result.hxx>
 #include <couchbase/support.hxx>
-#include <couchbase/client/options.hxx>
 #include <string>
-#include <vector>
 #include <thread>
-#include <chrono>
+#include <vector>
 
 namespace couchbase
 {
@@ -83,6 +83,11 @@ class collection
     result get(const std::string& id, const get_options& opts = get_options());
 
     /**
+     *
+     */
+    result exists(const std::string& id, const exists_options& opts = exists_options());
+
+    /**
      * @brief Upsert document
      *
      * Inserts a new document or replaces an existing document, with the Content given.
@@ -96,7 +101,7 @@ class collection
     template<typename Content>
     result upsert(const std::string& id, const Content& value, const upsert_options& opts = upsert_options())
     {
-        return wrap_call_for_retry([&]()->result {
+        return wrap_call_for_retry([&]() -> result {
             return store(store_operation::upsert, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none));
         });
     }
@@ -115,9 +120,8 @@ class collection
     template<typename Content>
     result insert(const std::string& id, const Content& value, const insert_options& opts = insert_options())
     {
-        return wrap_call_for_retry([&]()->result {
-            return store(store_operation::insert, id, value, 0, opts.durability().value_or(durability_level::none));
-        });
+        return wrap_call_for_retry(
+          [&]() -> result { return store(store_operation::insert, id, value, 0, opts.durability().value_or(durability_level::none)); });
     }
 
     /**
@@ -135,7 +139,7 @@ class collection
     template<typename Content>
     result replace(const std::string& id, const Content& value, const replace_options& opts = replace_options())
     {
-        return wrap_call_for_retry([&]()->result {
+        return wrap_call_for_retry([&]() -> result {
             return store(store_operation::replace, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none));
         });
     }

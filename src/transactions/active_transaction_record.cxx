@@ -53,7 +53,7 @@ namespace transactions
                                                                            nlohmann::json& attempts)
     {
         std::vector<atr_entry> entries;
-        entries.resize(attempts.size());
+        entries.reserve(attempts.size());
         for (auto& element : attempts.items()) {
             auto& val = element.value();
             entries.emplace_back(collection->bucket_name(),

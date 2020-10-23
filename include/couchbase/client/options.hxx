@@ -167,6 +167,10 @@ class get_options : public common_options<get_options>
     }
 };
 
+class exists_options : public common_options<exists_options>
+{
+};
+
 class upsert_options : public common_mutate_options<upsert_options>
 {
 };
