@@ -56,13 +56,17 @@ byteswap64(uint64_t val)
 }
 
 /**
- * ${Mutation.CAS} is written by kvengine with 'macroToString(htonll(info.cas))'.  Discussed this with KV team and, though there is
- * consensus that this is off (htonll is definitely wrong, and a string is an odd choice), there are clients (SyncGateway) that consume the
- * current string, so it can't be changed.  Note that only little-endian servers are supported for Couchbase, so the 8 byte long inside the
- * string will always be little-endian ordered.
+ * ${Mutation.CAS} is written by kvengine with
+ * 'macroToString(htonll(info.cas))'.  Discussed this with KV team and, though
+ * there is consensus that this is off (htonll is definitely wrong, and a string
+ * is an odd choice), there are clients (SyncGateway) that consume the current
+ * string, so it can't be changed.  Note that only little-endian servers are
+ * supported for Couchbase, so the 8 byte long inside the string will always be
+ * little-endian ordered.
  *
  * Looks like: "0x000058a71dd25c15"
- * Want:        0x155CD21DA7580000   (1539336197457313792 in base10, an epoch time in millionths of a second)
+ * Want:        0x155CD21DA7580000   (1539336197457313792 in base10, an epoch
+ * time in millionths of a second)
  */
 static uint64_t
 parse_mutation_cas(const std::string& cas)
@@ -115,8 +119,8 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
             if (res.value->get<bool>()) {
                 auto atr = active_transaction_record::get_atr(coll, atr_id);
                 if (atr) {
-                    // ok, loop through the attempts and clean them all.  The entry will check if expired, nothing
-                    // much to do here except call clean.
+                    // ok, loop through the attempts and clean them all.  The entry will
+                    // check if expired, nothing much to do here except call clean.
                     for (const auto& entry : atr->entries()) {
                         atr_cleanup_entry cleanup_entry(entry, coll, *this);
                         try {
@@ -189,6 +193,7 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
 void
 tx::transactions_cleanup::lost_attempts_loop()
 {
+    spdlog::info("starting lost attempts loop");
     while (interruptable_wait(config_.cleanup_window())) {
         auto names = cluster_.buckets();
         spdlog::info("creating {} tasks to clean buckets", names.size());
@@ -210,7 +215,7 @@ void
 tx::transactions_cleanup::force_cleanup_entry(atr_cleanup_entry& entry, transactions_cleanup_attempt& attempt)
 {
     try {
-        entry.clean();
+        entry.clean(&attempt);
         attempt.success(true);
 
     } catch (const std::runtime_error& e) {
@@ -231,7 +236,7 @@ tx::transactions_cleanup::force_cleanup_attempts(std::vector<transactions_cleanu
         }
         results.emplace_back(*entry);
         try {
-            entry->clean();
+            entry->clean(&results.back());
             results.back().success(true);
         } catch (std::runtime_error& e) {
             results.back().success(false);

@@ -25,8 +25,8 @@
 
 namespace tx = couchbase::transactions;
 
-// NOTE: priority queue outputs largest to smallest - since we want the least recent
-// statr time first, this returns true if lhs > rhs
+// NOTE: priority queue outputs largest to smallest - since we want the least
+// recent statr time first, this returns true if lhs > rhs
 bool
 tx::compare_atr_entries::operator()(atr_cleanup_entry& lhs, atr_cleanup_entry& rhs)
 {
@@ -34,6 +34,19 @@ tx::compare_atr_entries::operator()(atr_cleanup_entry& lhs, atr_cleanup_entry& r
 }
 // wait a bit after an attempt is expired before cleaning it.
 const uint32_t tx::atr_cleanup_entry::safety_margin_ms_ = 2500;
+
+tx::atr_cleanup_entry::atr_cleanup_entry(const std::string& atr_id,
+                                         const std::string& attempt_id,
+                                         std::shared_ptr<couchbase::collection> atr_coll,
+                                         const transactions_cleanup& cleanup)
+  : atr_id_(atr_id)
+  , attempt_id_(attempt_id)
+  , check_if_expired_(false)
+  , atr_collection_(atr_coll)
+  , atr_entry_(nullptr)
+  , cleanup_(&cleanup)
+{
+}
 
 tx::atr_cleanup_entry::atr_cleanup_entry(const atr_entry& entry,
                                          std::shared_ptr<couchbase::collection> atr_coll,
@@ -146,7 +159,9 @@ tx::atr_cleanup_entry::do_per_doc(std::vector<tx::doc_record> docs,
             transaction_document doc = transaction_document::create_from(*collection, dr.id(), res, transaction_document_status::NORMAL);
             // now lets decide if we call the function or not
             if (!(doc.links().has_staged_content() || doc.links().is_document_being_removed()) || !doc.links().has_staged_write()) {
-                spdlog::trace("document {} has no staged content - assuming it was committed and skipping", dr.id());
+                spdlog::trace("document {} has no staged content - assuming it was "
+                              "committed and skipping",
+                              dr.id());
                 continue;
             } else if (doc.links().staged_attempt_id() != attempt_id_) {
                 spdlog::trace("document {} staged for different attempt {}, skipping", dr.id(), doc.links().staged_attempt_id());
@@ -243,7 +258,9 @@ tx::atr_cleanup_entry::remove_docs_staged_for_removal(boost::optional<std::vecto
                 doc.collection_ref().remove(doc.id(), remove_options().cas(doc.cas()));
                 spdlog::trace("remove_docs_staged_for_removal removed doc {}", doc.id());
             } else {
-                spdlog::trace("remove_docs_staged_for_removal found document {} not marked for removal, skipping", doc.id());
+                spdlog::trace("remove_docs_staged_for_removal found document {} not "
+                              "marked for removal, skipping",
+                              doc.id());
             }
         });
     }

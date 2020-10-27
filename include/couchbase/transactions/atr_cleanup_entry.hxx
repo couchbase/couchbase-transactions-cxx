@@ -60,7 +60,8 @@ namespace transactions
         const transactions_cleanup* cleanup_;
         static const uint32_t safety_margin_ms_;
 
-        // we may construct from an atr_entry -- if so hold on to it and avoid lookup later.
+        // we may construct from an atr_entry -- if so hold on to it and avoid lookup
+        // later.
         const atr_entry* atr_entry_;
 
         friend class compare_atr_entries;
@@ -81,6 +82,11 @@ namespace transactions
         explicit atr_cleanup_entry(attempt_context& ctx);
         explicit atr_cleanup_entry(const atr_entry& entry,
                                    std::shared_ptr<couchbase::collection> atr_coll,
+                                   const transactions_cleanup& cleanup);
+
+        explicit atr_cleanup_entry(const std::string& atr_id,
+                                   const std::string& attempt_id,
+                                   std::shared_ptr<couchbase::collection> atr_collection,
                                    const transactions_cleanup& cleanup);
 
         void clean(transactions_cleanup_attempt* result = nullptr);
