@@ -90,7 +90,8 @@ namespace transactions
                                     document.links().revid_pre_txn(),
                                     document.links().exptime_pre_txn(),
                                     document.links().crc32_of_staging(),
-                                    document.links().op());
+                                    document.links().op(),
+                                    document.links().is_deleted());
 
             return transaction_document(
               document.id(), content, document.cas(), document.collection_ref(), links, status, document.metadata());
@@ -181,7 +182,8 @@ namespace transactions
                                     revid_pre_txn,
                                     exptime_pre_txn,
                                     crc32_of_staging,
-                                    op);
+                                    op,
+                                    res.is_deleted);
             document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc, crc32_from_doc);
             return transaction_document(id, content, res.cas, collection, links, status, boost::make_optional(md));
         }

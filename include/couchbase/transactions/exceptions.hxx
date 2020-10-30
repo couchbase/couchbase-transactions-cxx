@@ -25,6 +25,15 @@ namespace couchbase
 {
 namespace transactions
 {
+    class retry_operation : public std::runtime_error
+    {
+      public:
+        retry_operation(const std::string& what)
+          : std::runtime_error(what)
+        {
+        }
+    };
+
     enum error_class {
         FAIL_HARD = 0,
         FAIL_OTHER,
@@ -58,7 +67,8 @@ namespace transactions
         explicit client_error(error_class ec, const std::string& what)
           : runtime_error(what)
           , ec_(ec)
-          , rc_(0) // only slightly better than uninitialized.  Consider boost::optional<uint32_t>
+          , rc_(0) // only slightly better than uninitialized.  Consider
+                   // boost::optional<uint32_t>
         {
         }
         error_class ec() const
@@ -115,9 +125,9 @@ namespace transactions
 
     /** transaction_operation_failed
      *
-     * All exceptions within a transaction are, or are converted to an exception derived
-     * from this.  The transaciton logic then consumes them to decide to retry, or rollback
-     * the transaction.
+     * All exceptions within a transaction are, or are converted to an exception
+     * derived from this.  The transaciton logic then consumes them to decide to
+     * retry, or rollback the transaction.
      */
     class transaction_operation_failed : public std::runtime_error
     {
@@ -220,10 +230,12 @@ namespace transactions
         /**
          * Used only in testing: injects an error that will be handled as FAIL_HARD.
          *
-         * This is not an error class the transaction library would ever raise voluntarily.  It is designed to simulate an application crash
-         * or similar.  The transaction will not rollback and will stop abruptly.
+         * This is not an error class the transaction library would ever raise
+         * voluntarily.  It is designed to simulate an application crash or similar. The
+         * transaction will not rollback and will stop abruptly.
          *
-         * However, for testing purposes, a TransactionFailed will still be raised, correct in all respects including the attempts field.
+         * However, for testing purposes, a TransactionFailed will still be raised,
+         * correct in all respects including the attempts field.
          */
         class test_fail_hard : public client_error
         {
@@ -235,9 +247,11 @@ namespace transactions
         };
 
         /**
-         * Used only in testing: injects an error that will be handled as FAIL_AMBIGUOUS.
+         * Used only in testing: injects an error that will be handled as
+         * FAIL_AMBIGUOUS.
          *
-         * E.g. either the server or SDK raised an error indicating the operation was ambiguously successful.
+         * E.g. either the server or SDK raised an error indicating the operation was
+         * ambiguously successful.
          */
         class test_fail_ambiguous : public client_error
         {
@@ -249,9 +263,11 @@ namespace transactions
         };
 
         /**
-         * Used only in testing: injects an error that will be handled as FAIL_TRANSIENT.
+         * Used only in testing: injects an error that will be handled as
+         * FAIL_TRANSIENT.
          *
-         * E.g. a transient server error that could be recovered with a retry of either the operation or the transaction.
+         * E.g. a transient server error that could be recovered with a retry of either
+         * the operation or the transaction.
          */
         class test_fail_transient : public client_error
         {

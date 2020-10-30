@@ -119,15 +119,16 @@ tx::staged_mutation_queue::commit(attempt_context& ctx)
 }
 
 void
-tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& item, bool ambiguity_resolution_mode)
+tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& item, bool ambiguity_resolution_mode, bool cas_zero_mode)
 {
+    spdlog::trace("commit doc {}", item.doc().id());
     try {
         ctx.check_expiry_during_commit_or_rollback(STAGE_COMMIT_DOC, boost::optional<const std::string>(item.doc().id()));
         ctx.hooks_.before_doc_committed(&ctx, item.doc().id());
 
         // move staged content into doc
         result res;
-        if (item.type() == staged_mutation_type::INSERT) {
+        if (item.type() == staged_mutation_type::INSERT && !cas_zero_mode) {
             ctx.wrap_collection_call(
               res, [&](result& r) { r = item.doc().collection_ref().insert(item.doc().id(), item.doc().content<nlohmann::json>()); });
         } else {
@@ -137,7 +138,7 @@ tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& ite
                                                             mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
                                                             mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
                                                           },
-                                                          mutate_in_options().cas(item.doc().cas()));
+                                                          mutate_in_options().cas(cas_zero_mode ? 0 : item.doc().cas()));
             });
         }
         // TODO: mutation tokens
@@ -160,7 +161,7 @@ tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& ite
                     throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
                 }
                 ctx.overall_.retry_delay(ctx.config_);
-                return commit_doc(ctx, item, true);
+                return commit_doc(ctx, item, true, true);
             default:
                 throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
         }

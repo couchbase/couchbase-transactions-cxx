@@ -55,10 +55,21 @@ namespace transactions
             return type_;
         }
 
+        void type(staged_mutation_type& type)
+        {
+            type_ = type;
+        }
+
         template<typename Content>
         const Content& content() const
         {
             return content_;
+        }
+
+        template<typename Content>
+        void content(Content& content)
+        {
+            content_ = content;
         }
     };
 
@@ -67,7 +78,7 @@ namespace transactions
       private:
         std::mutex mutex_;
         std::vector<staged_mutation> queue_;
-        void commit_doc(attempt_context& ctx, staged_mutation& item, bool ambiguity_resolution_mode = false);
+        void commit_doc(attempt_context& ctx, staged_mutation& item, bool ambiguity_resolution_mode = false, bool cas_zero_mode = false);
         void remove_doc(attempt_context& ctx, staged_mutation& item);
 
       public:

@@ -63,6 +63,19 @@ namespace transactions
                                          const transaction_document& document,
                                          const nlohmann::json& content);
 
+        template<typename R>
+        R retry_op(std::function<R()> func)
+        {
+            do {
+                try {
+                    return func();
+                } catch (const retry_operation& e) {
+                    overall_.retry_delay(config_);
+                }
+            } while (true);
+            assert(false && "retry should never reach here");
+        }
+
       public:
         attempt_context(transactions* parent, transaction_context& transaction_ctx, const transaction_config& config);
 
@@ -106,7 +119,8 @@ namespace transactions
         transaction_document replace(std::shared_ptr<collection> collection, const transaction_document& document, const Content& content)
         {
             nlohmann::json json_content = content;
-            return replace_raw(collection, document, json_content);
+            return retry_op<transaction_document>(
+              [&]() -> transaction_document { return replace_raw(collection, document, json_content); });
         }
 
         /**
@@ -128,7 +142,7 @@ namespace transactions
         transaction_document insert(std::shared_ptr<collection> collection, const std::string& id, const Content& content)
         {
             nlohmann::json json_content = content;
-            return insert_raw(collection, id, json_content);
+            return retry_op<transaction_document>([&]() -> transaction_document { return insert_raw(collection, id, json_content); });
         }
         /**
          * Removes the specified document, using the document's last TransactionDocument#cas
@@ -268,7 +282,7 @@ namespace transactions
         transaction_document create_staged_insert(std::shared_ptr<collection> collection,
                                                   const std::string& id,
                                                   const nlohmann::json& content,
-                                                  uint64_t cas = 0);
+                                                  uint64_t& cas);
     };
 } // namespace transactions
 } // namespace couchbase

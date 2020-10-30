@@ -341,6 +341,12 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
             throw std::runtime_error(std::string("failed to mutate (sched) sub-document: ") + lcb_strerror_short(rc));
         }
         lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
+        // HACK!  LCB return LCB_ERR_DOCUMENT_EXISTS when it should return
+        // LCB_ERR_CAS_MISMATCH, for mutate_in.  For now, hack in a fix till LCB
+        // is fixed (CCBC-1323)
+        if (res.rc == LCB_ERR_DOCUMENT_EXISTS) {
+            res.rc = LCB_ERR_CAS_MISMATCH;
+        }
         return res;
     });
 }

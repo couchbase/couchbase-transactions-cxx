@@ -86,13 +86,31 @@ namespace transactions
             spdlog::trace("about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
             wrap_collection_call(res, [&](couchbase::result& r) {
                 r = collection->mutate_in(
-                  document.id(), specs, mutate_in_options().cas(document.cas()).access_deleted(true).durability(durability(config_)));
+                  document.id(),
+                  specs,
+                  mutate_in_options().cas(document.cas()).access_deleted(document.links().is_deleted()).durability(durability(config_)));
             });
             hooks_.after_staged_replace_complete(this, document.id());
             transaction_document out = document;
             out.cas(res.cas);
-            staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::REPLACE));
-            add_mutation_token();
+            // now handle replace-replace, or insert-replace
+            staged_mutation* mutation = staged_mutations_.find_replace(collection, document.id());
+            if (mutation != nullptr) {
+                spdlog::trace("document {} was replaced already in txn, replacing again", document.id());
+                // only thing that we need to change are the content, cas
+                mutation->content(content);
+                mutation->doc().cas(out.cas());
+            }
+            mutation = staged_mutations_.find_insert(collection, document.id());
+            if (mutation != nullptr) {
+                spdlog::trace("document {} replaced after insert in this txn", document.id());
+                // only thing that we need to change are the content, cas
+                mutation->doc().content(content);
+                mutation->doc().cas(out.cas());
+            } else {
+                staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::REPLACE));
+                add_mutation_token();
+            }
             return out;
         } catch (const client_error& e) {
             error_class ec = e.ec();
@@ -128,7 +146,9 @@ namespace transactions
             }
             check_expiry_pre_commit(STAGE_INSERT, id);
             set_atr_pending_if_first_mutation(collection);
-            return create_staged_insert(collection, id, content);
+            uint64_t cas = 0;
+            return retry_op<transaction_document>(
+              [&]() -> transaction_document { return create_staged_insert(collection, id, content, cas); });
         } catch (const client_error& e) {
             error_class ec = e.ec();
             if (expiry_overtime_mode_) {
@@ -141,9 +161,7 @@ namespace transactions
                 case FAIL_TRANSIENT:
                     throw transaction_operation_failed(ec, "transient error in insert").retry();
                 case FAIL_AMBIGUOUS:
-                    // DELAY, then retry.
-                    overall_.retry_delay(config_);
-                    return insert(collection, id, content);
+                    throw retry_operation("FAIL AMBIGUOUS in insert");
                 case FAIL_OTHER:
                     throw transaction_operation_failed(ec, e.what());
                 case FAIL_HARD:
@@ -210,7 +228,7 @@ namespace transactions
                 // if we are here, there is still a write-write conflict
                 throw transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, "document is in another transaction").retry();
             } catch (const client_error& e) {
-                throw transaction_operation_failed(e.ec(), e.what()).retry();
+                throw transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, e.what()).retry();
             }
         }
     }
@@ -221,6 +239,10 @@ namespace transactions
             check_if_done();
             check_expiry_pre_commit(STAGE_REMOVE, document.id());
             // TODO - look for staged insert
+            if (staged_mutations_.find_insert(collection, document.id())) {
+                spdlog::error("cannot remove document {}, as it was inserted in this transaction", document.id());
+                throw transaction_operation_failed(FAIL_OTHER, "Cannot remove a document inserted in the same transaction");
+            }
             check_and_handle_blocking_transactions(document);
             select_atr_if_needed(collection, document.id());
 
@@ -252,12 +274,13 @@ namespace transactions
             result res;
             wrap_collection_call(res, [&](result& r) {
                 r = collection->mutate_in(
-                  document.id(), specs, mutate_in_options().durability(durability(config_)).access_deleted(true).cas(document.cas()));
+                  document.id(),
+                  specs,
+                  mutate_in_options().durability(durability(config_)).access_deleted(document.links().is_deleted()).cas(document.cas()));
             });
             spdlog::info("removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
             hooks_.after_staged_remove_complete(this, document.id());
             document.cas(res.cas);
-            // TODO: overwriting insert
             staged_mutations_.add(staged_mutation(document, "", staged_mutation_type::REMOVE));
             add_mutation_token();
         } catch (const client_error& e) {
@@ -267,6 +290,7 @@ namespace transactions
                     expiry_overtime_mode_ = true;
                     throw transaction_operation_failed(ec, e.what()).expired();
                 case FAIL_DOC_NOT_FOUND:
+                    throw transaction_operation_failed(ec, e.what()).retry();
                 case FAIL_DOC_ALREADY_EXISTS:
                 case FAIL_CAS_MISMATCH:
                     throw transaction_operation_failed(ec, e.what()).retry();
@@ -382,6 +406,7 @@ namespace transactions
             hooks_.before_atr_aborted(this);
             result res;
             wrap_collection_call(res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
+            state(attempt_state::ABORTED);
             hooks_.after_atr_aborted(this);
             spdlog::trace("rollback completed atr abort phase");
             staged_mutations_.iterate([&](staged_mutation& mutation) {
@@ -749,7 +774,7 @@ namespace transactions
     transaction_document attempt_context::create_staged_insert(std::shared_ptr<collection> collection,
                                                                const std::string& id,
                                                                const nlohmann::json& content,
-                                                               uint64_t cas)
+                                                               uint64_t& cas)
     {
         try {
             hooks_.before_staged_insert(this, id);
@@ -786,7 +811,8 @@ namespace transactions
                                     boost::none,
                                     boost::none,
                                     boost::none,
-                                    std::string("insert"));
+                                    std::string("insert"),
+                                    true);
             transaction_document out(id, content, res.cas, *collection, links, transaction_document_status::NORMAL, boost::none);
             staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::INSERT));
             add_mutation_token();
@@ -803,9 +829,7 @@ namespace transactions
                 case FAIL_TRANSIENT:
                     throw transaction_operation_failed(ec, "transient error in insert").retry();
                 case FAIL_AMBIGUOUS:
-                    // DELAY, then retry.
-                    overall_.retry_delay(config_);
-                    return insert(collection, id, content);
+                    throw; // this gets handled in insert (and does a retry of entire insert)
                 case FAIL_DOC_ALREADY_EXISTS:
                 case FAIL_CAS_MISMATCH:
                     // special handling for doc already existing
@@ -823,8 +847,8 @@ namespace transactions
                             if (!doc.links().is_document_in_transaction() && get_res.is_deleted) {
                                 // it is just a deleted doc, so we are ok.  Lets try again, but with the cas
                                 spdlog::trace("doc was deleted, retrying with cas {}", doc.cas());
-                                overall_.retry_delay(config_);
-                                return create_staged_insert(collection, id, content, doc.cas());
+                                cas = doc.cas();
+                                throw retry_operation("create staged insert found existing deleted doc, retrying");
                             }
                             if (!doc.links().is_document_in_transaction()) {
                                 // doc was inserted outside txn elsewhere
@@ -833,8 +857,8 @@ namespace transactions
                             check_and_handle_blocking_transactions(doc);
                             // if the check didn't throw, we can retry staging with cas
                             spdlog::trace("doc ok to overwrite, retrying with cas {}", doc.cas());
-                            overall_.retry_delay(config_);
-                            return create_staged_insert(collection, id, content, doc.cas());
+                            cas = doc.cas();
+                            throw retry_operation("create staged insert found existing non-blocking doc, retrying");
                         } else {
                             // no doc now, just retry entire txn
                             throw transaction_operation_failed(FAIL_DOC_NOT_FOUND,

@@ -48,6 +48,7 @@ namespace transactions
         boost::optional<uint32_t> exptime_pre_txn_;
         boost::optional<std::string> crc32_of_staging_;
         boost::optional<std::string> op_;
+        bool is_deleted_;
 
       public:
         transaction_links() = default;
@@ -62,7 +63,8 @@ namespace transactions
                           boost::optional<std::string> revid_pre_txn,
                           boost::optional<uint32_t> exptime_pre_txn,
                           boost::optional<std::string> crc32_of_staging,
-                          boost::optional<std::string> op)
+                          boost::optional<std::string> op,
+                          bool is_deleted)
           : atr_id_(std::move(atr_id))
           , atr_bucket_name_(std::move(atr_bucket_name))
           , atr_scope_name_(std::move(atr_scope_name))
@@ -75,6 +77,7 @@ namespace transactions
           , exptime_pre_txn_(exptime_pre_txn)
           , crc32_of_staging_(std::move(crc32_of_staging))
           , op_(std::move(op))
+          , is_deleted_(is_deleted)
         {
         }
 
@@ -158,6 +161,11 @@ namespace transactions
         CB_NODISCARD Content staged_content() const
         {
             return staged_content_ ? staged_content_->get<Content>() : Content();
+        }
+
+        CB_NODISCARD bool is_deleted() const
+        {
+            return is_deleted_;
         }
 
         friend std::ostream& operator<<(std::ostream& os, const transaction_links& links);
