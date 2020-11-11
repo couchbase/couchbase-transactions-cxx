@@ -21,7 +21,7 @@ store_callback(lcb_INSTANCE*, int, const lcb_RESPSTORE* resp)
     const char* data = nullptr;
     size_t ndata = 0;
     lcb_respstore_key(resp, &data, &ndata);
-    res->key = std::string(data, ndata);
+    res->key = std::move(std::string(data, ndata));
     spdlog::trace("store_callback returning {}", *res);
 }
 
@@ -39,7 +39,7 @@ get_callback(lcb_INSTANCE*, int, const lcb_RESPGET* resp)
         const char* data = nullptr;
         size_t ndata = 0;
         lcb_respget_key(resp, &data, &ndata);
-        res->key = std::string(data, ndata);
+        res->key = std::move(std::string(data, ndata));
         lcb_respget_value(resp, &data, &ndata);
         res->value.emplace(nlohmann::json::parse(data, data + ndata));
     }
@@ -75,7 +75,7 @@ remove_callback(lcb_INSTANCE*, int, const lcb_RESPREMOVE* resp)
     const char* data = nullptr;
     size_t ndata = 0;
     lcb_respremove_key(resp, &data, &ndata);
-    res->key = std::string(data, ndata);
+    res->key = std::move(std::string(data, ndata));
     spdlog::trace("remove_callback returning {}", *res);
 }
 
@@ -89,7 +89,7 @@ subdoc_callback(lcb_INSTANCE*, int, const lcb_RESPSUBDOC* resp)
     const char* data = nullptr;
     size_t ndata = 0;
     lcb_respsubdoc_key(resp, &data, &ndata);
-    res->key = std::string(data, ndata);
+    res->key = std::move(std::string(data, ndata));
 
     size_t len = lcb_respsubdoc_result_size(resp);
     res->values.reserve(len);
@@ -144,6 +144,35 @@ convert_durability(couchbase::durability_level level)
     return LCB_DURABILITYLEVEL_NONE;
 }
 
+static lcb_SUBDOC_STORE_SEMANTICS
+convert_semantics(couchbase::subdoc_store_semantics semantics)
+{
+    switch (semantics) {
+        case couchbase::subdoc_store_semantics::upsert:
+            return LCB_SUBDOC_STORE_UPSERT;
+        case couchbase::subdoc_store_semantics::insert:
+            return LCB_SUBDOC_STORE_INSERT;
+        case couchbase::subdoc_store_semantics::replace:
+            return LCB_SUBDOC_STORE_REPLACE;
+        default:
+            throw std::runtime_error("Unknown subdoc store semantics specified");
+    }
+}
+
+static lcb_STORE_OPERATION
+convert_operation(couchbase::store_operation op)
+{
+    switch (op) {
+        case couchbase::store_operation::upsert:
+            return LCB_STORE_UPSERT;
+        case couchbase::store_operation::insert:
+            return LCB_STORE_INSERT;
+        case couchbase::store_operation::replace:
+            return LCB_STORE_REPLACE;
+        default:
+            throw std::runtime_error("Unknown store operation specified");
+    }
+}
 couchbase::result
 couchbase::store_impl(couchbase::collection* collection,
                       couchbase::store_operation op,
@@ -153,18 +182,7 @@ couchbase::store_impl(couchbase::collection* collection,
                       couchbase::durability_level level)
 {
     lcb_CMDSTORE* cmd = nullptr;
-    lcb_STORE_OPERATION storeop = LCB_STORE_UPSERT;
-    switch (op) {
-        case couchbase::store_operation::upsert:
-            storeop = LCB_STORE_UPSERT;
-            break;
-        case couchbase::store_operation::insert:
-            storeop = LCB_STORE_INSERT;
-            break;
-        case couchbase::store_operation::replace:
-            storeop = LCB_STORE_REPLACE;
-            break;
-    }
+    lcb_STORE_OPERATION storeop = convert_operation(op);
     lcb_cmdstore_create(&cmd, storeop);
     lcb_cmdstore_key(cmd, id.data(), id.size());
     lcb_cmdstore_value(cmd, payload.data(), payload.size());
@@ -330,6 +348,9 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
         lcb_cmdsubdoc_specs(cmd, ops);
         if (opts.durability()) {
             lcb_cmdsubdoc_durability(cmd, convert_durability(*opts.durability()));
+        }
+        if (opts.store_semantics()) {
+            lcb_cmdsubdoc_store_semantics(cmd, convert_semantics(*opts.store_semantics()));
         }
         lcb_STATUS rc;
         assert(bucket_->lcb_);

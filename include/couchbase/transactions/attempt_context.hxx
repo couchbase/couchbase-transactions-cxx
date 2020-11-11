@@ -52,6 +52,7 @@ namespace transactions
         staged_mutation_queue staged_mutations_;
         attempt_context_testing_hooks hooks_;
         std::chrono::nanoseconds start_time_server_{ 0 };
+        std::vector<transaction_operation_failed> errors_;
         // commit needs to access the hooks
         friend class staged_mutation_queue;
         // entry needs access to private members
@@ -256,6 +257,8 @@ namespace transactions
 
         void set_atr_pending_if_first_mutation(std::shared_ptr<collection> collection);
 
+        void error_if_expired_and_not_in_overtime(const std::string& stage, boost::optional<const std::string> doc_id);
+
         staged_mutation* check_for_own_write(std::shared_ptr<collection> collection, const std::string& id);
 
         void check_atr_entry_for_blocking_document(const transaction_document& doc);
@@ -268,6 +271,16 @@ namespace transactions
         void check_and_handle_blocking_transactions(const transaction_document& doc);
 
         void check_if_done();
+
+        void atr_commit();
+
+        void atr_commit_ambiguity_resolution();
+
+        void atr_complete();
+
+        void atr_abort();
+
+        void atr_rollback_complete();
 
         void wrap_collection_call(result& res, std::function<void(result&)> call);
 

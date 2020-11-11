@@ -99,6 +99,10 @@ void
 tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucket_name)
 {
     spdlog::trace("lost attempts cleanup for {} starting", bucket_name);
+    if (!running_.load()) {
+        spdlog::trace("lost attempts cleanup of {} complete", bucket_name);
+        return;
+    }
     // each thread needs its own cluster, copy cluster_
     auto c = cluster_;
     auto coll = c.bucket(bucket_name)->default_collection();
@@ -193,21 +197,31 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
 void
 tx::transactions_cleanup::lost_attempts_loop()
 {
-    spdlog::info("starting lost attempts loop");
-    while (interruptable_wait(config_.cleanup_window())) {
-        auto names = cluster_.buckets();
-        spdlog::info("creating {} tasks to clean buckets", names.size());
-        // TODO consider std::async here.
-        std::list<std::thread> workers;
-        for (const auto& name : names) {
-            workers.emplace_back([&]() { clean_lost_attempts_in_bucket(name); });
-        }
-        for (auto& thr : workers) {
-            if (thr.joinable()) {
-                thr.join();
+    try {
+        spdlog::info("starting lost attempts loop");
+        while (interruptable_wait(config_.cleanup_window())) {
+            auto names = cluster_.buckets();
+            spdlog::info("creating {} tasks to clean buckets", names.size());
+            // TODO consider std::async here.
+            std::list<std::thread> workers;
+            for (const auto& name : names) {
+                workers.emplace_back([&]() {
+                    try {
+                        clean_lost_attempts_in_bucket(name);
+                    } catch (const std::runtime_error& e) {
+                        spdlog::error("got error {} attempting to clean {}", e.what(), name);
+                    }
+                });
             }
+            for (auto& thr : workers) {
+                if (thr.joinable()) {
+                    thr.join();
+                }
+            }
+            spdlog::info("lost txn loops complete, scheduled to run again in {} ms", config_.cleanup_window().count());
         }
-        spdlog::info("lost txn loops complete, scheduled to run again in {} ms", config_.cleanup_window().count());
+    } catch (const std::runtime_error& e) {
+        spdlog::error("got error {} in lost attempts loop", e.what());
     }
 }
 
@@ -247,39 +261,43 @@ tx::transactions_cleanup::force_cleanup_attempts(std::vector<transactions_cleanu
 void
 tx::transactions_cleanup::attempts_loop()
 {
-    spdlog::info("cleanup attempts loop starting...");
-    while (interruptable_wait(cleanup_loop_delay_)) {
-        while (auto entry = atr_queue_.pop()) {
-            if (!running_.load()) {
-                spdlog::info("attempts_loop stopping - {} entries on queue", atr_queue_.size());
-                return;
-            }
-            if (entry) {
-                spdlog::trace("beginning cleanup on {}", *entry);
-                try {
-                    entry->clean();
-                } catch (const std::runtime_error& e) {
-                    // TODO: perhaps in config later?
-                    auto backoff_duration = std::chrono::milliseconds(10000);
-                    entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
-                    spdlog::info("got error '{}' cleaning {}, will retry in {} seconds",
-                                 e.what(),
-                                 entry,
-                                 std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
-                    atr_queue_.push(*entry);
-                } catch (...) {
-                    // TODO: perhaps in config later?
-                    auto backoff_duration = std::chrono::milliseconds(10000);
-                    entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
-                    spdlog::info("got error cleaning {}, will retry in {} seconds",
-                                 entry,
-                                 std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
-                    atr_queue_.push(*entry);
+    try {
+        spdlog::info("cleanup attempts loop starting...");
+        while (interruptable_wait(cleanup_loop_delay_)) {
+            while (auto entry = atr_queue_.pop()) {
+                if (!running_.load()) {
+                    spdlog::info("attempts_loop stopping - {} entries on queue", atr_queue_.size());
+                    return;
+                }
+                if (entry) {
+                    spdlog::trace("beginning cleanup on {}", *entry);
+                    try {
+                        entry->clean();
+                    } catch (const std::runtime_error& e) {
+                        // TODO: perhaps in config later?
+                        auto backoff_duration = std::chrono::milliseconds(10000);
+                        entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
+                        spdlog::info("got error '{}' cleaning {}, will retry in {} seconds",
+                                     e.what(),
+                                     entry,
+                                     std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
+                        atr_queue_.push(*entry);
+                    } catch (...) {
+                        // TODO: perhaps in config later?
+                        auto backoff_duration = std::chrono::milliseconds(10000);
+                        entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
+                        spdlog::info("got error cleaning {}, will retry in {} seconds",
+                                     entry,
+                                     std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
+                        atr_queue_.push(*entry);
+                    }
                 }
             }
         }
+        spdlog::info("attempts_loop stopping - {} entries on queue", atr_queue_.size());
+    } catch (const std::runtime_error& e) {
+        spdlog::error("got error {} in attempts_loop", e.what());
     }
-    spdlog::info("attempts_loop stopping - {} entries on queue", atr_queue_.size());
 }
 
 void

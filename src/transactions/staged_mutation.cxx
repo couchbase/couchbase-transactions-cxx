@@ -2,6 +2,7 @@
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/staged_mutation.hxx>
 #include <couchbase/transactions/transaction_fields.hxx>
+#include <spdlog/fmt/ostr.h>
 #include <spdlog/spdlog.h>
 #include <utility>
 
@@ -119,6 +120,100 @@ tx::staged_mutation_queue::commit(attempt_context& ctx)
 }
 
 void
+tx::staged_mutation_queue::rollback(attempt_context& ctx)
+{
+    std::unique_lock<std::mutex> lock(mutex_);
+    for (auto& item : queue_) {
+        switch (item.type()) {
+            case staged_mutation_type::INSERT:
+                ctx.retry_op<void>([&]() { rollback_insert(ctx, item); });
+                break;
+            case staged_mutation_type::REMOVE:
+            case staged_mutation_type::REPLACE:
+                ctx.retry_op<void>([&]() { rollback_remove_or_replace(ctx, item); });
+                break;
+        }
+    }
+}
+
+void
+tx::staged_mutation_queue::rollback_insert(attempt_context& ctx, staged_mutation& item)
+{
+    try {
+        spdlog::trace("rolling back staged insert for {} with cas {}", item.doc().id(), item.doc().cas());
+        ctx.error_if_expired_and_not_in_overtime(STAGE_DELETE_INSERTED, item.doc().id());
+        ctx.hooks_.before_rollback_delete_inserted(&ctx, item.doc().id());
+        std::vector<mutate_in_spec> specs({ mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() });
+        result res;
+        ctx.wrap_collection_call(res, [&](result& r) {
+            r =
+              item.doc().collection_ref().mutate_in(item.doc().id(), specs, mutate_in_options().access_deleted(true).cas(item.doc().cas()));
+        });
+        spdlog::trace("rollback result {}", res);
+        ctx.hooks_.after_rollback_delete_inserted(&ctx, item.doc().id());
+    } catch (const client_error& e) {
+        auto ec = e.ec();
+        if (ctx.expiry_overtime_mode_) {
+            spdlog::trace("rollback_insert for {} error while in overtime mode {}", item.doc().id(), e.what());
+            throw transaction_operation_failed(FAIL_EXPIRY, std::string("expired while rolling back insert with {} ") + e.what())
+              .no_rollback()
+              .expired();
+        }
+        switch (ec) {
+            case FAIL_HARD:
+            case FAIL_CAS_MISMATCH:
+                throw transaction_operation_failed(ec, e.what()).no_rollback();
+            case FAIL_EXPIRY:
+                ctx.expiry_overtime_mode_ = true;
+                spdlog::trace("rollback_insert in expiry overtime mode, retrying...");
+                throw retry_operation("retry rollback_insert");
+            case FAIL_DOC_NOT_FOUND:
+            case FAIL_PATH_NOT_FOUND:
+                // already cleaned up?
+                return;
+            default:
+                throw retry_operation("retry rollback insert");
+        }
+    }
+}
+
+void
+tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context& ctx, staged_mutation& item)
+{
+    try {
+        spdlog::trace("rolling back staged remove/replace for {} with cas {}", item.doc().id(), item.doc().cas());
+        ctx.error_if_expired_and_not_in_overtime(STAGE_ROLLBACK_DOC, item.doc().id());
+        ctx.hooks_.before_doc_rolled_back(&ctx, item.doc().id());
+        std::vector<mutate_in_spec> specs({ mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() });
+        result res;
+        ctx.wrap_collection_call(res, [&](result& r) {
+            r = item.doc().collection_ref().mutate_in(item.doc().id(), specs, mutate_in_options().cas(item.doc().cas()));
+        });
+        spdlog::trace("rollback result {}", res);
+        ctx.hooks_.after_rollback_replace_or_remove(&ctx, item.doc().id());
+
+    } catch (const client_error& e) {
+        auto ec = e.ec();
+        if (ctx.expiry_overtime_mode_) {
+            throw transaction_operation_failed(FAIL_EXPIRY, std::string("expired while handling ") + e.what()).no_rollback();
+        }
+        switch (ec) {
+            case FAIL_HARD:
+            case FAIL_DOC_NOT_FOUND:
+            case FAIL_CAS_MISMATCH:
+                throw transaction_operation_failed(ec, e.what()).no_rollback();
+            case FAIL_EXPIRY:
+                ctx.expiry_overtime_mode_ = true;
+                throw retry_operation("retry rollback_remove_or_replace");
+            case FAIL_PATH_NOT_FOUND:
+                // already cleaned up?
+                return;
+            default:
+                throw retry_operation("retry rollback_remove_or_replace");
+        }
+    }
+}
+void
 tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& item, bool ambiguity_resolution_mode, bool cas_zero_mode)
 {
     spdlog::trace("commit doc {}", item.doc().id());
@@ -175,8 +270,8 @@ tx::staged_mutation_queue::remove_doc(attempt_context& ctx, staged_mutation& ite
         ctx.check_expiry_during_commit_or_rollback(STAGE_REMOVE_DOC, boost::optional<const std::string>(item.doc().id()));
         ctx.hooks_.before_doc_removed(&ctx, item.doc().id());
         result res;
-        ctx.wrap_collection_call(
-          res, [&](result& r) { r = item.doc().collection_ref().remove(item.doc().id(), remove_options().cas(item.doc().cas())); });
+        ctx.wrap_collection_call(res, [&](result& r) { r = item.doc().collection_ref().remove(item.doc().id()); });
+        ctx.hooks_.after_doc_removed_pre_retry(&ctx, item.doc().id());
         // TODO:mutation tokens
     } catch (const client_error& e) {
         error_class ec = e.ec();

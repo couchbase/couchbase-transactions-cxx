@@ -40,10 +40,19 @@ tx::transactions::run(const logic& logic)
             break;
         } catch (const transaction_operation_failed& er) {
             spdlog::error("got transaction_operation_failed {}", er.what());
-            // first rollback if appropriate.  Almost always is.
             if (er.should_rollback()) {
                 spdlog::trace("got rollback-able exception, rolling back");
-                ctx.rollback();
+                try {
+                    ctx.rollback();
+                } catch (const std::runtime_error& er_rollback) {
+                    cleanup_.add_attempt(ctx);
+                    spdlog::trace("got error {} while auto rolling back, throwing original error {}", er_rollback.what(), er.what());
+                    er.do_throw(overall);
+                    // if you get here, we didn't throw, yet we had an error
+                    // probably should stop retries, though need to check this
+                    assert(true || "should never reach this");
+                    break;
+                }
             }
             if (er.should_retry()) {
                 if (overall.num_attempts() < max_attempts_) {

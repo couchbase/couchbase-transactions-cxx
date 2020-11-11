@@ -15,35 +15,51 @@
  */
 #include <couchbase/transactions/exceptions.hxx>
 #include <libcouchbase/couchbase.h>
-
-couchbase::transactions::error_class
-couchbase::transactions::error_class_from_result(const couchbase::result& res)
+namespace couchbase
 {
-    assert(res.rc != LCB_SUCCESS);
-    switch (res.rc) {
-        case LCB_ERR_DOCUMENT_NOT_FOUND:
-            return FAIL_DOC_NOT_FOUND;
-        case LCB_ERR_DOCUMENT_EXISTS:
-            return FAIL_DOC_ALREADY_EXISTS;
-        case LCB_ERR_SUBDOC_PATH_NOT_FOUND:
-            return FAIL_PATH_NOT_FOUND;
-        case LCB_ERR_SUBDOC_PATH_EXISTS:
-            return FAIL_PATH_ALREADY_EXISTS;
-        case LCB_ERR_CAS_MISMATCH:
-            return FAIL_CAS_MISMATCH;
-        case LCB_ERR_TIMEOUT:
-            return FAIL_EXPIRY;
-        case LCB_ERR_VALUE_TOO_LARGE:
-            return FAIL_ATR_FULL;
-        case LCB_ERR_UNAMBIGUOUS_TIMEOUT:
-        case LCB_ERR_TEMPORARY_FAILURE:
-        case LCB_ERR_DURABLE_WRITE_IN_PROGRESS:
-            return FAIL_TRANSIENT;
-        case LCB_ERR_DURABILITY_AMBIGUOUS:
-        case LCB_ERR_AMBIGUOUS_TIMEOUT:
-        case LCB_ERR_REQUEST_CANCELED:
-            return FAIL_AMBIGUOUS;
-        default:
-            return FAIL_OTHER;
+namespace transactions
+{
+
+    error_class error_class_from_result(const couchbase::result& res)
+    {
+        assert(res.rc != LCB_SUCCESS);
+        switch (res.rc) {
+            case LCB_ERR_DOCUMENT_NOT_FOUND:
+                return FAIL_DOC_NOT_FOUND;
+            case LCB_ERR_DOCUMENT_EXISTS:
+                return FAIL_DOC_ALREADY_EXISTS;
+            case LCB_ERR_SUBDOC_PATH_NOT_FOUND:
+                return FAIL_PATH_NOT_FOUND;
+            case LCB_ERR_SUBDOC_PATH_EXISTS:
+                return FAIL_PATH_ALREADY_EXISTS;
+            case LCB_ERR_CAS_MISMATCH:
+                return FAIL_CAS_MISMATCH;
+            case LCB_ERR_TIMEOUT:
+                return FAIL_EXPIRY;
+            case LCB_ERR_VALUE_TOO_LARGE:
+                return FAIL_ATR_FULL;
+            case LCB_ERR_UNAMBIGUOUS_TIMEOUT:
+            case LCB_ERR_TEMPORARY_FAILURE:
+            case LCB_ERR_DURABLE_WRITE_IN_PROGRESS:
+                return FAIL_TRANSIENT;
+            case LCB_ERR_DURABILITY_AMBIGUOUS:
+            case LCB_ERR_AMBIGUOUS_TIMEOUT:
+            case LCB_ERR_REQUEST_CANCELED:
+                return FAIL_AMBIGUOUS;
+            default:
+                return FAIL_OTHER;
+        }
     }
-}
+
+    transaction_base::transaction_base(const std::runtime_error& cause, const transaction_context& context)
+      : std::runtime_error(cause)
+      , context_(context)
+      , cause_(UNKNOWN)
+    {
+        auto txn_op = dynamic_cast<const transaction_operation_failed*>(&cause);
+        if (nullptr != txn_op) {
+            cause_ = txn_op->cause();
+        }
+    }
+} // namespace transactions
+} // namespace couchbase

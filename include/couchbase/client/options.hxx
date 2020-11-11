@@ -39,6 +39,12 @@ enum class durability_level {
     persist_to_majority             /**< a mojority of nodes have persisted the document to disk.*/
 };
 
+enum class subdoc_store_semantics {
+    upsert, /**< If document doesn't exist, insert it.  Otherwise, update */
+    insert, /**< If document exists, return a LCB_ERR_DOCUMENT_EXISTS */
+    replace /**< If document doesn't exist, return LCB_ERR_DOCUMENT_NOT_FOUND */
+};
+
 template<typename T>
 class common_options
 {
@@ -223,6 +229,7 @@ class mutate_in_options : public common_mutate_options<mutate_in_options>
   private:
     boost::tribool create_as_deleted_;
     boost::tribool access_deleted_;
+    boost::optional<subdoc_store_semantics> store_semantics_;
 
   public:
     /**
@@ -269,6 +276,34 @@ class mutate_in_options : public common_mutate_options<mutate_in_options>
     mutate_in_options& access_deleted(boost::tribool access_deleted)
     {
         access_deleted_ = access_deleted;
+        return *this;
+    }
+    /**
+     * @brief Get store semantics
+     *
+     * When upsert, the mutation should create a new doc if one doesn't exist, otherwise just mutates existing doc.
+     * When insert, the mutation should create a new doc only if it doesn't exist, otherwise returns LCB_ERR_DOCUMENT_EXISTS.
+     *
+     * @return The store semantics, if set.
+     */
+    CB_NODISCARD boost::optional<subdoc_store_semantics> store_semantics() const
+    {
+        return store_semantics_;
+    }
+    /**
+     * @brief Set the store semantics
+     *
+     * When upsert, the mutation should create a new doc if one doesn't exist, otherwise just mutates existing doc.
+     * When insert, the mutation should create a new doc only if it doesn't exist, otherwise returns LCB_ERR_DOCUMENT_EXISTS.
+     *
+     * @param store_semantics Desired state for the semantics.  Note this overrides any implied semantics that may
+     *                        be inferred by the specs (@ref mutate_in_spec::fulldoc_insert, @ref mutate_in_spec::fulldoc_upsert
+     *                        for instance).
+     * @return Reference to this object, so calls can be chained.
+     */
+    mutate_in_options& store_semantics(subdoc_store_semantics semantics)
+    {
+        store_semantics_ = semantics;
         return *this;
     }
 };

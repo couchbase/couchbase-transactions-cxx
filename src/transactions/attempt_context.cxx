@@ -53,9 +53,9 @@ namespace transactions
         try {
             spdlog::trace("replacing {} with {}", document, content);
             check_if_done();
+            check_expiry_pre_commit(STAGE_REPLACE, document.id());
             select_atr_if_needed(collection, document.id());
             check_and_handle_blocking_transactions(document);
-            check_expiry_pre_commit(STAGE_REPLACE, document.id());
             set_atr_pending_if_first_mutation(collection);
 
             std::vector<mutate_in_spec> specs = {
@@ -139,12 +139,12 @@ namespace transactions
     {
         try {
             check_if_done();
-            select_atr_if_needed(collection, id);
             if (check_for_own_write(collection, id)) {
                 throw transaction_operation_failed(FAIL_OTHER,
                                                    "cannot insert a document that has already been mutated in this transaction");
             }
             check_expiry_pre_commit(STAGE_INSERT, id);
+            select_atr_if_needed(collection, id);
             set_atr_pending_if_first_mutation(collection);
             uint64_t cas = 0;
             return retry_op<transaction_document>(
@@ -305,61 +305,124 @@ namespace transactions
         }
     }
 
-    void attempt_context::commit()
+    void attempt_context::atr_commit()
     {
-        spdlog::info("commit {}", id());
-        check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {});
-        if (atr_collection_ && atr_id_ && !is_done_) {
+        try {
             std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
             std::vector<mutate_in_spec> specs({
               mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMMITTED)).xattr(),
               mutate_in_spec::upsert(prefix + ATR_FIELD_START_COMMIT, "${Mutation.CAS}").xattr().expand_macro(),
             });
-            try {
-                hooks_.before_atr_commit(this);
-                staged_mutations_.extract_to(prefix, specs);
-                result res;
-                wrap_collection_call(res, [&](result& r) {
-                    r = atr_collection_->mutate_in(atr_id_.value(), specs);
-                    hooks_.after_atr_commit(this);
-                });
-                state(attempt_state::COMMITTED);
-                std::vector<transaction_document> docs;
-                staged_mutations_.commit(*this);
-                try {
-                    // if this succeeds, set ATR to COMPLETED
-                    std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
-                    std::vector<mutate_in_spec> specs({
-                      mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMPLETED)).xattr(),
-                      mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
-                    });
-                    result atr_res;
-                    hooks_.before_atr_complete(this);
-                    // also post commit
-                    check_expiry_pre_commit(STAGE_ATR_COMPLETE, {});
-                    wrap_collection_call(atr_res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
-                    spdlog::trace("setting attempt state COMPLETED for attempt {}", atr_id_.value());
-                    hooks_.after_atr_complete(this);
-                    state(attempt_state::COMPLETED);
-                } catch (const client_error& er) {
-                    error_class ec = er.ec();
-                    switch (ec) {
-                        case FAIL_HARD:
-                            throw transaction_operation_failed(ec, er.what()).no_rollback();
-                        default:
-                            spdlog::info("ignoring error marking ATR completed: {}", er.what());
+            error_if_expired_and_not_in_overtime(STAGE_ATR_COMMIT, {});
+            hooks_.before_atr_commit(this);
+            staged_mutations_.extract_to(prefix, specs);
+            result res;
+            wrap_collection_call(res, [&](result& r) {
+                r = atr_collection_->mutate_in(atr_id_.value(), specs);
+                hooks_.after_atr_commit(this);
+            });
+            state(attempt_state::COMMITTED);
+        } catch (const client_error& e) {
+            error_class ec = e.ec();
+            switch (ec) {
+                case FAIL_EXPIRY:
+                    expiry_overtime_mode_ = true;
+                    throw transaction_operation_failed(ec, e.what()).expired();
+                case FAIL_AMBIGUOUS:
+                    spdlog::trace("atr_commit got FAIL_AMBIGUOUS, resolving ambiguity...");
+                    try {
+                        return retry_op<void>([&]() { return atr_commit_ambiguity_resolution(); });
+                    } catch (const retry_atr_commit& e) {
+                        spdlog::trace("ambiguity resolution will retry atr_commit");
+                        throw retry_operation(e.what());
                     }
-                }
-                is_done_ = true;
-            } catch (const client_error& e) {
-                error_class ec = e.ec();
-                switch (ec) {
-                    case FAIL_HARD:
-                        throw transaction_operation_failed(ec, e.what()).no_rollback();
-                    default:
-                        spdlog::error("failed to commit transaction {}, attempt {}, with error {}", transaction_id(), id(), e.what());
-                }
+                case FAIL_TRANSIENT:
+                    throw transaction_operation_failed(ec, e.what()).retry();
+                case FAIL_HARD:
+                    throw transaction_operation_failed(ec, e.what()).no_rollback();
+                default:
+                    spdlog::error("failed to commit transaction {}, attempt {}, with error {}", transaction_id(), id(), e.what());
+                    throw transaction_operation_failed(ec, e.what());
             }
+        }
+    }
+
+    void attempt_context::atr_commit_ambiguity_resolution()
+    {
+        try {
+            error_if_expired_and_not_in_overtime(STAGE_ATR_COMMIT_AMBIGUITY_RESOLUTION, {});
+            hooks_.before_atr_commit_ambiguity_resolution(this);
+            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
+            std::vector<lookup_in_spec> specs({ lookup_in_spec::get(prefix + ATR_FIELD_STATUS).xattr() });
+            result res;
+            wrap_collection_call(res, [&](result& r) { r = atr_collection_->lookup_in(atr_id_.value(), specs); });
+            auto atr_status = attempt_state_value(res.values[0]->get<std::string>());
+            switch (atr_status) {
+                case attempt_state::COMPLETED:
+                    return;
+                case attempt_state::ABORTED:
+                case attempt_state::ROLLED_BACK:
+                    // rolled back by another process?
+                    throw transaction_operation_failed(FAIL_OTHER, "transaction rolled back externally").no_rollback();
+                default:
+                    // still pending - so we can safely retry
+                    throw retry_atr_commit("atr still pending, retry atr_commit");
+            }
+        } catch (const client_error& e) {
+            error_class ec = e.ec();
+            switch (ec) {
+                case FAIL_EXPIRY:
+                    expiry_overtime_mode_ = true;
+                    throw transaction_operation_failed(ec, e.what()).no_rollback().ambiguous();
+                case FAIL_HARD:
+                    throw transaction_operation_failed(ec, e.what()).no_rollback();
+                case FAIL_TRANSIENT:
+                case FAIL_OTHER:
+                    throw retry_operation(e.what());
+                case FAIL_PATH_NOT_FOUND:
+                    throw transaction_operation_failed(FAIL_OTHER, "transaction rolled back externally").no_rollback();
+                default:
+                    throw transaction_operation_failed(ec, e.what()).no_rollback();
+            }
+        }
+    }
+
+    void attempt_context::atr_complete()
+    {
+        try {
+            result atr_res;
+            hooks_.before_atr_complete(this);
+            // if we have expired now, just raise the final error.
+            error_if_expired_and_not_in_overtime(STAGE_ATR_COMPLETE, {});
+            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
+            std::vector<mutate_in_spec> specs({
+              mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMPLETED)).xattr(),
+              mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
+            });
+            wrap_collection_call(atr_res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
+            spdlog::trace("setting attempt state COMPLETED for attempt {}", atr_id_.value());
+            hooks_.after_atr_complete(this);
+            state(attempt_state::COMPLETED);
+        } catch (const client_error& er) {
+            error_class ec = er.ec();
+            switch (ec) {
+                case FAIL_HARD:
+                    throw transaction_operation_failed(ec, er.what()).no_rollback();
+                default:
+                    spdlog::info("ignoring error in atr_complete {}", er.what());
+            }
+        }
+    }
+
+    void attempt_context::commit()
+    {
+        spdlog::info("commit {}", id());
+        check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {});
+        if (atr_collection_ && atr_id_ && !is_done_) {
+            retry_op<void>([&]() { atr_commit(); });
+            staged_mutations_.commit(*this);
+            atr_complete();
+            is_done_ = true;
         } else {
             // no mutation, no need to commit
             if (!is_done_) {
@@ -369,6 +432,91 @@ namespace transactions
             } else {
                 // do not rollback or retry
                 throw transaction_operation_failed(FAIL_OTHER, "calling commit on attempt that is already completed").no_rollback();
+            }
+        }
+    }
+
+    void attempt_context::atr_abort()
+    {
+        try {
+            error_if_expired_and_not_in_overtime(STAGE_ATR_ABORT, {});
+            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
+            std::vector<mutate_in_spec> specs({
+              mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::ABORTED)).xattr(),
+              mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, "${Mutation.CAS}").xattr().expand_macro(),
+            });
+            staged_mutations_.extract_to(prefix, specs);
+            hooks_.before_atr_aborted(this);
+            result res;
+            wrap_collection_call(res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
+            state(attempt_state::ABORTED);
+            hooks_.after_atr_aborted(this);
+            spdlog::trace("rollback completed atr abort phase");
+        } catch (const client_error& e) {
+            auto ec = e.ec();
+            if (expiry_overtime_mode_) {
+                spdlog::trace("atr_abort got error {} while in overtime mode", e.what());
+                throw transaction_operation_failed(FAIL_EXPIRY, std::string("expired in atr_abort with {} ") + e.what())
+                  .no_rollback()
+                  .expired();
+            }
+            spdlog::trace("atr_abort got error {}", ec);
+            switch (ec) {
+                case FAIL_EXPIRY:
+                    expiry_overtime_mode_ = true;
+                    throw retry_operation("expired, setting overtime mode and retry atr_abort");
+                case FAIL_PATH_NOT_FOUND:
+                    throw transaction_operation_failed(ec, e.what()).no_rollback().cause(ACTIVE_TRANSACTION_RECORD_ENTRY_NOT_FOUND);
+                case FAIL_DOC_NOT_FOUND:
+                    throw transaction_operation_failed(ec, e.what()).no_rollback().cause(ACTIVE_TRANSACTION_RECORD_NOT_FOUND);
+                case FAIL_ATR_FULL:
+                    throw transaction_operation_failed(ec, e.what()).no_rollback().cause(ACTIVE_TRANSACTION_RECORD_FULL);
+                case FAIL_HARD:
+                    throw transaction_operation_failed(ec, e.what()).no_rollback();
+                default:
+                    throw retry_operation("retry atr_abort");
+            }
+        }
+    }
+
+    void attempt_context::atr_rollback_complete()
+    {
+        try {
+            check_expiry_during_commit_or_rollback(STAGE_ATR_ROLLBACK_COMPLETE, boost::none);
+            hooks_.before_atr_rolled_back(this);
+            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
+            std::vector<mutate_in_spec> specs({
+              mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::ROLLED_BACK)).xattr(),
+              mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
+            });
+            result atr_res;
+            wrap_collection_call(atr_res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
+            state(attempt_state::ROLLED_BACK);
+            hooks_.after_atr_rolled_back(this);
+            is_done_ = true;
+
+        } catch (const client_error& e) {
+            auto ec = e.ec();
+            if (expiry_overtime_mode_) {
+                spdlog::trace("atr_rolback_complete error while in overtime mode {}", e.what());
+                throw transaction_operation_failed(FAIL_EXPIRY, std::string("expired in atr_rollback_complete with {} ") + e.what())
+                  .no_rollback()
+                  .expired();
+            }
+            spdlog::trace("atr_rollback_complete got error {}", ec);
+            switch (ec) {
+                case FAIL_DOC_NOT_FOUND:
+                case FAIL_PATH_NOT_FOUND:
+                    // TODO: distinguish between no atr and no atr entry?
+                    spdlog::trace("atr or atr_entry not found - ignoring");
+                    return;
+                case FAIL_ATR_FULL:
+                case FAIL_HARD:
+                    throw transaction_operation_failed(ec, e.what()).no_rollback();
+                case FAIL_EXPIRY:
+                    throw transaction_operation_failed(ec, e.what()).no_rollback().expired();
+                default:
+                    throw retry_operation(e.what());
             }
         }
     }
@@ -391,62 +539,15 @@ namespace transactions
             // need to raise a FAIL_OTHER which is not retryable or rollback-able
             throw transaction_operation_failed(FAIL_OTHER, msg).no_rollback();
         }
-        // We do 3 things - set the atr to abort
-        //                - unstage the docs
-        //                - set atr to ROLLED_BACK
-        std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
-        std::vector<mutate_in_spec> specs({
-          mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::ABORTED)).xattr(),
-          mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, "${Mutation.CAS}").xattr().expand_macro(),
-        });
-        // now add the staged mutations...
-        staged_mutations_.extract_to(prefix, specs);
-
         try {
-            hooks_.before_atr_aborted(this);
-            result res;
-            wrap_collection_call(res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
-            state(attempt_state::ABORTED);
-            hooks_.after_atr_aborted(this);
-            spdlog::trace("rollback completed atr abort phase");
-            staged_mutations_.iterate([&](staged_mutation& mutation) {
-                hooks_.before_doc_rolled_back(this, mutation.doc().id());
-                std::vector<mutate_in_spec> specs({
-                  mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
-                });
-                switch (mutation.type()) {
-                    case staged_mutation_type::INSERT:
-                        spdlog::trace("rolling back staged insert for {}", mutation.doc().id());
-                        // TODO: since we don't insert as deleted yet, instead of mutating this, we
-                        // need to remove it
-                        // mutation.doc().collection_ref().mutate_in(mutation.doc().id(), specs);
-                        mutation.doc().collection_ref().remove(mutation.doc().id());
-                        hooks_.after_rollback_replace_or_remove(this, mutation.doc().id());
-                        // TODO: deal with errors mutating the doc
-                        break;
-                    default:
-                        spdlog::trace("rolling back staged remove/replace for {}", mutation.doc().id());
-                        auto r = mutation.doc().collection_ref().mutate_in(mutation.doc().id(), specs);
-                        spdlog::trace("rollback result {}", r);
-                        hooks_.after_rollback_replace_or_remove(this, mutation.doc().id());
-                        // TODO: deal with errors mutating the doc
-                        break;
-                }
-                spdlog::trace("rollback completed unstaging docs");
-            });
+            // (1) atr_abort
+            retry_op<void>([&] { atr_abort(); });
+            // (2) rollback staged mutations
+            staged_mutations_.rollback(*this);
+            spdlog::trace("rollback completed unstaging docs");
 
-            // now complete the atr rollback
-            hooks_.before_atr_rolled_back(this);
-            std::vector<mutate_in_spec> specs({
-              mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::ROLLED_BACK)).xattr(),
-              mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
-            });
-            result atr_res;
-            wrap_collection_call(atr_res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
-            state(attempt_state::ROLLED_BACK);
-            hooks_.after_atr_rolled_back(this);
-            is_done_ = true;
-            // TODO: deal with errors mutating ATR record, and retries perhaps?
+            // (3) atr_rollback
+            retry_op<void>([&] { atr_rollback_complete(); });
         } catch (const client_error& e) {
             error_class ec = e.ec();
             spdlog::error("rollback transaction {}, attempt {} fail with error {}", transaction_id(), id(), e.what());
@@ -481,6 +582,18 @@ namespace transactions
         }
     }
 
+    void attempt_context::error_if_expired_and_not_in_overtime(const std::string& stage, boost::optional<const std::string> doc_id)
+    {
+        if (expiry_overtime_mode_) {
+            spdlog::trace("not doing expired check in {} as already in expiry-overtime", stage);
+            return;
+        }
+        if (has_expired_client_side(stage, std::move(doc_id))) {
+            spdlog::trace("expired in {}", stage);
+            throw client_error(FAIL_EXPIRY, std::string("Expired in ") + stage);
+        }
+    }
+
     void attempt_context::check_expiry_during_commit_or_rollback(const std::string& stage, boost::optional<const std::string> doc_id)
     {
         // [EXP-COMMIT-OVERTIME]
@@ -511,10 +624,9 @@ namespace transactions
             if (!atr_id_) {
                 throw transaction_operation_failed(FAIL_OTHER, std::string("ATR ID is not initialized"));
             }
-            insure_atr_exists(collection);
             result res;
             try {
-                check_expiry_during_commit_or_rollback(STAGE_ATR_PENDING, {});
+                error_if_expired_and_not_in_overtime(STAGE_ATR_PENDING, {});
                 hooks_.before_atr_pending(this);
                 spdlog::info("updating atr {}", atr_id_.value());
                 wrap_collection_call(res, [&](result& r) {
@@ -527,14 +639,15 @@ namespace transactions
                         mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
                                                std::chrono::duration_cast<std::chrono::milliseconds>(config_.expiration_time()).count())
                           .xattr() },
-                      mutate_in_options().durability(durability(config_)));
+                      mutate_in_options().durability(durability(config_)).store_semantics(couchbase::subdoc_store_semantics::upsert));
                 });
-                state(attempt_state::PENDING);
                 spdlog::info("set ATR {}/{}/{} to Pending, got CAS (start time) {}",
                              collection->bucket_name(),
                              collection->name(),
                              atr_id_.value(),
                              res.cas);
+                hooks_.after_atr_pending(this);
+                state(attempt_state::PENDING);
             } catch (const client_error& e) {
                 spdlog::trace("caught {}, ec={}", e.what(), e.ec());
                 if (expiry_overtime_mode_) {
@@ -565,7 +678,6 @@ namespace transactions
                 }
             }
             start_time_server_ = std::chrono::nanoseconds(res.cas);
-            hooks_.after_atr_pending(this);
         }
     }
 

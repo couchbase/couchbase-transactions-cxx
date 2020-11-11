@@ -155,7 +155,10 @@ tx::atr_cleanup_entry::do_per_doc(std::vector<tx::doc_record> docs,
                                             lookup_in_spec::fulldoc_get() },
                                           lookup_in_options().access_deleted(true));
             });
-
+            if (res.values.empty()) {
+                spdlog::trace("cannot create a transaction document from {}, ignoring", res);
+                continue;
+            }
             transaction_document doc = transaction_document::create_from(*collection, dr.id(), res, transaction_document_status::NORMAL);
             // now lets decide if we call the function or not
             if (!(doc.links().has_staged_content() || doc.links().is_document_being_removed()) || !doc.links().has_staged_write()) {

@@ -61,6 +61,7 @@ namespace transactions
     static const std::string STAGE_COMMIT_DOC = "commitDoc";
 
     static const std::string STAGE_ATR_COMMIT = "atrCommit";
+    static const std::string STAGE_ATR_COMMIT_AMBIGUITY_RESOLUTION = "atrCommitAmbiguityResolution";
     static const std::string STAGE_ATR_ABORT = "atrAbort";
     static const std::string STAGE_ATR_ROLLBACK_COMPLETE = "atrRollbackComplete";
     static const std::string STAGE_ATR_PENDING = "atrPending";
@@ -72,6 +73,7 @@ namespace transactions
      */
     struct attempt_context_testing_hooks {
         std::function<int(attempt_context*)> before_atr_commit = noop_1;
+        std::function<int(attempt_context*)> before_atr_commit_ambiguity_resolution = noop_1;
         std::function<int(attempt_context*)> after_atr_commit = noop_1;
         std::function<int(attempt_context*, const std::string&)> before_doc_committed = noop_2;
         std::function<int(attempt_context*, const std::string&)> before_removing_doc_during_staged_insert = noop_2;

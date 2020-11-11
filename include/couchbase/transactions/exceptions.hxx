@@ -34,6 +34,15 @@ namespace transactions
         }
     };
 
+    //  only used in ambiguity resolution during atr_commit
+    class retry_atr_commit : public std::runtime_error
+    {
+      public:
+        retry_atr_commit(const std::string& what)
+          : std::runtime_error(what)
+        {
+        }
+    };
     enum error_class {
         FAIL_HARD = 0,
         FAIL_OTHER,
@@ -47,6 +56,21 @@ namespace transactions
         FAIL_ATR_FULL,
         FAIL_PATH_ALREADY_EXISTS,
         FAIL_EXPIRY
+    };
+
+    enum external_exception {
+        UNKNOWN = 0,
+        ACTIVE_TRANSACTION_RECORD_ENTRY_NOT_FOUND,
+        ACTIVE_TRANSACTION_RECORD_FULL,
+        ACTIVE_TRANSACTION_RECORD_NOT_FOUND,
+        DOCUMENT_ALREADY_IN_TRANSACTION,
+        DOCUMENT_EXISTS_EXCEPTION,
+        DOCUMENT_NOT_FOUND_EXCEPTION,
+        NOT_SET,
+        FEATURE_NOT_AVAILABLE_EXCEPTION,
+        TRANSACTION_ABORTED_EXTERNALLY,
+        PREVIOUS_OPERATION_FAILED,
+        FORWARD_COMPATIBILITY_FAILURE
     };
 
     error_class error_class_from_result(const couchbase::result& res);
@@ -67,8 +91,7 @@ namespace transactions
         explicit client_error(error_class ec, const std::string& what)
           : runtime_error(what)
           , ec_(ec)
-          , rc_(0) // only slightly better than uninitialized.  Consider
-                   // boost::optional<uint32_t>
+          , rc_(0) // only slightly better than uninitialized.  Consider boost::optional<uint32_t>
         {
         }
         error_class ec() const
@@ -81,7 +104,7 @@ namespace transactions
         }
     };
 
-    enum final_error { FAILED, EXPIRED, FAILED_POST_COMMIT };
+    enum final_error { FAILED, EXPIRED, FAILED_POST_COMMIT, AMBIGUOUS };
 
     /**
      * External excepitons
@@ -91,17 +114,18 @@ namespace transactions
     class transaction_base : public std::runtime_error
     {
       private:
-        const transaction_context _context;
+        const transaction_context context_;
+        external_exception cause_;
 
       public:
-        explicit transaction_base(const std::runtime_error& cause, const transaction_context& context)
-          : std::runtime_error(cause)
-          , _context(context)
-        {
-        }
+        explicit transaction_base(const std::runtime_error& cause, const transaction_context& context);
         const transaction_context& get_transaction_context() const
         {
-            return _context;
+            return context_;
+        }
+        external_exception cause() const
+        {
+            return cause_;
         }
     };
 
@@ -123,6 +147,15 @@ namespace transactions
         }
     };
 
+    class transaction_commit_ambiguous : public transaction_base
+    {
+      public:
+        explicit transaction_commit_ambiguous(const std::runtime_error& cause, const transaction_context& context)
+          : transaction_base(cause, context)
+        {
+        }
+    };
+
     /** transaction_operation_failed
      *
      * All exceptions within a transaction are, or are converted to an exception
@@ -138,6 +171,7 @@ namespace transactions
           , retry_(false)
           , rollback_(true)
           , to_raise_(FAILED)
+          , cause_(UNKNOWN)
         {
         }
         explicit transaction_operation_failed(const client_error& client_err)
@@ -146,17 +180,18 @@ namespace transactions
           , retry_(false)
           , rollback_(true)
           , to_raise_(FAILED)
+          , cause_(UNKNOWN)
         {
         }
-        explicit transaction_operation_failed(error_class ec, const std::runtime_error& cause)
-          : std::runtime_error(cause)
-          , ec_(ec)
-          , retry_(false)
-          , rollback_(true)
-          , to_raise_(FAILED)
-        {
-        }
-
+        /*        explicit transaction_operation_failed(error_class ec, const std::runtime_error& cause)
+                  : std::runtime_error(cause)
+                  , ec_(ec)
+                  , retry_(false)
+                  , rollback_(true)
+                  , to_raise_(FAILED)
+                {
+                }
+        */
         // Retry is false by default, this makes it true
         transaction_operation_failed& retry()
         {
@@ -189,6 +224,21 @@ namespace transactions
             return *this;
         }
 
+        // Defaults to FAILED, sets AMBIGUOUS
+        transaction_operation_failed& ambiguous()
+        {
+            to_raise_ = AMBIGUOUS;
+            validate();
+            return *this;
+        }
+
+        transaction_operation_failed& cause(external_exception cause)
+        {
+            cause_ = cause;
+            validate();
+            return *this;
+        }
+
         error_class ec() const
         {
             return ec_;
@@ -204,12 +254,24 @@ namespace transactions
             return retry_;
         }
 
+        external_exception cause() const
+        {
+            return cause_;
+        }
+
         void do_throw(const transaction_context context) const
         {
             if (to_raise_ == FAILED_POST_COMMIT) {
                 return;
             }
-            throw to_raise_ == FAILED ? throw transaction_failed(*this, context) : transaction_expired(*this, context);
+            switch (to_raise_) {
+                case EXPIRED:
+                    throw transaction_expired(*this, context);
+                case AMBIGUOUS:
+                    throw transaction_commit_ambiguous(*this, context);
+                default:
+                    throw transaction_failed(*this, context);
+            }
         }
 
       private:
@@ -217,6 +279,7 @@ namespace transactions
         bool retry_;
         bool rollback_;
         final_error to_raise_;
+        external_exception cause_;
 
         void validate()
         {

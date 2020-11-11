@@ -236,7 +236,7 @@ TEST(MutateInTests, CanMutateCreateAsDeletedWithCas)
     auto r1 = coll->mutate_in(
       id, { mutate_in_spec::upsert("a.zz", "zz").xattr() }, mutate_in_options().access_deleted(true).create_as_deleted(true));
     ASSERT_FALSE(r1.is_success());
-    ASSERT_EQ(r1.rc, 305);
+    ASSERT_EQ(r1.rc, 209); // 209 == cas mismatch
 
     auto r2 = coll->mutate_in(
       id, { mutate_in_spec::upsert("a.zz", "zz").xattr() }, mutate_in_options().cas(r0.cas).access_deleted(true).create_as_deleted(true));
@@ -262,7 +262,7 @@ TEST(MutateInTests, CanNotMutateCreateAsDeletedWithWrongCas)
     auto r1 = coll->mutate_in(
       id, { mutate_in_spec::upsert("a.zz", "zz").xattr() }, mutate_in_options().cas(100).access_deleted(true).create_as_deleted(true));
     ASSERT_FALSE(r1.is_success());
-    ASSERT_EQ(r1.rc, 305);
+    ASSERT_EQ(r1.rc, 209); // 209 == cas mismatch
 }
 
 TEST(MutateInTests, CanNotAccessDeleted)
@@ -296,6 +296,80 @@ TEST(MutateInTests, AccessDeleteOkWhenNotDeleted)
     auto r1 = coll->lookup_in(id, { lookup_in_spec::get("a").xattr() });
     ASSERT_TRUE(r1.is_success());
     ASSERT_EQ(r1.values[0]->get<nlohmann::json>(), nlohmann::json::parse("{\"x\":\"x\",\"y\":\"y\",\"z\":\"z\"}"));
+}
+
+TEST(MutateInTests, CanSetStoreSemanticsUpsert)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr() },
+                              mutate_in_options().store_semantics(subdoc_store_semantics::upsert));
+
+    ASSERT_TRUE(r0.is_success());
+}
+
+TEST(MutateInTests, CanSetStoreSemanticsInsert)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr() },
+                              mutate_in_options().store_semantics(subdoc_store_semantics::insert));
+
+    ASSERT_TRUE(r0.is_success());
+}
+
+TEST(MutateInTests, CanSetStoreSemanticsReplace)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    upsert_random_doc(coll, id);
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr() },
+                              mutate_in_options().store_semantics(subdoc_store_semantics::replace));
+
+    ASSERT_TRUE(r0.is_success());
+}
+
+TEST(MutateInTests, CanSetStoreSemanticsInsertFail)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    upsert_random_doc(coll, id);
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr() },
+                              mutate_in_options().store_semantics(subdoc_store_semantics::insert));
+
+    ASSERT_FALSE(r0.is_success());
+}
+
+TEST(MutateInTests, CanSetStoreSemanticsReplaceFail)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr() },
+                              mutate_in_options().store_semantics(subdoc_store_semantics::replace));
+
+    ASSERT_FALSE(r0.is_success());
+    ASSERT_TRUE(r0.is_not_found());
+}
+
+TEST(MutateInTests, NoSemanticsMissingDocFail)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    auto r0 = coll->mutate_in(id, { mutate_in_spec::insert("a.x", "x").create_path().xattr() });
+
+    ASSERT_FALSE(r0.is_success());
+    ASSERT_TRUE(r0.is_not_found());
 }
 
 TEST(LookupInTests, CanNotAccessDeleted)
