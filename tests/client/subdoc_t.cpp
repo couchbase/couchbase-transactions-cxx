@@ -361,6 +361,32 @@ TEST(MutateInTests, CanSetStoreSemanticsReplaceFail)
     ASSERT_TRUE(r0.is_not_found());
 }
 
+TEST(MutateInTests, CasWithReplaceSemantics)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    upsert_random_doc(coll, id);
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr() },
+                              mutate_in_options().store_semantics(subdoc_store_semantics::replace).cas(100));
+    ASSERT_FALSE(r0.is_success());
+    ASSERT_EQ(r0.rc, 209);
+}
+
+TEST(MutateInTests, CasWithUpsertSemantics)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    upsert_random_doc(coll, id);
+    auto r0 = coll->mutate_in(id,
+                              { mutate_in_spec::insert("a.x", "x").create_path().xattr() },
+                              mutate_in_options().store_semantics(subdoc_store_semantics::upsert).cas(100));
+    ASSERT_FALSE(r0.is_success());
+    ASSERT_EQ(r0.rc, 209);
+}
+
 TEST(MutateInTests, NoSemanticsMissingDocFail)
 {
     auto c = ClientTestEnvironment::get_cluster();

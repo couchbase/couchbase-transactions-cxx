@@ -66,6 +66,7 @@ namespace transactions
 
         friend class compare_atr_entries;
 
+        void check_atr_and_cleanup(transactions_cleanup_attempt* result);
         void cleanup_docs();
         void cleanup_entry();
         void commit_docs(boost::optional<std::vector<doc_record>> docs);

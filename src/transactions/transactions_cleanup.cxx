@@ -22,6 +22,7 @@ tx::transactions_cleanup_attempt::transactions_cleanup_attempt(const tx::atr_cle
   , atr_id_(entry.atr_id_)
   , attempt_id_(entry.attempt_id_)
   , atr_bucket_name_(entry.atr_collection_->bucket_name())
+  , state_(attempt_state::NOT_STARTED)
 {
 }
 

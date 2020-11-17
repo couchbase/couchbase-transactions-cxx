@@ -94,7 +94,7 @@ namespace transactions
         }
         CB_NODISCARD bool is_document_being_removed() const
         {
-            return staged_content_ && *staged_content_ == REMOVE_SENTINEL;
+            return (!!op_ && *op_ == "remove");
         }
 
         CB_NODISCARD bool has_staged_write() const

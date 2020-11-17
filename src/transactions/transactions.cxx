@@ -46,7 +46,7 @@ tx::transactions::run(const logic& logic)
                     ctx.rollback();
                 } catch (const std::runtime_error& er_rollback) {
                     cleanup_.add_attempt(ctx);
-                    spdlog::trace("got error {} while auto rolling back, throwing original error {}", er_rollback.what(), er.what());
+                    spdlog::trace("got error {} while auto rolling back, throwing original error", er_rollback.what(), er.what());
                     er.do_throw(overall);
                     // if you get here, we didn't throw, yet we had an error
                     // probably should stop retries, though need to check this

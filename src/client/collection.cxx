@@ -80,7 +80,7 @@ remove_callback(lcb_INSTANCE*, int, const lcb_RESPREMOVE* resp)
 }
 
 static void
-subdoc_callback(lcb_INSTANCE*, int, const lcb_RESPSUBDOC* resp)
+subdoc_callback(lcb_INSTANCE* instance, int, const lcb_RESPSUBDOC* resp)
 {
     cb::result* res = nullptr;
     lcb_respsubdoc_cookie(resp, reinterpret_cast<void**>(&res));
@@ -107,7 +107,7 @@ subdoc_callback(lcb_INSTANCE*, int, const lcb_RESPSUBDOC* resp)
     if (len > 0) {
         res->is_deleted = lcb_respsubdoc_is_deleted(resp);
     }
-    spdlog::trace("subdoc_callback returning {}", *res);
+    spdlog::trace("[{}]:subdoc_callback returning {}", (void*)instance, *res);
 }
 }
 
@@ -204,20 +204,24 @@ couchbase::result
 couchbase::collection::wrap_call_for_retry(std::function<result(void)> fn)
 {
     int retries = 0;
-    result res;
     while (retries < 10) {
-        res = fn();
+        auto res = fn();
+        // TODO: this is not great - but it works around CCBC-1300.  Remove this when CCBC-1300 has
+        // been fixed.
         if (res.is_success() || (res.rc != LCB_ERR_KVENGINE_INVALID_PACKET && res.rc != LCB_ERR_KVENGINE_UNKNOWN_ERROR)) {
-            break;
+            return res;
         }
-        spdlog::trace("got {}, retrying (CCBC-1300)", res);
+        spdlog::trace("got {}, retrying #{} of 10 (CCBC-1300)", res, retries);
+        retries++;
         if (retries < 10) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
+        } else {
+            return res;
         }
-        retries++;
     }
-    return res;
+    assert("should never get here");
+    throw std::runtime_error("should never get here");
 }
 
 couchbase::result

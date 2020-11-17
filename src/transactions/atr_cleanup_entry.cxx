@@ -80,6 +80,7 @@ tx::atr_cleanup_entry::clean(transactions_cleanup_attempt* result)
 {
     spdlog::info("cleaning {}", *this);
     // get atr entry if needed
+    atr_entry entry;
     if (nullptr == atr_entry_) {
         auto atr = tx::active_transaction_record::get_atr(atr_collection_, atr_id_);
         if (atr) {
@@ -88,6 +89,7 @@ tx::atr_cleanup_entry::clean(transactions_cleanup_attempt* result)
               std::find_if(atr->entries().begin(), atr->entries().end(), [&](const atr_entry& e) { return e.attempt_id() == attempt_id_; });
             if (it != atr->entries().end()) {
                 atr_entry_ = &(*it);
+                return check_atr_and_cleanup(result);
             } else {
                 spdlog::trace("could not find attempt {}, nothing to clean", attempt_id_);
                 return;
@@ -97,6 +99,12 @@ tx::atr_cleanup_entry::clean(transactions_cleanup_attempt* result)
             return;
         }
     }
+    check_atr_and_cleanup(result);
+}
+
+void
+tx::atr_cleanup_entry::check_atr_and_cleanup(transactions_cleanup_attempt* result)
+{
     if (check_if_expired_ && !atr_entry_->has_expired(safety_margin_ms_)) {
         spdlog::info("{} not expired, nothing to clean", *this);
         return;
@@ -111,6 +119,7 @@ tx::atr_cleanup_entry::clean(transactions_cleanup_attempt* result)
     spdlog::info("cleaned {}", *this);
     return;
 }
+
 void
 tx::atr_cleanup_entry::cleanup_docs()
 {
@@ -119,12 +128,14 @@ tx::atr_cleanup_entry::cleanup_docs()
             commit_docs(atr_entry_->inserted_ids());
             commit_docs(atr_entry_->replaced_ids());
             remove_docs_staged_for_removal(atr_entry_->removed_ids());
+            break;
         // half-finished commit
         case tx::attempt_state::ABORTED:
             // half finished rollback
             remove_docs(atr_entry_->inserted_ids());
             remove_txn_links(atr_entry_->replaced_ids());
             remove_txn_links(atr_entry_->removed_ids());
+            break;
         default:
             spdlog::trace("attempt in {}, nothing to do in cleanup_docs", attempt_state_name(atr_entry_->state()));
     }
@@ -173,7 +184,10 @@ tx::atr_cleanup_entry::do_per_doc(std::vector<tx::doc_record> docs,
             if (require_crc_to_match) {
                 if (!doc.metadata()->crc32() || !doc.links().crc32_of_staging() ||
                     doc.links().crc32_of_staging() != doc.metadata()->crc32()) {
-                    spdlog::info("document {} crc32 doesn't match staged value, skipping", dr.id());
+                    spdlog::info("document {} crc32 {} doesn't match staged value {}, skipping",
+                                 dr.id(),
+                                 doc.metadata()->crc32(),
+                                 doc.links().crc32_of_staging());
                     continue;
                 }
             }
@@ -216,16 +230,17 @@ tx::atr_cleanup_entry::commit_docs(boost::optional<std::vector<tx::doc_record>> 
             if (doc.links().has_staged_content()) {
                 nlohmann::json content = doc.links().staged_content<nlohmann::json>();
                 cleanup_->config().cleanup_hooks().before_commit_doc(doc.id());
-                if (is_deleted) {
-                    doc.collection_ref().insert(doc.id(), doc.content<nlohmann::json>());
-                } else {
-                    // logic needs to look for is_deleted (tombstone) when available
-                    doc.collection_ref().mutate_in(doc.id(),
-                                                   { mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
-                                                     mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
-                                                     mutate_in_spec::fulldoc_upsert(content) },
-                                                   mutate_in_options().cas(doc.cas()));
-                }
+                couchbase::result res;
+                wrap_collection_call(res, [&](result& r) {
+                    if (doc.links().is_deleted()) {
+                        r = doc.collection_ref().insert(doc.id(), content);
+                    } else {
+                        r = doc.collection_ref().mutate_in(
+                          doc.id(),
+                          { mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(), mutate_in_spec::fulldoc_upsert(content) },
+                          mutate_in_options().cas(doc.cas()).store_semantics(subdoc_store_semantics::replace));
+                    }
+                });
                 spdlog::trace("commit_docs replaced content of doc {} with {}", doc.id(), content.dump());
             } else {
                 spdlog::trace("commit_docs skipping document {}, no staged content", doc.id());
@@ -239,13 +254,16 @@ tx::atr_cleanup_entry::remove_docs(boost::optional<std::vector<tx::doc_record>> 
     if (docs) {
         do_per_doc(*docs, true, [&](transaction_document& doc, bool is_deleted) {
             cleanup_->config().cleanup_hooks().before_remove_doc(doc.id());
-            if (is_deleted) {
-                doc.collection_ref().mutate_in(doc.id(),
-                                               { mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() },
-                                               mutate_in_options().access_deleted(true).cas(doc.cas()));
-            } else {
-                doc.collection_ref().remove(doc.id(), remove_options().cas(doc.cas()));
-            }
+            couchbase::result res;
+            wrap_collection_call(res, [&](result& r) {
+                if (is_deleted) {
+                    r = doc.collection_ref().mutate_in(doc.id(),
+                                                       { mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() },
+                                                       mutate_in_options().access_deleted(true).cas(doc.cas()));
+                } else {
+                    r = doc.collection_ref().remove(doc.id(), remove_options().cas(doc.cas()));
+                }
+            });
             spdlog::trace("remove_docs removed doc {}", doc.id());
         });
     }
@@ -256,15 +274,18 @@ tx::atr_cleanup_entry::remove_docs_staged_for_removal(boost::optional<std::vecto
 {
     if (docs) {
         do_per_doc(*docs, true, [&](transaction_document& doc, bool) {
-            if (doc.links().is_document_being_removed()) {
-                cleanup_->config().cleanup_hooks().before_remove_doc_staged_for_removal(doc.id());
-                doc.collection_ref().remove(doc.id(), remove_options().cas(doc.cas()));
-                spdlog::trace("remove_docs_staged_for_removal removed doc {}", doc.id());
-            } else {
-                spdlog::trace("remove_docs_staged_for_removal found document {} not "
-                              "marked for removal, skipping",
-                              doc.id());
-            }
+            couchbase::result res;
+            wrap_collection_call(res, [&](result& r) {
+                if (doc.links().is_document_being_removed()) {
+                    cleanup_->config().cleanup_hooks().before_remove_doc_staged_for_removal(doc.id());
+                    r = doc.collection_ref().remove(doc.id(), remove_options().cas(doc.cas()));
+                    spdlog::trace("remove_docs_staged_for_removal removed doc {}", doc.id());
+                } else {
+                    spdlog::trace("remove_docs_staged_for_removal found document {} not "
+                                  "marked for removal, skipping",
+                                  doc.id());
+                }
+            });
         });
     }
 }
@@ -274,15 +295,18 @@ tx::atr_cleanup_entry::remove_txn_links(boost::optional<std::vector<tx::doc_reco
 {
     if (docs) {
         do_per_doc(*docs, false, [&](transaction_document& doc, bool) {
-            cleanup_->config().cleanup_hooks().before_remove_links(doc.id());
-            doc.collection_ref().mutate_in(
-              doc.id(),
-              {
-                mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
-                mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
-              },
-              mutate_in_options().durability(durability(cleanup_->config())).access_deleted(true).cas(doc.cas()));
-            spdlog::trace("remove_txn_links removed links for doc {}", doc.id());
+            couchbase::result res;
+            wrap_collection_call(res, [&](result& r) {
+                cleanup_->config().cleanup_hooks().before_remove_links(doc.id());
+                r = doc.collection_ref().mutate_in(
+                  doc.id(),
+                  {
+                    mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
+                    mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
+                  },
+                  mutate_in_options().durability(durability(cleanup_->config())).access_deleted(true).cas(doc.cas()));
+                spdlog::trace("remove_txn_links removed links for doc {}", doc.id());
+            });
         });
     }
 }

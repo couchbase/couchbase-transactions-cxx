@@ -22,8 +22,6 @@ namespace couchbase
 {
 namespace transactions
 {
-    static const std::string REMOVE_SENTINEL = "<<REMOVE>>";
-
     // Fields in the Active Transaction Records
     // These are keep as brief as possible, more important to reduce changes of doc overflowing
     // than to preserve human debuggability

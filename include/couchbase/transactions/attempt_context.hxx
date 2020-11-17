@@ -253,8 +253,6 @@ namespace transactions
         // In fact, needs to be done without relying on any onNext signal.  What if the operation times out instead.
         void check_expiry_during_commit_or_rollback(const std::string& stage, boost::optional<const std::string> doc_id);
 
-        void insure_atr_exists(std::shared_ptr<collection> collection);
-
         void set_atr_pending_if_first_mutation(std::shared_ptr<collection> collection);
 
         void error_if_expired_and_not_in_overtime(const std::string& stage, boost::optional<const std::string> doc_id);
