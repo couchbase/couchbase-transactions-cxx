@@ -80,12 +80,14 @@ namespace transactions
       private:
         error_class ec_;
         uint32_t rc_;
+        boost::optional<couchbase::result> res_;
 
       public:
         explicit client_error(const couchbase::result& res)
           : runtime_error(res.strerror())
           , ec_(error_class_from_result(res))
           , rc_(res.rc)
+          , res_(res)
         {
         }
         explicit client_error(error_class ec, const std::string& what)
@@ -101,6 +103,10 @@ namespace transactions
         uint32_t rc() const
         {
             return rc_;
+        }
+        boost::optional<couchbase::result> res() const
+        {
+            return res_;
         }
     };
 

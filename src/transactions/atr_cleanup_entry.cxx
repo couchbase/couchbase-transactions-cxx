@@ -18,6 +18,7 @@
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/spdlog.h>
 
+#include "utils.hxx"
 #include <couchbase/transactions.hxx>
 #include <couchbase/transactions/atr_cleanup_entry.hxx>
 #include <couchbase/transactions/exceptions.hxx>
@@ -151,7 +152,7 @@ tx::atr_cleanup_entry::do_per_doc(std::vector<tx::doc_record> docs,
         try {
             couchbase::result res;
             cleanup_->config().cleanup_hooks().before_doc_get(dr.id());
-            wrap_collection_call(res, [&](result& r) {
+            tx::wrap_collection_call(res, [&](result& r) {
                 r = collection->lookup_in(dr.id(),
                                           { lookup_in_spec::get(ATR_ID).xattr(),
                                             lookup_in_spec::get(TRANSACTION_ID).xattr(),
@@ -231,7 +232,7 @@ tx::atr_cleanup_entry::commit_docs(boost::optional<std::vector<tx::doc_record>> 
                 nlohmann::json content = doc.links().staged_content<nlohmann::json>();
                 cleanup_->config().cleanup_hooks().before_commit_doc(doc.id());
                 couchbase::result res;
-                wrap_collection_call(res, [&](result& r) {
+                tx::wrap_collection_call(res, [&](result& r) {
                     if (doc.links().is_deleted()) {
                         r = doc.collection_ref().insert(doc.id(), content);
                     } else {
@@ -255,7 +256,7 @@ tx::atr_cleanup_entry::remove_docs(boost::optional<std::vector<tx::doc_record>> 
         do_per_doc(*docs, true, [&](transaction_document& doc, bool is_deleted) {
             cleanup_->config().cleanup_hooks().before_remove_doc(doc.id());
             couchbase::result res;
-            wrap_collection_call(res, [&](result& r) {
+            tx::wrap_collection_call(res, [&](result& r) {
                 if (is_deleted) {
                     r = doc.collection_ref().mutate_in(doc.id(),
                                                        { mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() },
@@ -275,7 +276,7 @@ tx::atr_cleanup_entry::remove_docs_staged_for_removal(boost::optional<std::vecto
     if (docs) {
         do_per_doc(*docs, true, [&](transaction_document& doc, bool) {
             couchbase::result res;
-            wrap_collection_call(res, [&](result& r) {
+            tx::wrap_collection_call(res, [&](result& r) {
                 if (doc.links().is_document_being_removed()) {
                     cleanup_->config().cleanup_hooks().before_remove_doc_staged_for_removal(doc.id());
                     r = doc.collection_ref().remove(doc.id(), remove_options().cas(doc.cas()));
@@ -296,7 +297,7 @@ tx::atr_cleanup_entry::remove_txn_links(boost::optional<std::vector<tx::doc_reco
     if (docs) {
         do_per_doc(*docs, false, [&](transaction_document& doc, bool) {
             couchbase::result res;
-            wrap_collection_call(res, [&](result& r) {
+            tx::wrap_collection_call(res, [&](result& r) {
                 cleanup_->config().cleanup_hooks().before_remove_links(doc.id());
                 r = doc.collection_ref().mutate_in(
                   doc.id(),
@@ -311,16 +312,6 @@ tx::atr_cleanup_entry::remove_txn_links(boost::optional<std::vector<tx::doc_reco
     }
 }
 
-// TODO - refactor to have this in one spot (copied from attempt_context now).
-void
-tx::atr_cleanup_entry::wrap_collection_call(result& res, std::function<void(result&)> call)
-{
-    call(res);
-    if (!res.is_success()) {
-        throw tx::client_error(res);
-    }
-}
-
 void
 tx::atr_cleanup_entry::cleanup_entry()
 {
@@ -328,7 +319,7 @@ tx::atr_cleanup_entry::cleanup_entry()
         cleanup_->config().cleanup_hooks().before_atr_remove();
         couchbase::result res;
         auto coll = atr_collection_;
-        wrap_collection_call(res, [&](result& r) {
+        tx::wrap_collection_call(res, [&](result& r) {
             std::string path("attempts.");
             path += attempt_id_;
             r = coll->mutate_in(atr_id_, { mutate_in_spec::upsert(path, nullptr).xattr(), mutate_in_spec::remove(path).xattr() });

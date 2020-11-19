@@ -8,6 +8,7 @@
 
 #include "atr_ids.hxx"
 #include "logging.hxx"
+#include "utils.hxx"
 
 namespace couchbase
 {
@@ -323,8 +324,8 @@ namespace transactions
             result res;
             wrap_collection_call(res, [&](result& r) {
                 r = atr_collection_->mutate_in(atr_id_.value(), specs);
-                hooks_.after_atr_commit(this);
             });
+            hooks_.after_atr_commit(this);
             state(attempt_state::COMMITTED);
         } catch (const client_error& e) {
             error_class ec = e.ec();
@@ -360,7 +361,7 @@ namespace transactions
             std::vector<lookup_in_spec> specs({ lookup_in_spec::get(prefix + ATR_FIELD_STATUS).xattr() });
             result res;
             wrap_collection_call(res, [&](result& r) { r = atr_collection_->lookup_in(atr_id_.value(), specs); });
-            auto atr_status = attempt_state_value(res.values[0]->get<std::string>());
+            auto atr_status = attempt_state_value(res.values[0].value->get<std::string>());
             switch (atr_status) {
                 case attempt_state::COMPLETED:
                     return;
@@ -720,14 +721,6 @@ namespace transactions
         }
     }
 
-    void attempt_context::wrap_collection_call(result& res, std::function<void(result&)> call)
-    {
-        call(res);
-        if (!res.is_success()) {
-            throw client_error(res);
-        }
-    }
-
     boost::optional<transaction_document> attempt_context::do_get(std::shared_ptr<collection> collection, const std::string& id)
     {
         try {
@@ -874,6 +867,10 @@ namespace transactions
             if (e.ec() == FAIL_DOC_NOT_FOUND) {
                 return boost::none;
             }
+            if (e.ec() == FAIL_PATH_NOT_FOUND) {
+                return std::pair<transaction_document, result>(
+                  transaction_document::create_from(*collection, id, *e.res(), transaction_document_status::NORMAL), *e.res());
+            }
             throw;
         }
     }
@@ -892,14 +889,14 @@ namespace transactions
                 r = collection->mutate_in(
                   id,
                   {
-                    mutate_in_spec::insert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                    mutate_in_spec::insert(ATTEMPT_ID, this->id()).create_path().xattr(),
-                    mutate_in_spec::insert(ATR_ID, atr_id_.value()).create_path().xattr(),
-                    mutate_in_spec::insert(STAGED_DATA, content).create_path().xattr(),
-                    mutate_in_spec::insert(ATR_BUCKET_NAME, collection->bucket_name()).create_path().xattr(),
-                    mutate_in_spec::insert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr().create_path(),
-                    mutate_in_spec::insert(TYPE, "insert").create_path().xattr(),
-                    mutate_in_spec::insert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).create_path().xattr().expand_macro(),
+                    mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
+                    mutate_in_spec::upsert(ATTEMPT_ID, this->id()).create_path().xattr(),
+                    mutate_in_spec::upsert(ATR_ID, atr_id_.value()).create_path().xattr(),
+                    mutate_in_spec::upsert(STAGED_DATA, content).create_path().xattr(),
+                    mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).create_path().xattr(),
+                    mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).xattr().create_path(),
+                    mutate_in_spec::upsert(TYPE, "insert").create_path().xattr(),
+                    mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).create_path().xattr().expand_macro(),
                   },
                   mutate_in_options().durability(durability(config_)).access_deleted(true).create_as_deleted(true).cas(cas));
             });

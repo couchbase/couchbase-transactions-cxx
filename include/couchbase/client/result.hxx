@@ -46,8 +46,8 @@ namespace couchbase
  * std::string key = "somekey";
  * result res = collection->lookup_in(key, {lookup_in_spec::get("name"), lookup_in_spec::get("address")});
  * if (res.is_success()) {
- *     auto name = res.values[0]->get<std::string>();
- *     auto address = res.values[1]->get<std::string>();
+ *     auto name = res.values[0].value->get<std::string>();
+ *     auto address = res.values[1].value->get<std::string>();
  * } else {
  *     cerr << "error getting " << key << ":" << res.strerror();
  * }
@@ -81,6 +81,26 @@ namespace couchbase
  * }
  * @endcode
  */
+
+struct subdoc_result {
+    boost::optional<nlohmann::json> value;
+    uint32_t status;
+
+    subdoc_result()
+      : status(0)
+    {
+    }
+    subdoc_result(uint32_t s)
+      : status(s)
+    {
+    }
+    subdoc_result(nlohmann::json v, uint32_t s)
+      : value(v)
+      , status(s)
+    {
+    }
+};
+
 struct result {
     uint32_t rc;
     uint64_t cas;
@@ -88,7 +108,7 @@ struct result {
     uint32_t flags;
     std::string key;
     boost::optional<nlohmann::json> value;
-    std::vector<boost::optional<nlohmann::json>> values;
+    std::vector<subdoc_result> values;
     bool is_deleted;
 
     result() : rc(0), cas(0), datatype(0), flags(0), is_deleted(0) {}
@@ -118,9 +138,7 @@ struct result {
         if (!res.values.empty()) {
             os << ",values:[";
             for (auto& v : res.values) {
-                if (v) {
-                    os << v->dump() << ",";
-                }
+                os << "{" << (v.value ? v.value->dump() : "") << "," << v.status << "},";
             }
             os << "]";
         }

@@ -1,4 +1,5 @@
 #include "logging.hxx"
+#include "utils.hxx"
 #include <couchbase/client/result.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/staged_mutation.hxx>
@@ -144,7 +145,7 @@ tx::staged_mutation_queue::rollback_insert(attempt_context& ctx, staged_mutation
         ctx.hooks_.before_rollback_delete_inserted(&ctx, item.doc().id());
         std::vector<mutate_in_spec> specs({ mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() });
         result res;
-        ctx.wrap_collection_call(res, [&](result& r) {
+        tx::wrap_collection_call(res, [&](result& r) {
             r =
               item.doc().collection_ref().mutate_in(item.doc().id(), specs, mutate_in_options().access_deleted(true).cas(item.doc().cas()));
         });
@@ -185,7 +186,7 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context& ctx, stag
         ctx.hooks_.before_doc_rolled_back(&ctx, item.doc().id());
         std::vector<mutate_in_spec> specs({ mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() });
         result res;
-        ctx.wrap_collection_call(res, [&](result& r) {
+        tx::wrap_collection_call(res, [&](result& r) {
             r = item.doc().collection_ref().mutate_in(item.doc().id(), specs, mutate_in_options().cas(item.doc().cas()));
         });
         trace(ctx, "rollback result {}", res);
@@ -224,10 +225,10 @@ tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& ite
         trace(ctx, "commit doc id {}, content {}, cas {}", item.doc().id(), item.content<nlohmann::json>().dump(), item.doc().cas());
         result res;
         if (item.type() == staged_mutation_type::INSERT && !cas_zero_mode) {
-            ctx.wrap_collection_call(
+            tx::wrap_collection_call(
               res, [&](result& r) { r = item.doc().collection_ref().insert(item.doc().id(), item.doc().content<nlohmann::json>()); });
         } else {
-            ctx.wrap_collection_call(res, [&](result& r) {
+            tx::wrap_collection_call(res, [&](result& r) {
                 r = item.doc().collection_ref().mutate_in(
                   item.doc().id(),
                   {
@@ -273,7 +274,7 @@ tx::staged_mutation_queue::remove_doc(attempt_context& ctx, staged_mutation& ite
         ctx.check_expiry_during_commit_or_rollback(STAGE_REMOVE_DOC, boost::optional<const std::string>(item.doc().id()));
         ctx.hooks_.before_doc_removed(&ctx, item.doc().id());
         result res;
-        ctx.wrap_collection_call(res, [&](result& r) { r = item.doc().collection_ref().remove(item.doc().id()); });
+        tx::wrap_collection_call(res, [&](result& r) { r = item.doc().collection_ref().remove(item.doc().id()); });
         ctx.hooks_.after_doc_removed_pre_retry(&ctx, item.doc().id());
         // TODO:mutation tokens
     } catch (const client_error& e) {

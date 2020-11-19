@@ -122,51 +122,51 @@ namespace transactions
             boost::optional<std::string> op;
             nlohmann::json content;
 
-            if (res.values[0]) {
-                atr_id = res.values[0]->get<std::string>();
+            if (res.values[0].value) {
+                atr_id = res.values[0].value->get<std::string>();
             }
-            if (res.values[1]) {
-                transaction_id = res.values[1]->get<std::string>();
+            if (res.values[1].value) {
+                transaction_id = res.values[1].value->get<std::string>();
             }
-            if (res.values[2]) {
-                attempt_id = res.values[2]->get<std::string>();
+            if (res.values[2].value) {
+                attempt_id = res.values[2].value->get<std::string>();
             }
-            if (res.values[3]) {
-                staged_content = res.values[3]->get<nlohmann::json>();
+            if (res.values[3].value) {
+                staged_content = res.values[3].value->get<nlohmann::json>();
             }
-            if (res.values[4]) {
-                atr_bucket_name = res.values[4]->get<std::string>();
+            if (res.values[4].value) {
+                atr_bucket_name = res.values[4].value->get<std::string>();
             }
-            if (res.values[5]) {
-                std::string name = res.values[5]->get<std::string>();
+            if (res.values[5].value) {
+                std::string name = res.values[5].value->get<std::string>();
                 std::vector<std::string> splits;
                 boost::split(splits, name, [](char c) { return c == '.'; });
                 atr_scope_name = splits[0];
                 atr_collection_name = splits[1];
             }
-            if (res.values[6]) {
-                nlohmann::json restore = *res.values[6];
+            if (res.values[6].value) {
+                nlohmann::json restore = *res.values[6].value;
                 cas_pre_txn = restore["CAS"].get<std::string>();
                 // only present in 6.5+
                 revid_pre_txn = restore["revid"].get<std::string>();
                 exptime_pre_txn = restore["exptime"].get<uint32_t>();
             }
-            if (res.values[7]) {
-                op = res.values[7]->get<std::string>();
+            if (res.values[7].value) {
+                op = res.values[7].value->get<std::string>();
             }
-            if (res.values[8]) {
-                nlohmann::json doc = *res.values[8];
+            if (res.values[8].value) {
+                nlohmann::json doc = *res.values[8].value;
                 cas_from_doc = doc["CAS"].get<std::string>();
                 // only present in 6.5+
                 revid_from_doc = doc["revid"].get<std::string>();
                 exptime_from_doc = doc["exptime"].get<uint32_t>();
                 crc32_from_doc = doc["value_crc32c"].get<std::string>();
             }
-            if (res.values[9]) {
-                crc32_of_staging = res.values[9].get();
+            if (res.values[9].value) {
+                crc32_of_staging = res.values[9].value.get();
             }
-            if (res.values[10]) {
-                content = res.values[10].get();
+            if (res.values[10].value) {
+                content = res.values[10].value.get();
             } else {
                 content = nlohmann::json::object();
             }

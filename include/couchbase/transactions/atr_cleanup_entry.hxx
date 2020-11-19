@@ -73,8 +73,6 @@ namespace transactions
         void remove_docs(boost::optional<std::vector<doc_record>> docs);
         void remove_docs_staged_for_removal(boost::optional<std::vector<doc_record>> docs);
         void remove_txn_links(boost::optional<std::vector<doc_record>> docs);
-        // TODO: consolidate with attempt_context version of this
-        void wrap_collection_call(couchbase::result& res, std::function<void(couchbase::result&)> call);
         void do_per_doc(std::vector<doc_record> docs,
                         bool require_crc_to_match,
                         const std::function<void(transaction_document&, bool)>& call);

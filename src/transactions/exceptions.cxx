@@ -22,8 +22,17 @@ namespace transactions
 
     error_class error_class_from_result(const couchbase::result& res)
     {
-        assert(res.rc != LCB_SUCCESS);
-        switch (res.rc) {
+        uint32_t rc = res.rc;
+        if (rc == LCB_SUCCESS) {
+            for (auto v : res.values) {
+                rc = v.status;
+                if (rc != LCB_SUCCESS) {
+                    break;
+                }
+            }
+        }
+        assert(rc != LCB_SUCCESS);
+        switch (rc) {
             case LCB_ERR_DOCUMENT_NOT_FOUND:
                 return FAIL_DOC_NOT_FOUND;
             case LCB_ERR_DOCUMENT_EXISTS:

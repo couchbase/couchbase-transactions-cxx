@@ -96,12 +96,13 @@ subdoc_callback(lcb_INSTANCE* instance, int, const lcb_RESPSUBDOC* resp)
     for (size_t idx = 0; idx < len; idx++) {
         data = nullptr;
         ndata = 0;
+        lcb_STATUS status = lcb_respsubdoc_result_status(resp, idx);
         lcb_respsubdoc_result_value(resp, idx, &data, &ndata);
         auto itr = res->values.begin() + idx;
         if (data) {
-            res->values.emplace(itr, nlohmann::json::parse(data, data + ndata));
+            res->values.emplace(itr, nlohmann::json::parse(data, data + ndata), status);
         } else {
-            res->values.emplace(itr, boost::none);
+            res->values.emplace(itr, status);
         }
     }
     if (len > 0) {

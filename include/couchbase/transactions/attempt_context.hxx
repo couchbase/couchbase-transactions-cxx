@@ -280,8 +280,6 @@ namespace transactions
 
         void atr_rollback_complete();
 
-        void wrap_collection_call(result& res, std::function<void(result&)> call);
-
         void select_atr_if_needed(std::shared_ptr<collection> collection, const std::string& id);
 
         // TODO: this should return boost::optional::<TransactionGetResult>

@@ -155,7 +155,7 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
     std::vector<std::string> expired_client_uids;
     std::vector<std::string> active_client_uids;
     if (res.is_success()) {
-        for (auto& client : res.values[0]->items()) {
+        for (auto& client : res.values[0].value->items()) {
             const auto& other_client_uuid = client.key();
             auto cl = client.value();
             uint64_t cas_ms = res.cas / 1000000;

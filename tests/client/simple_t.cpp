@@ -6,6 +6,7 @@
 #include "couchbase/client/cluster.hxx"
 #include "couchbase/client/collection.hxx"
 #include <gtest/gtest.h>
+#include <libcouchbase/couchbase.h>
 #include <spdlog/spdlog.h>
 
 using namespace couchbase;
@@ -253,8 +254,10 @@ TEST_F(SimpleClientCollectionTests, CanLookupIn)
     ASSERT_EQ(res.key, _id);
     ASSERT_FALSE(res.value);
     ASSERT_FALSE(res.values.empty());
-    ASSERT_EQ(res.values[0]->get<std::string>(), std::string("thing"));
-    ASSERT_EQ(res.values[1]->get<nlohmann::json>(), ::content);
+    ASSERT_EQ(res.values[0].value->get<std::string>(), std::string("thing"));
+    ASSERT_EQ(res.values[0].status, LCB_SUCCESS);
+    ASSERT_EQ(res.values[1].value->get<nlohmann::json>(), ::content);
+    ASSERT_EQ(res.values[1].status, LCB_SUCCESS);
     ASSERT_FALSE(res.is_deleted);
 }
 

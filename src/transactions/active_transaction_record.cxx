@@ -86,7 +86,7 @@ namespace transactions
         if (res.rc == LCB_ERR_DOCUMENT_NOT_FOUND) {
             return {};
         } else if (res.rc == LCB_SUCCESS) {
-            nlohmann::json attempts = *res.values[0];
+            nlohmann::json attempts = *res.values[0].value;
             return map_to_atr(collection, atr_id, res, attempts);
         } else {
             throw client_error(res);
