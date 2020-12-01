@@ -51,10 +51,11 @@ tx::atr_cleanup_entry::atr_cleanup_entry(const std::string& atr_id,
 
 tx::atr_cleanup_entry::atr_cleanup_entry(const atr_entry& entry,
                                          std::shared_ptr<couchbase::collection> atr_coll,
-                                         const transactions_cleanup& cleanup)
+                                         const transactions_cleanup& cleanup,
+                                         bool check_if_expired)
   : atr_id_(entry.atr_id())
   , attempt_id_(entry.attempt_id())
-  , check_if_expired_(true)
+  , check_if_expired_(check_if_expired)
   , atr_collection_(atr_coll)
   , atr_entry_(&entry)
   , cleanup_(&cleanup)

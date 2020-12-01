@@ -81,7 +81,8 @@ namespace transactions
         explicit atr_cleanup_entry(attempt_context& ctx);
         explicit atr_cleanup_entry(const atr_entry& entry,
                                    std::shared_ptr<couchbase::collection> atr_coll,
-                                   const transactions_cleanup& cleanup);
+                                   const transactions_cleanup& cleanup,
+                                   bool check_if_expired = true);
 
         explicit atr_cleanup_entry(const std::string& atr_id,
                                    const std::string& attempt_id,

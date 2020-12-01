@@ -33,7 +33,14 @@ namespace transactions
         {
         }
     };
-
+    class retry_operation_timeout : public std::runtime_error
+    {
+      public:
+        retry_operation_timeout(const std::string& what)
+          : std::runtime_error(what)
+        {
+        }
+    };
     //  only used in ambiguity resolution during atr_commit
     class retry_atr_commit : public std::runtime_error
     {
@@ -86,9 +93,10 @@ namespace transactions
         explicit client_error(const couchbase::result& res)
           : runtime_error(res.strerror())
           , ec_(error_class_from_result(res))
-          , rc_(res.rc)
+          , rc_(res.error())
           , res_(res)
         {
+            assert(rc_ != 0 && "cannot throw client_error if there is no error");
         }
         explicit client_error(error_class ec, const std::string& what)
           : runtime_error(what)

@@ -5,7 +5,7 @@
 std::string
 couchbase::result::strerror() const
 {
-    return lcb_strerror_short(static_cast<lcb_STATUS>(rc));
+    return lcb_strerror_short(static_cast<lcb_STATUS>(error()));
 }
 
 bool
@@ -24,4 +24,18 @@ bool
 couchbase::result::is_value_too_large() const
 {
     return rc == LCB_ERR_VALUE_TOO_LARGE;
+}
+
+uint32_t
+couchbase::result::error() const
+{
+    if (rc != LCB_SUCCESS || ignore_subdoc_errors) {
+        return rc;
+    }
+    for (auto v : values) {
+        if (v.status != LCB_SUCCESS) {
+            return v.status;
+        }
+    }
+    return rc;
 }

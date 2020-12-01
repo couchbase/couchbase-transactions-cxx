@@ -18,6 +18,7 @@
 
 #include <couchbase/client/cluster.hxx>
 #include <couchbase/transactions/atr_cleanup_entry.hxx>
+#include <couchbase/transactions/client_record.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 
 #include <atomic>
@@ -73,6 +74,17 @@ namespace transactions
         }
     };
 
+    struct atr_cleanup_stats {
+        bool exists;
+        size_t num_entries;
+
+        atr_cleanup_stats()
+          : exists(false)
+          , num_entries(0)
+        {
+        }
+    };
+
     class transactions_cleanup
     {
       public:
@@ -101,7 +113,12 @@ namespace transactions
         void force_cleanup_attempts(std::vector<transactions_cleanup_attempt>& results);
         // only used for testing
         void force_cleanup_entry(atr_cleanup_entry& entry, transactions_cleanup_attempt& attempt);
-
+        // only used for testing
+        const atr_cleanup_stats force_cleanup_atr(std::shared_ptr<couchbase::collection> coll,
+                                                  const std::string& atr_id,
+                                                  std::vector<transactions_cleanup_attempt>& results);
+        const client_record_details get_active_clients(std::shared_ptr<couchbase::collection> coll, const std::string& uuid);
+        void remove_client_record_from_all_buckets(const std::string& uuid);
         void close();
 
       private:
@@ -109,7 +126,7 @@ namespace transactions
         // and config. Mutable since const version of this class return
         // non const ref to cluster.
         mutable couchbase::cluster cluster_;
-        const transaction_config config_;
+        const transaction_config& config_;
         const std::chrono::milliseconds cleanup_loop_delay_{ 100 };
 
         std::thread lost_attempts_thr_;
@@ -126,8 +143,11 @@ namespace transactions
         bool interruptable_wait(std::chrono::duration<R, P> time);
 
         void lost_attempts_loop();
-        std::pair<size_t, size_t> get_active_clients(std::shared_ptr<couchbase::collection> coll);
         void clean_lost_attempts_in_bucket(const std::string& bucket_name);
+        void create_client_record(std::shared_ptr<couchbase::collection> coll);
+        const atr_cleanup_stats handle_atr_cleanup(std::shared_ptr<couchbase::collection> coll,
+                                                   const std::string& atr_id,
+                                                   std::vector<transactions_cleanup_attempt>* result = nullptr);
 
         std::atomic<bool> running_{ false };
     };

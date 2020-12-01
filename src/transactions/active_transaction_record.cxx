@@ -1,6 +1,6 @@
 #include <couchbase/transactions/active_transaction_record.hxx>
-
 #include <libcouchbase/couchbase.h>
+#include <spdlog/spdlog.h>
 
 namespace couchbase
 {
@@ -52,6 +52,11 @@ namespace transactions
                                                                            result& res,
                                                                            nlohmann::json& attempts)
     {
+        auto vbucket = res.values[1].value->get<nlohmann::json>();
+        spdlog::trace("vbucket {}", vbucket.dump());
+        std::string now_str = vbucket["HLC"]["now"];
+        uint64_t now_ns = stoull(now_str, nullptr, 10) * 1000000000;
+        spdlog::trace("now_ns {} ", now_ns);
         std::vector<atr_entry> entries;
         entries.reserve(attempts.size());
         for (auto& element : attempts.items()) {
@@ -71,7 +76,7 @@ namespace transactions
                                  process_document_ids(val, ATR_FIELD_DOCS_INSERTED),
                                  process_document_ids(val, ATR_FIELD_DOCS_REPLACED),
                                  process_document_ids(val, ATR_FIELD_DOCS_REMOVED),
-                                 res.cas);
+                                 now_ns);
         }
         return active_transaction_record(atr_id, collection, res.cas, std::move(entries));
     }
@@ -79,10 +84,8 @@ namespace transactions
     boost::optional<active_transaction_record> active_transaction_record::get_atr(std::shared_ptr<collection> collection,
                                                                                   const std::string& atr_id)
     {
-        result res = collection->lookup_in(atr_id,
-                                           {
-                                             lookup_in_spec::get(ATR_FIELD_ATTEMPTS).xattr(),
-                                           });
+        result res =
+          collection->lookup_in(atr_id, { lookup_in_spec::get(ATR_FIELD_ATTEMPTS).xattr(), lookup_in_spec::get("$vbucket").xattr() });
         if (res.rc == LCB_ERR_DOCUMENT_NOT_FOUND) {
             return {};
         } else if (res.rc == LCB_SUCCESS) {

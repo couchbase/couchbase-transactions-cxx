@@ -18,32 +18,49 @@
 #include <couchbase/client/cluster.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 
+#include <string>
+#include <vector>
+
 namespace couchbase
 {
 namespace transactions
 {
     /**
-     * Represents the ClientRecord doc, a single document that contains an entry for every client (app) current participating in the cleanup
-     * of 'lost' transactions.
-     *
-     * ClientRecord isn't as contended as it appears.  It's only read and written to by each client once per cleanup window (default for
-     * this is 60 seconds).  It does remain a single point of failure, but with a sensible number of replicas this is unlikely to be a
-     * problem.
-     *
-     * All writes are non-durable.  If a write is rolled back then it's not critical, it will just take a little longer to find lost txns.
+     *  Represents details about client records
      */
-    class client_record
-    {
-      public:
-        client_record(cluster& cluster, const transaction_config& config)
-          : cluster_(cluster)
-          , config_(config)
-        {
-        }
+    struct client_record_details {
+        std::string client_uuid;
+        uint32_t num_active_clients;
+        uint32_t index_of_this_client;
+        uint32_t num_existing_clients;
+        uint32_t num_expired_clients;
+        bool client_is_new;
+        std::vector<std::string> expired_client_ids;
+        bool override_enabled;
+        bool override_active;
+        uint64_t override_expires;
+        uint64_t cas_now_nanos;
 
-      private:
-        cluster& cluster_;
-        const transaction_config& config_;
+        template<typename OStream>
+        friend OStream& operator<<(OStream& os, const client_record_details& details)
+        {
+            os << "client_record_details{";
+            os << "client_uuid: " << details.client_uuid;
+            os << ", num_active_clients: " << details.num_active_clients;
+            os << ", index_of_this_client: " << details.index_of_this_client;
+            os << ", num_existing_clients: " << details.num_existing_clients;
+            os << ", num_expired_clients: " << details.num_expired_clients;
+            os << ", override_enabled: " << details.override_enabled;
+            os << ", override_expires: " << details.override_expires;
+            os << ", cas_now_nanos: " << details.cas_now_nanos;
+            os << ", expired_client_ids: [";
+            for (auto& id : details.expired_client_ids) {
+                os << id << ",";
+            }
+            os << "]}";
+            return os;
+        }
     };
+
 } // namespace transactions
 } // namespace couchbase

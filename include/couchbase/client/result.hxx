@@ -110,8 +110,17 @@ struct result {
     boost::optional<nlohmann::json> value;
     std::vector<subdoc_result> values;
     bool is_deleted;
+    bool ignore_subdoc_errors;
 
-    result() : rc(0), cas(0), datatype(0), flags(0), is_deleted(0) {}
+    result()
+      : rc(0)
+      , cas(0)
+      , datatype(0)
+      , flags(0)
+      , is_deleted(0)
+      , ignore_subdoc_errors(0)
+    {
+    }
     /**
      * Get description of error
      *
@@ -121,6 +130,11 @@ struct result {
     CB_NODISCARD bool is_not_found() const;
     CB_NODISCARD bool is_success() const;
     CB_NODISCARD bool is_value_too_large() const;
+    /**
+     *  Get error code.  This is either the rc_, or if that is LCB_SUCCESS,
+     *  then the first error in the values (if any) see @ref subdoc_results
+     */
+    CB_NODISCARD uint32_t error() const;
     template<typename OStream>
     friend OStream& operator<<(OStream& os, const result& res)
     {

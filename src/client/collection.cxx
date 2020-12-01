@@ -108,7 +108,6 @@ subdoc_callback(lcb_INSTANCE* instance, int, const lcb_RESPSUBDOC* resp)
     if (len > 0) {
         res->is_deleted = lcb_respsubdoc_is_deleted(resp);
     }
-    spdlog::trace("[{}]:subdoc_callback returning {}", (void*)instance, *res);
 }
 }
 
@@ -373,6 +372,8 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
         if (res.rc == LCB_ERR_DOCUMENT_EXISTS) {
             res.rc = LCB_ERR_CAS_MISMATCH;
         }
+        res.ignore_subdoc_errors = false;
+        spdlog::trace("mutate_in returning {}", res);
         return res;
     });
 }
@@ -412,6 +413,8 @@ couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_sp
             throw std::runtime_error(std::string("failed to lookup (sched) sub-document: ") + lcb_strerror_short(rc));
         }
         lcb_wait(bucket_->lcb_, LCB_WAIT_DEFAULT);
+        res.ignore_subdoc_errors = true;
+        spdlog::trace("lookup_in returning {}", res);
         return res;
     });
 }

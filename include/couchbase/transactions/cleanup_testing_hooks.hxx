@@ -54,6 +54,11 @@ namespace transactions
 
         std::function<void(void)> on_cleanup_docs_completed = noop3;
         std::function<void(void)> on_cleanup_completed = noop3;
+
+        std::function<int(const std::string&)> client_record_before_create = noop1;
+        std::function<int(const std::string&)> client_record_before_get = noop1;
+        std::function<int(const std::string&)> client_record_before_update = noop1;
+        std::function<int(const std::string&)> client_record_before_remove_client = noop1;
     };
 } // namespace transactions
 } // namespace couchbase
