@@ -39,11 +39,11 @@ namespace transactions
                   std::string atr_id,
                   std::string attempt_id,
                   attempt_state state,
-                  boost::optional<std::uint32_t> timestamp_start_ms,
-                  boost::optional<std::uint32_t> timestamp_commit_ms,
-                  boost::optional<std::uint32_t> timestamp_complete_ms,
-                  boost::optional<std::uint32_t> timestamp_rollback_ms,
-                  boost::optional<std::uint32_t> timestamp_rolled_back_ms,
+                  boost::optional<std::uint64_t> timestamp_start_ms,
+                  boost::optional<std::uint64_t> timestamp_commit_ms,
+                  boost::optional<std::uint64_t> timestamp_complete_ms,
+                  boost::optional<std::uint64_t> timestamp_rollback_ms,
+                  boost::optional<std::uint64_t> timestamp_rolled_back_ms,
                   boost::optional<std::uint32_t> expires_after_ms,
                   boost::optional<std::vector<doc_record>> inserted_ids,
                   boost::optional<std::vector<doc_record>> replaced_ids,
@@ -68,10 +68,10 @@ namespace transactions
 
         CB_NODISCARD bool has_expired(std::uint32_t safety_margin = 0) const
         {
-            std::uint32_t cas_ms = cas_ / 1000000;
-            if (timestamp_start_ms_) {
-                std::uint32_t expires_after_ms = *expires_after_ms_;
-                return (cas_ms - *timestamp_start_ms_) > expires_after_ms + safety_margin;
+            uint64_t cas_ms = cas_ / 1000000;
+            if (timestamp_start_ms_ && cas_ms > *timestamp_start_ms_) {
+                uint32_t expires_after_ms = *expires_after_ms_;
+                return (cas_ms - *timestamp_start_ms_) > (expires_after_ms + safety_margin);
             }
             return false;
         }
@@ -91,23 +91,23 @@ namespace transactions
             return attempt_id_;
         }
 
-        CB_NODISCARD boost::optional<std::uint32_t> timestamp_start_ms() const
+        CB_NODISCARD boost::optional<std::uint64_t> timestamp_start_ms() const
         {
             return timestamp_start_ms_;
         }
-        CB_NODISCARD boost::optional<std::uint32_t> timestamp_commit_ms() const
+        CB_NODISCARD boost::optional<std::uint64_t> timestamp_commit_ms() const
         {
             return timestamp_commit_ms_;
         }
-        CB_NODISCARD boost::optional<std::uint32_t> timestamp_complete_ms() const
+        CB_NODISCARD boost::optional<std::uint64_t> timestamp_complete_ms() const
         {
             return timestamp_complete_ms_;
         }
-        CB_NODISCARD boost::optional<std::uint32_t> timestamp_rollback_ms() const
+        CB_NODISCARD boost::optional<std::uint64_t> timestamp_rollback_ms() const
         {
             return timestamp_rollback_ms_;
         }
-        CB_NODISCARD boost::optional<std::uint32_t> timestamp_rolled_back_ms() const
+        CB_NODISCARD boost::optional<std::uint64_t> timestamp_rolled_back_ms() const
         {
             return timestamp_rolled_back_ms_;
         }
@@ -150,11 +150,11 @@ namespace transactions
         const std::string atr_id_;
         const std::string attempt_id_;
         const attempt_state state_ = attempt_state::NOT_STARTED;
-        const boost::optional<std::uint32_t> timestamp_start_ms_;
-        const boost::optional<std::uint32_t> timestamp_commit_ms_;
-        const boost::optional<std::uint32_t> timestamp_complete_ms_;
-        const boost::optional<std::uint32_t> timestamp_rollback_ms_;
-        const boost::optional<std::uint32_t> timestamp_rolled_back_ms_;
+        const boost::optional<std::uint64_t> timestamp_start_ms_;
+        const boost::optional<std::uint64_t> timestamp_commit_ms_;
+        const boost::optional<std::uint64_t> timestamp_complete_ms_;
+        const boost::optional<std::uint64_t> timestamp_rollback_ms_;
+        const boost::optional<std::uint64_t> timestamp_rolled_back_ms_;
         const boost::optional<std::uint32_t> expires_after_ms_;
         const boost::optional<std::vector<doc_record>> inserted_ids_;
         const boost::optional<std::vector<doc_record>> replaced_ids_;

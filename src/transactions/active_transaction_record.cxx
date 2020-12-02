@@ -53,10 +53,8 @@ namespace transactions
                                                                            nlohmann::json& attempts)
     {
         auto vbucket = res.values[1].value->get<nlohmann::json>();
-        spdlog::trace("vbucket {}", vbucket.dump());
         std::string now_str = vbucket["HLC"]["now"];
         uint64_t now_ns = stoull(now_str, nullptr, 10) * 1000000000;
-        spdlog::trace("now_ns {} ", now_ns);
         std::vector<atr_entry> entries;
         entries.reserve(attempts.size());
         for (auto& element : attempts.items()) {

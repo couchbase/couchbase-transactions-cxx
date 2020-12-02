@@ -95,23 +95,18 @@ namespace transactions
             transaction_document out = document;
             out.cas(res.cas);
             trace(*this, "replace staged content, result {}", res);
-            // now handle replace-replace, or insert-replace
-            if (res.cas == 0) {
-                trace(*this, "remove me after debugging");
-            }
-            staged_mutation* mutation = staged_mutations_.find_replace(collection, document.id());
-            if (mutation != nullptr) {
+            staged_mutation* existing_replace = staged_mutations_.find_replace(collection, document.id());
+            staged_mutation* existing_insert = staged_mutations_.find_insert(collection, document.id());
+            if (existing_replace != nullptr) {
                 trace(*this, "document {} was replaced already in txn, replacing again", document.id());
                 // only thing that we need to change are the content, cas
-                mutation->content(content);
-                mutation->doc().cas(out.cas());
-            }
-            mutation = staged_mutations_.find_insert(collection, document.id());
-            if (mutation != nullptr) {
+                existing_replace->content(content);
+                existing_replace->doc().cas(out.cas());
+            } else if (existing_insert != nullptr) {
                 trace(*this, "document {} replaced after insert in this txn", document.id());
                 // only thing that we need to change are the content, cas
-                mutation->doc().content(content);
-                mutation->doc().cas(out.cas());
+                existing_insert->doc().content(content);
+                existing_insert->doc().cas(out.cas());
             } else {
                 staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::REPLACE));
                 add_mutation_token();
@@ -212,7 +207,7 @@ namespace transactions
                     });
                     if (it != entries.end()) {
                         if (it->has_expired()) {
-                            trace(*this, "existing atr entry has expired, ignoring");
+                            trace(*this, "existing atr entry has expired (age is {}ms), ignoring", it->age_ms());
                             return;
                         }
                         switch (it->state()) {
@@ -243,11 +238,11 @@ namespace transactions
         try {
             check_if_done();
             check_expiry_pre_commit(STAGE_REMOVE, document.id());
-            // TODO - look for staged insert
             if (staged_mutations_.find_insert(collection, document.id())) {
                 error(*this, "cannot remove document {}, as it was inserted in this transaction", document.id());
                 throw transaction_operation_failed(FAIL_OTHER, "Cannot remove a document inserted in the same transaction");
             }
+            trace(*this, "removing {}", document);
             check_and_handle_blocking_transactions(document);
             select_atr_if_needed(collection, document.id());
 

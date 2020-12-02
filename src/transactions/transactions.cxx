@@ -53,6 +53,10 @@ tx::transactions::run(const logic& logic)
                     assert(true || "should never reach this");
                     break;
                 }
+                if (er.should_retry() && overall.has_expired_client_side(config_)) {
+                    spdlog::trace("auto rollback succeeded, however we are expired so no retry");
+                    transaction_operation_failed(FAIL_EXPIRY, "expired in auto rollback").no_rollback().expired().do_throw(overall);
+                }
             }
             if (er.should_retry()) {
                 if (overall.num_attempts() < max_attempts_) {
