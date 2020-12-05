@@ -407,7 +407,7 @@ namespace transactions
             error_class ec = er.ec();
             switch (ec) {
                 case FAIL_HARD:
-                    throw transaction_operation_failed(ec, er.what()).no_rollback();
+                    throw transaction_operation_failed(ec, er.what()).no_rollback().failed_post_commit();
                 default:
                     info(*this, "ignoring error in atr_complete {}", er.what());
             }
@@ -506,16 +506,17 @@ namespace transactions
             trace(*this, "atr_rollback_complete got error {}", ec);
             switch (ec) {
                 case FAIL_DOC_NOT_FOUND:
+                    spdlog::trace("atr {} not found", atr_id_);
                 case FAIL_PATH_NOT_FOUND:
-                    // TODO: distinguish between no atr and no atr entry?
-                    trace(*this, "atr or atr_entry not found - ignoring");
-                    return;
+                    spdlog::trace("atr entry {}  not found", id());
                 case FAIL_ATR_FULL:
+                    spdlog::trace("atr {} full!", atr_id_);
                 case FAIL_HARD:
                     throw transaction_operation_failed(ec, e.what()).no_rollback();
                 case FAIL_EXPIRY:
                     throw transaction_operation_failed(ec, e.what()).no_rollback().expired();
                 default:
+                    spdlog::trace("retrying operation");
                     throw retry_operation(e.what());
             }
         }
