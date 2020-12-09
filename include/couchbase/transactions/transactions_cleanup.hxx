@@ -122,10 +122,7 @@ namespace transactions
         void close();
 
       private:
-        // since cluster cannot be used in multiple threads, copy it
-        // and config. Mutable since const version of this class return
-        // non const ref to cluster.
-        mutable couchbase::cluster cluster_;
+        couchbase::cluster& cluster_;
         const transaction_config& config_;
         const std::chrono::milliseconds cleanup_loop_delay_{ 100 };
 

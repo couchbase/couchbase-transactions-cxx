@@ -49,3 +49,13 @@
 #else
     #define CB_NODISCARD
 #endif
+
+struct lcb_st;
+template<typename OStream>
+OStream& operator<<(OStream& os, const lcb_st* lcb)
+{
+    os << "lcb: " << (void*)lcb;
+    return os;
+}
+
+

@@ -15,6 +15,8 @@
 #define CONFIG_FILE_NAME "../tests/config.json"
 #define ENV_CONNECTION_STRING "TXN_CONNECTION_STRING"
 
+using namespace couchbase;
+
 class ClientTestEnvironment : public ::testing::Environment
 {
   public:
@@ -42,11 +44,11 @@ class ClientTestEnvironment : public ::testing::Environment
         return conf;
     }
 
-    static std::shared_ptr<couchbase::cluster> get_cluster()
+    static std::shared_ptr<cluster> get_cluster(const cluster_options& opts = cluster_options())
     {
         auto conf = get_conf();
-        static auto cluster = std::make_shared<couchbase::cluster>(conf["connection_string"], conf["username"], conf["password"]);
-        return cluster;
+        static auto c = std::make_shared<cluster>(conf["connection_string"], conf["username"], conf["password"], opts);
+        return c;
     }
 
     static std::string get_uuid()
@@ -55,7 +57,7 @@ class ClientTestEnvironment : public ::testing::Environment
         return boost::uuids::to_string(generator());
     }
 
-    static std::shared_ptr<couchbase::collection> get_default_collection(const std::string& bucket_name)
+    static std::shared_ptr<collection> get_default_collection(const std::string& bucket_name)
     {
         auto c = get_cluster();
         auto b = c->bucket(bucket_name);

@@ -162,9 +162,9 @@ install(DIRECTORY include/couchbase
 #========== BEGIN TESTS ==========================================================================
 
 if(BUILD_TESTS)
-    file(GLOB CLIENT_TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/client/*_t.cpp")
+    file(GLOB_RECURSE CLIENT_TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/*_t.cpp")
     # super fragile - lets try to do better
     include_directories(${CURRENT_CMAKE_BINARY_DIR}/deps/libcouchbase/contrib/gtest-1.8.1)
     add_executable(client_tests ${CLIENT_TEST_SOURCES})
-    target_link_libraries(client_tests client_cxx gtest)
+    target_link_libraries(client_tests transactions_cxx gtest)
 endif()

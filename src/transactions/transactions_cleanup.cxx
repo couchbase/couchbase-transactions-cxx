@@ -110,9 +110,7 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
         spdlog::trace("lost attempts cleanup of {} complete", bucket_name);
         return;
     }
-    // each thread needs its own cluster, copy cluster_
-    auto c = cluster_;
-    auto coll = c.bucket(bucket_name)->default_collection();
+    auto coll = cluster_.bucket(bucket_name)->default_collection();
     auto details = get_active_clients(coll, client_uuid_);
     auto all_atrs = atr_ids::all();
     spdlog::trace("found {} other active clients", details.num_active_clients);

@@ -198,5 +198,4 @@ main(int argc, const char* argv[])
 
     transactions.close();
 
-    cluster.shutdown();
 }

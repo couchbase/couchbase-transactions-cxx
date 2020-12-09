@@ -16,16 +16,19 @@
 
 #pragma once
 
+#include <couchbase/support.hxx>
 #include <memory>
 #include <string>
 #include <vector>
-
-struct lcb_st;
 
 namespace couchbase
 {
 class collection;
 class cluster;
+
+template<typename T>
+class Pool;
+
 /**
  * Couchbase bucket.
  *
@@ -37,10 +40,10 @@ class bucket : public std::enable_shared_from_this<bucket>
     friend class cluster;
 
   private:
-    lcb_st* lcb_;
+    std::unique_ptr<Pool<lcb_st*>> instance_pool_;
     const std::string name_;
     std::vector<std::shared_ptr<class collection> > collections_;
-    bucket(lcb_st* instance, const std::string& name);
+    bucket(std::unique_ptr<Pool<lcb_st*>>& instance_pool, const std::string& name);
     std::shared_ptr<class collection> find_or_create_collection(const std::string& name);
   public:
     /**
@@ -48,14 +51,14 @@ class bucket : public std::enable_shared_from_this<bucket>
      *
      * @return Returns a shared pointer to the default collection for this bucket.
      */
-    std::shared_ptr<class collection> default_collection();
+    CB_NODISCARD std::shared_ptr<class collection> default_collection();
     /**
      * @brief Get a collection by name.
      *
      * @param name of an existing collection in this bucket.
      * @return shared pointer to a the collection.
      */
-    std::shared_ptr<class collection> collection(const std::string& name);
+    CB_NODISCARD std::shared_ptr<class collection> collection(const std::string& name);
     /**
      *  @brief Get collection name
      *
@@ -64,7 +67,10 @@ class bucket : public std::enable_shared_from_this<bucket>
      * @return constant string containing this collection's name.  Note the default
      *         collection is _default.
      */
-    const std::string name() const { return name_; };
+    CB_NODISCARD const std::string& name() const
+    {
+        return name_;
+    };
     /**
      * @brief Close connection to this bucket
      *
@@ -80,6 +86,47 @@ class bucket : public std::enable_shared_from_this<bucket>
      * Calls close(), which disconnects the bucket from the cluster, then destroys the object.
      */
     ~bucket();
-    bool operator==(const bucket& b) const { return lcb_ == b.lcb_; }
+
+    /**
+     * @brief return maximum number of libcouchbase instances this bucket can use
+     *
+     * The bucket maintains a pool of instances, lazily created, which it uses to
+     * communicate with the server.  Each instance will maintain a number of socket
+     * connections.   Any cluster calls that need an instance will use one, making
+     * it unavailable until the call is done with it.  See @ref cluster_options to
+     * set this value, which the cluster uses when it creates the bucket.
+     *
+     * @return maximum number of libcouchbase instances the cluster can use.
+     */
+    CB_NODISCARD size_t max_instances() const;
+
+    /**
+     * @brief return current number of libcouchbase instances the cluster has created.
+     *
+     * @return total number of instances the cluster is maintaining.
+     */
+    CB_NODISCARD size_t instances() const;
+
+    /**
+     * @brief return the current number of libcouchbase instances that are not being used.
+     *
+     * @return current available instances.
+     */
+    CB_NODISCARD size_t available_instances() const;
+
+    template<typename OStream>
+    friend OStream& operator<<(OStream& os, const bucket& b)
+    {
+        os << "bucket:{";
+        os << "name: " << b.name() << ",";
+        os << "instance_pool: " << *b.instance_pool_;
+        os << "}";
+        return os;
+    }
+
+    CB_NODISCARD bool operator==(const bucket& b) const
+    {
+        return &b == this;
+    }
 };
 }// namespace couchbase

@@ -43,7 +43,6 @@ class collection
     std::string scope_;
     std::string name_;
     std::shared_ptr<bucket> bucket_;
-    std::string bucket_name_;
 
     friend result store_impl(collection* coll,
                              store_operation op,
@@ -51,11 +50,6 @@ class collection
                              const std::string& payload,
                              uint64_t cas,
                              durability_level level);
-
-    lcb_st* lcb()
-    {
-        return bucket_->lcb_;
-    }
 
     template<typename Content>
     result store(store_operation operation, const std::string& id, const Content& value, uint64_t cas, durability_level level)
@@ -65,9 +59,14 @@ class collection
         return store_impl(this, operation, id, payload, cas, level);
     }
 
+    std::unique_ptr<Pool<lcb_st*> >& pool() {
+        return bucket_->instance_pool_;
+    }
     result wrap_call_for_retry(std::function<result(void)> fn);
 
     collection(std::shared_ptr<bucket> bucket, std::string scope, std::string name);
+
+    static void install_callbacks(lcb_st* lcb);
 
   public:
     /**
@@ -209,7 +208,18 @@ class collection
      */
     CB_NODISCARD const std::string& bucket_name() const
     {
-        return bucket_name_;
+        return bucket_->name();
     }
+
+    /**
+     * @brief Get bucket for this collection.
+     *
+     * @return @ref bucket for this collection.
+     */
+    CB_NODISCARD std::shared_ptr<couchbase::bucket> get_bucket()
+    {
+        return bucket_;
+    }
+
 };
 } // namespace couchbase

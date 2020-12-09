@@ -20,16 +20,88 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <vector>
 
 #include <couchbase/client/bucket.hxx>
+#include <couchbase/support.hxx>
 
-struct lcb_st;
+// struct lcb_st;
 
 namespace couchbase
 {
 class bucket;
+// forward declare the internal pool class
+template<typename T>
+class Pool;
 
+static const size_t DEFAULT_CLUSTER_MAX_INSTANCES = 4;
+static const size_t DEFAULT_BUCKET_MAX_INSTANCES = 4;
+
+/**
+ *  @brief Options for cluster connections
+ *
+ */
+class cluster_options
+{
+  private:
+    size_t max_instances_;
+    size_t max_bucket_instances_;
+
+  public:
+    cluster_options()
+      : max_instances_(DEFAULT_CLUSTER_MAX_INSTANCES)
+      , max_bucket_instances_(DEFAULT_BUCKET_MAX_INSTANCES)
+    {
+    }
+
+    /**
+     *  @brief get maximum number of libcouchbase instances for this cluster.
+     *
+     *  The instances are created lazily - only when there is thread contention
+     *  over them will more be created, up to this max.  When none are available,
+     *  operations will block until one becomes available.
+     *
+     *  @return maximum number of libcouchbase instances to create for this cluster
+     */
+    CB_NODISCARD size_t max_instances() const
+    {
+        return max_instances_;
+    }
+    /**
+     *  @brief Set maximum number of libcouchbase instances for this cluster.
+     *
+     *  @return reference to this options object, so the calls can be chained.
+     */
+    cluster_options& max_instances(size_t max)
+    {
+        max_instances_ = max;
+        return *this;
+    }
+    /**
+     *  @brief get maximum number of libcouchbase instances for this cluster.
+     *
+     *  The instances are created lazily - only when there is thread contention
+     *  over them will more be created, up to this max.  When none are available,
+     *  operations will block until one becomes available.
+     *
+     *  @return maximum number of libcouchbase instances to create for any bucket
+     *          created from this cluster.
+     */
+    CB_NODISCARD size_t max_bucket_instances() const
+    {
+        return max_bucket_instances_;
+    }
+    /**
+     *  @brief Set maximum number of libcouchbase instances for all buckets created
+     *  from this cluster.
+     *
+     *  @return reference to this options object, so the calls can be chained.
+     */
+    cluster_options& max_bucket_instances(size_t max)
+    {
+        max_bucket_instances_ = max;
+        return *this;
+    }
+};
 class cluster
 {
   private:
@@ -38,9 +110,9 @@ class cluster
     std::string user_name_;
     std::string password_;
     std::mutex mutex_;
-    std::vector<std::shared_ptr<class bucket>> open_buckets_;
-
-    void connect();
+    size_t max_bucket_instances_;
+    std::list<std::shared_ptr<class bucket>> open_buckets_;
+    std::unique_ptr<Pool<lcb_st*>> instance_pool_;
 
   public:
     /**
@@ -53,7 +125,10 @@ class cluster
      * @param user_name User name to use for this connection.
      * @param password Password for this user.
      */
-    explicit cluster(std::string cluster_address, std::string user_name, std::string password);
+    explicit cluster(std::string cluster_address,
+                     std::string user_name,
+                     std::string password,
+                     const cluster_options& opts = cluster_options());
     /**
      *
      * @brief Copy cluster
@@ -78,7 +153,7 @@ class cluster
      *
      * @return list of strings containing all the buckets in this cluster.
      */
-    std::list<std::string> buckets();
+    CB_NODISCARD std::list<std::string> buckets();
     /**
      *  @brief Open a connection to a bucket.
      *
@@ -87,7 +162,7 @@ class cluster
      * @param name Name of the bucket to connect to.
      * @return shared pointer to the bucket.
      */
-    std::shared_ptr<class bucket> bucket(const std::string& name);
+    CB_NODISCARD std::shared_ptr<class bucket> bucket(const std::string& name);
     /**
      * @brief return the cluster address
      *
@@ -96,20 +171,38 @@ class cluster
      *
      * @return A constant string containing the cluster address used for this cluster.
      */
-    const std::string cluster_address() const
+    CB_NODISCARD const std::string cluster_address() const
     {
         return cluster_address_;
     }
 
     /**
-     * @brief Shutdown cluster
+     * @brief return maximum number of libcouchbase instances this cluster can use
      *
-     * Called in destructor, but exposed so one can call it whenever they want to free up the resources.
-     * Note there is no reconnect logic in place yet, so this object cannot be used after this.  Look
-     * for changes to this behavior later.
+     * The cluster maintains a pool of instances, lazily created, which it uses to
+     * communicate with the server.  Each instance will maintain a number of socket
+     * connections.   Any cluster calls that need an instance will use one, making
+     * it unavailable until the call is done with it.  See @ref cluster_options to
+     * set this value.
+     *
+     * @return maximum number of libcouchbase instances the cluster can use.
      */
-    void shutdown();
+    CB_NODISCARD size_t max_instances() const;
 
-    bool operator==(const couchbase::cluster&  other) const;
+    /**
+     * @brief return current number of libcouchbase instances the cluster has created.
+     *
+     * @return total number of instances the cluster is maintaining.
+     */
+    CB_NODISCARD size_t instances() const;
+
+    /**
+     * @brief return the current number of libcouchbase instances that are not being used.
+     *
+     * @return current available instances.
+     */
+    CB_NODISCARD size_t available_instances() const;
+
+    CB_NODISCARD bool operator==(const couchbase::cluster& other) const;
 };
 } // namespace couchbase
