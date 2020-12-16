@@ -13,12 +13,30 @@
 
 namespace cb = couchbase;
 
+struct cb::InstancePoolEventCounter {
+    // needed for access to the bucket_counters map
+    std::mutex mutex_;
+    cb::PoolEventCounter<lcb_st*> cluster_counter;
+    std::map<std::string, cb::PoolEventCounter<lcb_st*>> bucket_counters;
+
+    // since insertion will not invalidate iterators in a map, this reference
+    // is safe to use outside the lock.  A lock is only needed to prevent a reader
+    // of this structure from racing a writer (this cluster object) in the creation
+    // and insertion.
+    cb::PoolEventCounter<lcb_st*>& bucket(const std::string& name)
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return bucket_counters[name];
+    }
+};
+
 void
 shutdown(lcb_st* lcb)
 {
     if (lcb == nullptr) {
         return;
     }
+    spdlog::trace("destroying instance {}", (void*)lcb);
     lcb_destroy(lcb);
 }
 
@@ -58,15 +76,24 @@ connect(const std::string& cluster_address, const std::string& user_name, const 
     return lcb;
 }
 
-cb::cluster::cluster(std::string cluster_address, std::string user_name, std::string password, const cluster_options& opts)
+cb::cluster::cluster(std::string cluster_address,
+                     std::string user_name,
+                     std::string password,
+                     const cluster_options& opts,
+                     InstancePoolEventCounter* event_counter)
   : cluster_address_(std::move(cluster_address))
   , user_name_(std::move(user_name))
   , password_(std::move(password))
   , max_bucket_instances_(opts.max_bucket_instances())
+  , event_counter_(event_counter)
 {
     instance_pool_ = std::unique_ptr<Pool<lcb_st*>>(
       new Pool<lcb_st*>(opts.max_instances(), [&] { return connect(cluster_address_, user_name_, password_); }, shutdown));
     spdlog::info("couchbase client library {} attempting to connect to {}", VERSION_STR, cluster_address_);
+
+    if (nullptr != event_counter_) {
+        instance_pool_->set_event_handler([&](PoolEvent e, lcb_st* const t) { event_counter_->cluster_counter.handler(e, t); });
+    }
 
     // TODO: ponder this - should we connect _now_, or wait until first use?
     // for now, lets get it and release back to pool
@@ -92,6 +119,7 @@ cb::cluster::operator==(const cluster& other) const
 
 cb::cluster::~cluster()
 {
+    spdlog::trace("shutting down cluster");
 }
 
 std::shared_ptr<cb::bucket>
@@ -111,6 +139,10 @@ cb::cluster::bucket(const std::string& name)
         // clone the pool, add lcb to it
         spdlog::trace("will create bucket {} now...", name);
         auto bucket_pool = instance_pool_->clone(max_bucket_instances_);
+        if (event_counter_) {
+            auto& ev = event_counter_->bucket(name);
+            bucket_pool->set_event_handler([&ev](PoolEvent e, lcb_st* const t) { ev.handler(e, t); });
+        }
         instance_pool_->swap_available(*bucket_pool, true);
         // create the bucket, push into the bucket list...
         auto b = std::shared_ptr<cb::bucket>(new cb::bucket(bucket_pool, name));

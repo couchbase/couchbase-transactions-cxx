@@ -2,9 +2,10 @@
 #include <cstdio>
 #include <memory>
 
+#include "../../src/client/cluster.cxx" // to get the private InstancePoolEventCounter
 #include "client_env.h"
-#include "couchbase/client/cluster.hxx"
-#include "couchbase/client/collection.hxx"
+#include <couchbase/client/cluster.hxx>
+#include <couchbase/client/collection.hxx>
 #include <gtest/gtest.h>
 #include <libcouchbase/couchbase.h>
 #include <spdlog/spdlog.h>
@@ -87,6 +88,23 @@ TEST(SimpleClientClusterTests, CachesBuckets)
     auto b1 = c->bucket("default");
     auto b2 = c->bucket("default");
     ASSERT_EQ((void*)&(*b1), (void*)&(*b2));
+}
+
+TEST(SimpleClientClusterTests, CreateDestroyEvents)
+{
+    InstancePoolEventCounter ev;
+    auto conf = ClientTestEnvironment::get_conf();
+    {
+        auto c = std::make_shared<cluster>(conf["connection_string"], conf["username"], conf["password"], cluster_options(), &ev);
+        auto b = c->bucket("default");
+    }
+    ASSERT_EQ(1, ev.cluster_counter.create.load());
+    ASSERT_EQ(0, ev.cluster_counter.destroy.load());
+    ASSERT_EQ(1, ev.cluster_counter.remove.load());
+    ASSERT_EQ(0, ev.cluster_counter.destroy_not_available.load());
+    ASSERT_EQ(0, ev.bucket_counters["default"].create.load());
+    ASSERT_EQ(1, ev.bucket_counters["default"].destroy.load());
+    ASSERT_EQ(0, ev.bucket_counters["default"].destroy_not_available.load());
 }
 
 TEST(SimpleClientBucketTests, CanGetDefaultCollection)

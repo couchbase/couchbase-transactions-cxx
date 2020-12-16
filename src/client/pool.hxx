@@ -16,19 +16,63 @@
 #pragma once
 
 #include <boost/optional.hpp>
-#include <condition_variable>
+#include <spdlog/spdlog.h>
 #include <couchbase/support.hxx>
+#include <condition_variable>
 #include <functional>
 #include <list>
-#include <spdlog/spdlog.h>
 #include <thread>
+#include <atomic>
 
 namespace couchbase
 {
+
+enum class PoolEvent { create, remove, destroy, add, destroy_not_available };
+
+template<typename T>
+struct PoolEventCounter {
+    std::atomic<uint32_t> create;
+    std::atomic<uint32_t> remove;
+    std::atomic<uint32_t> destroy;
+    std::atomic<uint32_t> add;
+    std::atomic<uint32_t> destroy_not_available;
+
+    PoolEventCounter()
+      : create(0)
+      , remove(0)
+      , destroy(0)
+      , add(0)
+      , destroy_not_available(0)
+    {
+    }
+
+    void handler(PoolEvent e, const T&)
+    {
+        switch (e) {
+            case PoolEvent::create:
+                ++create;
+                break;
+            case PoolEvent::remove:
+                ++remove;
+                break;
+            case PoolEvent::destroy:
+                ++destroy;
+                break;
+            case PoolEvent::add:
+                ++add;
+                break;
+            case PoolEvent::destroy_not_available:
+                ++destroy_not_available;
+                break;
+        }
+    }
+};
+
 template<typename T>
 class Pool
 {
     typedef std::pair<bool, T> pair_t;
+    typedef std::function<void(PoolEvent, T&)> event_handler;
 
   public:
     Pool(size_t max_size, std::function<T(void)> create_fn, std::function<void(T)> destroy_fn)
@@ -38,6 +82,7 @@ class Pool
       , destroy_fn_(destroy_fn)
     {
         post_create_fn_ = [](T t) { return t; };
+        event_fn_ = [](PoolEvent, const T&) {};
     }
 
     ~Pool()
@@ -46,12 +91,19 @@ class Pool
         std::unique_lock<std::mutex> lock(mutex_);
         for (pair_t& p : pool_) {
             if (p.first) {
+                event_fn_(PoolEvent::destroy, p.second);
                 destroy_fn_(p.second);
             } else {
+                event_fn_(PoolEvent::destroy_not_available, p.second);
                 spdlog::trace("cannot destroy {}, not available!", p.second);
             }
         }
         pool_.clear();
+    }
+
+    void set_event_handler(event_handler fn)
+    {
+        event_fn_ = fn;
     }
 
     CB_NODISCARD boost::optional<T> try_get()
@@ -105,6 +157,7 @@ class Pool
         if (!available) {
             --available_;
         }
+        event_fn_(PoolEvent::add, t);
         return true;
     }
 
@@ -125,6 +178,7 @@ class Pool
         pool_.erase(it);
         // at this point, there is an available slot for an instance, so notify
         cv_.notify_one();
+        event_fn_(PoolEvent::remove, t);
         return true;
     }
 
@@ -149,6 +203,7 @@ class Pool
                 if (!available) {
                     --other_pool.available_;
                 }
+                other_pool.event_fn_(PoolEvent::add, *found);
                 lock.unlock();
                 // now erase from our pool
                 std::unique_lock<std::mutex> lock2(mutex_);
@@ -158,6 +213,7 @@ class Pool
                     ++available_;
                     cv_.notify_one();
                 }
+                event_fn_(PoolEvent::remove, *found);
                 return true;
             }
         }
@@ -225,6 +281,7 @@ class Pool
     std::function<T(void)> create_fn_;
     std::function<void(T)> destroy_fn_;
     std::function<T(T)> post_create_fn_;
+    event_handler event_fn_;
     T* get_internal()
     {
         std::unique_lock<std::mutex> lock(mutex_);
@@ -236,7 +293,9 @@ class Pool
         }
         if (pool_.size() < max_size_) {
             // create a new one, insert it and return.
-            pool_.emplace_back(false, post_create_fn_(create_fn_()));
+            auto t = post_create_fn_(create_fn_());
+            event_fn_(PoolEvent::create, t);
+            pool_.emplace_back(false, t);
             --available_;
             return &(pool_.back().second);
         }

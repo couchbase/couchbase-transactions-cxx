@@ -33,6 +33,9 @@ class bucket;
 template<typename T>
 class Pool;
 
+// and the internal counter struct
+struct InstancePoolEventCounter;
+
 static const size_t DEFAULT_CLUSTER_MAX_INSTANCES = 4;
 static const size_t DEFAULT_BUCKET_MAX_INSTANCES = 4;
 
@@ -102,6 +105,7 @@ class cluster_options
         return *this;
     }
 };
+
 class cluster
 {
   private:
@@ -113,6 +117,7 @@ class cluster
     size_t max_bucket_instances_;
     std::list<std::shared_ptr<class bucket>> open_buckets_;
     std::unique_ptr<Pool<lcb_st*>> instance_pool_;
+    InstancePoolEventCounter* event_counter_;
 
   public:
     /**
@@ -128,7 +133,8 @@ class cluster
     explicit cluster(std::string cluster_address,
                      std::string user_name,
                      std::string password,
-                     const cluster_options& opts = cluster_options());
+                     const cluster_options& opts = cluster_options(),
+                     InstancePoolEventCounter* = nullptr);
     /**
      *
      * @brief Copy cluster

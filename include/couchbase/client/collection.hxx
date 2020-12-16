@@ -42,7 +42,7 @@ class collection
   private:
     std::string scope_;
     std::string name_;
-    std::shared_ptr<bucket> bucket_;
+    std::weak_ptr<bucket> bucket_;
 
     friend result store_impl(collection* coll,
                              store_operation op,
@@ -60,7 +60,7 @@ class collection
     }
 
     std::unique_ptr<Pool<lcb_st*> >& pool() {
-        return bucket_->instance_pool_;
+        return bucket_.lock()->instance_pool_;
     }
     result wrap_call_for_retry(std::function<result(void)> fn);
 
@@ -208,7 +208,7 @@ class collection
      */
     CB_NODISCARD const std::string& bucket_name() const
     {
-        return bucket_->name();
+        return bucket_.lock()->name();
     }
 
     /**
@@ -218,7 +218,7 @@ class collection
      */
     CB_NODISCARD std::shared_ptr<couchbase::bucket> get_bucket()
     {
-        return bucket_;
+        return bucket_.lock();
     }
 
 };

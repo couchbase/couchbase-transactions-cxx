@@ -270,3 +270,52 @@ TEST(PoolTest, CanTryGetFail)
     auto opt_t2 = pool->try_get();
     ASSERT_EQ(boost::none, opt_t2);
 }
+TEST(PoolTest, CreateEvents)
+{
+    PoolEventCounter<uint64_t> ev;
+    auto handler = [&ev](PoolEvent e, const uint64_t& t) { ev.handler(e, t); };
+    auto pool = create_pool(2);
+    pool->set_event_handler(handler);
+    auto t = pool->get();
+    ASSERT_EQ(1, ev.create);
+}
+TEST(PoolTest, DeleteEvents)
+{
+    PoolEventCounter<uint64_t> ev;
+    auto handler = [&ev](PoolEvent e, const uint64_t& t) { ev.handler(e, t); };
+    {
+        auto pool = create_pool(2);
+        pool->set_event_handler(handler);
+        auto t = pool->get();
+        auto t2 = pool->get();
+        pool->release(t);
+    }
+    ASSERT_EQ(2, ev.create.load());
+    ASSERT_EQ(1, ev.destroy.load());
+    ASSERT_EQ(1, ev.destroy_not_available.load());
+}
+TEST(PoolTest, EventsWithSwap)
+{
+    PoolEventCounter<uint64_t> ev;
+    PoolEventCounter<uint64_t> ev2;
+    auto handler = [&ev](PoolEvent e, const uint64_t& t) { ev.handler(e, t); };
+    {
+        auto pool1 = create_pool(2);
+        pool1->set_event_handler([&ev](PoolEvent e, const uint64_t& t) { ev.handler(e, t); });
+        auto pool2 = create_pool(2);
+        pool2->set_event_handler([&ev2](PoolEvent e, const uint64_t& t) { ev2.handler(e, t); });
+
+        // now create one, which will be available, in 1
+        pool1->release(pool1->get());
+        ASSERT_EQ(1, ev.create);
+
+        // swap available to 2
+        pool1->swap_available(*pool2, true);
+        ASSERT_EQ(1, ev.remove.load());
+        ASSERT_EQ(1, ev2.add.load());
+        ASSERT_EQ(0, ev.destroy.load());
+        ASSERT_EQ(0, ev2.destroy.load());
+    }
+    ASSERT_EQ(0, ev.destroy.load());
+    ASSERT_EQ(1, ev2.destroy.load());
+}

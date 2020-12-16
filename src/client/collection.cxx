@@ -241,7 +241,7 @@ couchbase::collection::get(const std::string& id, const get_options& opts)
             lcb_cmdget_expiry(cmd, *opts.expiry());
         }
         lcb_STATUS rc;
-        return bucket_->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
+        return bucket_.lock()->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
             result res;
             rc = lcb_get(lcb, reinterpret_cast<void*>(&res), cmd);
             lcb_cmdget_destroy(cmd);
@@ -263,7 +263,7 @@ couchbase::collection::exists(const std::string& id, const exists_options& opts)
         lcb_cmdexists_key(cmd, id.data(), id.size());
         lcb_cmdexists_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
         lcb_STATUS rc;
-        return bucket_->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
+        return bucket_.lock()->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
             result res;
             rc = lcb_exists(lcb, reinterpret_cast<void*>(&res), cmd);
             lcb_cmdexists_destroy(cmd);
@@ -291,7 +291,7 @@ couchbase::collection::remove(const std::string& id, const remove_options& opts)
             lcb_cmdremove_durability(cmd, convert_durability(*opts.durability()));
         }
         lcb_STATUS rc;
-        return bucket_->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
+        return bucket_.lock()->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
             result res;
             rc = lcb_remove(lcb, reinterpret_cast<void*>(&res), cmd);
             lcb_cmdremove_destroy(cmd);
@@ -364,7 +364,7 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
             lcb_cmdsubdoc_store_semantics(cmd, convert_semantics(*opts.store_semantics()));
         }
         lcb_STATUS rc;
-        return bucket_->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
+        return bucket_.lock()->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
             result res;
             rc = lcb_subdoc(lcb, reinterpret_cast<void*>(&res), cmd);
             lcb_cmdsubdoc_destroy(cmd);
@@ -412,7 +412,7 @@ couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_sp
         }
         lcb_cmdsubdoc_specs(cmd, ops);
         lcb_STATUS rc;
-        return bucket_->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
+        return bucket_.lock()->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
             result res;
             rc = lcb_subdoc(lcb, reinterpret_cast<void*>(&res), cmd);
             lcb_cmdsubdoc_destroy(cmd);
