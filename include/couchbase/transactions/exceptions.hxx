@@ -82,6 +82,8 @@ namespace transactions
 
     error_class error_class_from_result(const couchbase::result& res);
 
+    external_exception external_exception_from_error_class(error_class ec);
+
     class client_error : public std::runtime_error
     {
       private:
@@ -185,7 +187,7 @@ namespace transactions
           , retry_(false)
           , rollback_(true)
           , to_raise_(FAILED)
-          , cause_(UNKNOWN)
+          , cause_(external_exception_from_error_class(ec))
         {
         }
         explicit transaction_operation_failed(const client_error& client_err)

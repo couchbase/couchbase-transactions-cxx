@@ -19,6 +19,17 @@ namespace couchbase
 {
 namespace transactions
 {
+    external_exception external_exception_from_error_class(error_class ec)
+    {
+        switch (ec) {
+            case FAIL_DOC_NOT_FOUND:
+                return DOCUMENT_NOT_FOUND_EXCEPTION;
+            case FAIL_DOC_ALREADY_EXISTS:
+                return DOCUMENT_EXISTS_EXCEPTION;
+            default:
+                return UNKNOWN;
+        }
+    }
 
     error_class error_class_from_result(const couchbase::result& res)
     {
