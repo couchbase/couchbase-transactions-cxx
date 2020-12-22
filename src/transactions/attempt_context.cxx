@@ -30,146 +30,161 @@ namespace transactions
 
     transaction_document attempt_context::get(std::shared_ptr<couchbase::collection> collection, const std::string& id)
     {
-        auto result = get_optional(collection, id);
-        if (result) {
-            trace(*this, "get returning {}", *result);
-            return result.get();
-        }
-        error(*this, "Document with id {} not found", id);
-        throw transaction_operation_failed(FAIL_DOC_NOT_FOUND, "Document not found");
+        return cache_error<transaction_document>([&]() {
+            auto result = get_optional(collection, id);
+            if (result) {
+                trace(*this, "get returning {}", *result);
+                return result.get();
+            }
+            error(*this, "Document with id {} not found", id);
+            throw transaction_operation_failed(FAIL_DOC_NOT_FOUND, "Document not found");
+        });
     }
 
     boost::optional<transaction_document> attempt_context::get_optional(std::shared_ptr<couchbase::collection> collection,
                                                                         const std::string& id)
     {
-        auto retval = do_get(collection, id);
-        hooks_.after_get_complete(this, id);
-        return retval;
+        return cache_error<boost::optional<transaction_document>>([&]() {
+            auto retval = do_get(collection, id);
+            hooks_.after_get_complete(this, id);
+            return retval;
+        });
     }
 
     transaction_document attempt_context::replace_raw(std::shared_ptr<couchbase::collection> collection,
                                                       const transaction_document& document,
                                                       const nlohmann::json& content)
     {
-        try {
-            trace(*this, "replacing {} with {}", document, content.dump());
-            check_if_done();
-            check_expiry_pre_commit(STAGE_REPLACE, document.id());
-            select_atr_if_needed(collection, document.id());
-            check_and_handle_blocking_transactions(document);
-            set_atr_pending_if_first_mutation(collection);
+        return cache_error<transaction_document>([&]() {
+            try {
+                trace(*this, "replacing {} with {}", document, content.dump());
+                check_if_done();
+                check_expiry_pre_commit(STAGE_REPLACE, document.id());
+                select_atr_if_needed(collection, document.id());
+                check_and_handle_blocking_transactions(document);
+                set_atr_pending_if_first_mutation(collection);
 
-            std::vector<mutate_in_spec> specs = {
-                mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                mutate_in_spec::upsert(ATTEMPT_ID, id()).xattr().create_path(),
-                mutate_in_spec::upsert(STAGED_DATA, content).xattr().create_path(),
-                mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr().create_path(),
-                mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).create_path().xattr(),
-                mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).create_path().xattr(),
-                mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).xattr().create_path().create_path().expand_macro(),
-                mutate_in_spec::upsert(TYPE, "replace").xattr(),
-            };
-            if (document.metadata()) {
-                if (document.metadata()->cas()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).create_path().xattr());
+                std::vector<mutate_in_spec> specs = {
+                    mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
+                    mutate_in_spec::upsert(ATTEMPT_ID, id()).xattr().create_path(),
+                    mutate_in_spec::upsert(STAGED_DATA, content).xattr().create_path(),
+                    mutate_in_spec::upsert(ATR_ID, atr_id_.value()).xattr().create_path(),
+                    mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).create_path().xattr(),
+                    mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).create_path().xattr(),
+                    mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C)
+                      .xattr()
+                      .create_path()
+                      .create_path()
+                      .expand_macro(),
+                    mutate_in_spec::upsert(TYPE, "replace").xattr(),
+                };
+                if (document.metadata()) {
+                    if (document.metadata()->cas()) {
+                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).create_path().xattr());
+                    }
+                    if (document.metadata()->revid()) {
+                        specs.emplace_back(
+                          mutate_in_spec::upsert(PRE_TXN_REVID, document.metadata()->revid().value()).create_path().xattr());
+                    }
+                    if (document.metadata()->exptime()) {
+                        specs.emplace_back(
+                          mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).create_path().xattr());
+                    }
                 }
-                if (document.metadata()->revid()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_REVID, document.metadata()->revid().value()).create_path().xattr());
-                }
-                if (document.metadata()->exptime()) {
-                    specs.emplace_back(
-                      mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).create_path().xattr());
-                }
-            }
 
-            couchbase::result res;
-            hooks_.before_staged_replace(this, document.id());
-            trace(*this, "about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
-            wrap_collection_call(res, [&](couchbase::result& r) {
-                r = collection->mutate_in(
-                  document.id(),
-                  specs,
-                  mutate_in_options().cas(document.cas()).access_deleted(document.links().is_deleted()).durability(durability(config_)));
-            });
-            hooks_.after_staged_replace_complete(this, document.id());
-            transaction_document out = document;
-            out.cas(res.cas);
-            trace(*this, "replace staged content, result {}", res);
-            staged_mutation* existing_replace = staged_mutations_.find_replace(collection, document.id());
-            staged_mutation* existing_insert = staged_mutations_.find_insert(collection, document.id());
-            if (existing_replace != nullptr) {
-                trace(*this, "document {} was replaced already in txn, replacing again", document.id());
-                // only thing that we need to change are the content, cas
-                existing_replace->content(content);
-                existing_replace->doc().cas(out.cas());
-            } else if (existing_insert != nullptr) {
-                trace(*this, "document {} replaced after insert in this txn", document.id());
-                // only thing that we need to change are the content, cas
-                existing_insert->doc().content(content);
-                existing_insert->doc().cas(out.cas());
-            } else {
-                staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::REPLACE));
-                add_mutation_token();
+                couchbase::result res;
+                hooks_.before_staged_replace(this, document.id());
+                trace(*this, "about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
+                wrap_collection_call(res, [&](couchbase::result& r) {
+                    r = collection->mutate_in(document.id(),
+                                              specs,
+                                              mutate_in_options()
+                                                .cas(document.cas())
+                                                .access_deleted(document.links().is_deleted())
+                                                .durability(durability(config_)));
+                });
+                hooks_.after_staged_replace_complete(this, document.id());
+                transaction_document out = document;
+                out.cas(res.cas);
+                trace(*this, "replace staged content, result {}", res);
+                staged_mutation* existing_replace = staged_mutations_.find_replace(collection, document.id());
+                staged_mutation* existing_insert = staged_mutations_.find_insert(collection, document.id());
+                if (existing_replace != nullptr) {
+                    trace(*this, "document {} was replaced already in txn, replacing again", document.id());
+                    // only thing that we need to change are the content, cas
+                    existing_replace->content(content);
+                    existing_replace->doc().cas(out.cas());
+                } else if (existing_insert != nullptr) {
+                    trace(*this, "document {} replaced after insert in this txn", document.id());
+                    // only thing that we need to change are the content, cas
+                    existing_insert->doc().content(content);
+                    existing_insert->doc().cas(out.cas());
+                } else {
+                    staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::REPLACE));
+                    add_mutation_token();
+                }
+                return out;
+            } catch (const client_error& e) {
+                error_class ec = e.ec();
+                switch (ec) {
+                    case FAIL_EXPIRY:
+                        expiry_overtime_mode_ = true;
+                        throw transaction_operation_failed(ec, e.what()).expired();
+                    case FAIL_DOC_NOT_FOUND:
+                    case FAIL_DOC_ALREADY_EXISTS:
+                    case FAIL_CAS_MISMATCH:
+                        throw transaction_operation_failed(ec, e.what()).retry();
+                    case FAIL_TRANSIENT:
+                    case FAIL_AMBIGUOUS:
+                        throw transaction_operation_failed(ec, e.what()).retry();
+                    case FAIL_HARD:
+                        throw transaction_operation_failed(ec, e.what()).no_rollback();
+                    default:
+                        throw transaction_operation_failed(ec, e.what());
+                }
             }
-            return out;
-        } catch (const client_error& e) {
-            error_class ec = e.ec();
-            switch (ec) {
-                case FAIL_EXPIRY:
-                    expiry_overtime_mode_ = true;
-                    throw transaction_operation_failed(ec, e.what()).expired();
-                case FAIL_DOC_NOT_FOUND:
-                case FAIL_DOC_ALREADY_EXISTS:
-                case FAIL_CAS_MISMATCH:
-                    throw transaction_operation_failed(ec, e.what()).retry();
-                case FAIL_TRANSIENT:
-                case FAIL_AMBIGUOUS:
-                    throw transaction_operation_failed(ec, e.what()).retry();
-                case FAIL_HARD:
-                    throw transaction_operation_failed(ec, e.what()).no_rollback();
-                default:
-                    throw transaction_operation_failed(ec, e.what());
-            }
-        }
+        });
     }
 
     transaction_document attempt_context::insert_raw(std::shared_ptr<couchbase::collection> collection,
                                                      const std::string& id,
                                                      const nlohmann::json& content)
     {
-        try {
-            check_if_done();
-            if (check_for_own_write(collection, id)) {
-                throw transaction_operation_failed(FAIL_OTHER,
-                                                   "cannot insert a document that has already been mutated in this transaction");
+        return cache_error<transaction_document>([&]() {
+            try {
+                check_if_done();
+                if (check_for_own_write(collection, id)) {
+                    throw transaction_operation_failed(FAIL_OTHER,
+                                                       "cannot insert a document that has already been mutated in this transaction");
+                }
+                check_expiry_pre_commit(STAGE_INSERT, id);
+                select_atr_if_needed(collection, id);
+                set_atr_pending_if_first_mutation(collection);
+                uint64_t cas = 0;
+                return retry_op<transaction_document>(
+                  [&]() -> transaction_document { return create_staged_insert(collection, id, content, cas); });
+            } catch (const client_error& e) {
+                error_class ec = e.ec();
+                if (expiry_overtime_mode_) {
+                    throw transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired();
+                }
+                switch (ec) {
+                    case FAIL_EXPIRY:
+                        expiry_overtime_mode_ = true;
+                        throw transaction_operation_failed(ec, "attempt timed-out").expired();
+                    case FAIL_TRANSIENT:
+                        throw transaction_operation_failed(ec, "transient error in insert").retry();
+                    case FAIL_AMBIGUOUS:
+                        throw retry_operation("FAIL AMBIGUOUS in insert");
+                    case FAIL_OTHER:
+                        throw transaction_operation_failed(ec, e.what());
+                    case FAIL_HARD:
+                        throw transaction_operation_failed(ec, e.what()).no_rollback();
+                    default:
+                        throw transaction_operation_failed(FAIL_OTHER, e.what()).retry();
+                }
             }
-            check_expiry_pre_commit(STAGE_INSERT, id);
-            select_atr_if_needed(collection, id);
-            set_atr_pending_if_first_mutation(collection);
-            uint64_t cas = 0;
-            return retry_op<transaction_document>(
-              [&]() -> transaction_document { return create_staged_insert(collection, id, content, cas); });
-        } catch (const client_error& e) {
-            error_class ec = e.ec();
-            if (expiry_overtime_mode_) {
-                throw transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired();
-            }
-            switch (ec) {
-                case FAIL_EXPIRY:
-                    expiry_overtime_mode_ = true;
-                    throw transaction_operation_failed(ec, "attempt timed-out").expired();
-                case FAIL_TRANSIENT:
-                    throw transaction_operation_failed(ec, "transient error in insert").retry();
-                case FAIL_AMBIGUOUS:
-                    throw retry_operation("FAIL AMBIGUOUS in insert");
-                case FAIL_OTHER:
-                    throw transaction_operation_failed(ec, e.what());
-                case FAIL_HARD:
-                    throw transaction_operation_failed(ec, e.what()).no_rollback();
-                default:
-                    throw transaction_operation_failed(FAIL_OTHER, e.what()).retry();
-            }
-        }
+        });
     }
 
     void attempt_context::select_atr_if_needed(std::shared_ptr<couchbase::collection> collection, const std::string& id)
@@ -235,74 +250,79 @@ namespace transactions
 
     void attempt_context::remove(std::shared_ptr<collection> collection, transaction_document& document)
     {
-        try {
-            check_if_done();
-            check_expiry_pre_commit(STAGE_REMOVE, document.id());
-            if (staged_mutations_.find_insert(collection, document.id())) {
-                error(*this, "cannot remove document {}, as it was inserted in this transaction", document.id());
-                throw transaction_operation_failed(FAIL_OTHER, "Cannot remove a document inserted in the same transaction");
-            }
-            trace(*this, "removing {}", document);
-            check_and_handle_blocking_transactions(document);
-            select_atr_if_needed(collection, document.id());
+        return cache_error<void>([&]() {
+            try {
+                check_if_done();
+                check_expiry_pre_commit(STAGE_REMOVE, document.id());
+                if (staged_mutations_.find_insert(collection, document.id())) {
+                    error(*this, "cannot remove document {}, as it was inserted in this transaction", document.id());
+                    throw transaction_operation_failed(FAIL_OTHER, "Cannot remove a document inserted in the same transaction");
+                }
+                trace(*this, "removing {}", document);
+                check_and_handle_blocking_transactions(document);
+                select_atr_if_needed(collection, document.id());
 
-            set_atr_pending_if_first_mutation(collection);
+                set_atr_pending_if_first_mutation(collection);
 
-            hooks_.before_staged_remove(this, document.id());
-            info(*this, "about to remove remove doc {} with cas {}", document.id(), document.cas());
-            std::vector<mutate_in_spec> specs = {
-                mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
-                mutate_in_spec::upsert(ATTEMPT_ID, id()).create_path().xattr(),
-                mutate_in_spec::upsert(ATR_ID, atr_id_.value()).create_path().xattr(),
-                mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).create_path().xattr(),
-                mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).create_path().xattr(),
-                mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).xattr().create_path().expand_macro(),
-                mutate_in_spec::upsert(TYPE, "remove").create_path().xattr(),
-            };
-            if (document.metadata()) {
-                if (document.metadata()->cas()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).create_path().xattr());
+                hooks_.before_staged_remove(this, document.id());
+                info(*this, "about to remove remove doc {} with cas {}", document.id(), document.cas());
+                std::vector<mutate_in_spec> specs = {
+                    mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
+                    mutate_in_spec::upsert(ATTEMPT_ID, id()).create_path().xattr(),
+                    mutate_in_spec::upsert(ATR_ID, atr_id_.value()).create_path().xattr(),
+                    mutate_in_spec::upsert(ATR_BUCKET_NAME, collection->bucket_name()).create_path().xattr(),
+                    mutate_in_spec::upsert(ATR_COLL_NAME, collection->scope() + "." + collection->name()).create_path().xattr(),
+                    mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).xattr().create_path().expand_macro(),
+                    mutate_in_spec::upsert(TYPE, "remove").create_path().xattr(),
+                };
+                if (document.metadata()) {
+                    if (document.metadata()->cas()) {
+                        specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_CAS, document.metadata()->cas().value()).create_path().xattr());
+                    }
+                    if (document.metadata()->revid()) {
+                        specs.emplace_back(
+                          mutate_in_spec::upsert(PRE_TXN_REVID, document.metadata()->revid().value()).create_path().xattr());
+                    }
+                    if (document.metadata()->exptime()) {
+                        specs.emplace_back(
+                          mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).create_path().xattr());
+                    }
                 }
-                if (document.metadata()->revid()) {
-                    specs.emplace_back(mutate_in_spec::upsert(PRE_TXN_REVID, document.metadata()->revid().value()).create_path().xattr());
-                }
-                if (document.metadata()->exptime()) {
-                    specs.emplace_back(
-                      mutate_in_spec::upsert(PRE_TXN_EXPTIME, document.metadata()->exptime().value()).create_path().xattr());
+                result res;
+                wrap_collection_call(res, [&](result& r) {
+                    r = collection->mutate_in(document.id(),
+                                              specs,
+                                              mutate_in_options()
+                                                .durability(durability(config_))
+                                                .access_deleted(document.links().is_deleted())
+                                                .cas(document.cas()));
+                });
+                info(*this, "removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
+                hooks_.after_staged_remove_complete(this, document.id());
+                document.cas(res.cas);
+                staged_mutations_.add(staged_mutation(document, "", staged_mutation_type::REMOVE));
+                add_mutation_token();
+            } catch (const client_error& e) {
+                error_class ec = e.ec();
+                switch (ec) {
+                    case FAIL_EXPIRY:
+                        expiry_overtime_mode_ = true;
+                        throw transaction_operation_failed(ec, e.what()).expired();
+                    case FAIL_DOC_NOT_FOUND:
+                        throw transaction_operation_failed(ec, e.what()).retry();
+                    case FAIL_DOC_ALREADY_EXISTS:
+                    case FAIL_CAS_MISMATCH:
+                        throw transaction_operation_failed(ec, e.what()).retry();
+                    case FAIL_TRANSIENT:
+                    case FAIL_AMBIGUOUS:
+                        throw transaction_operation_failed(ec, e.what()).retry();
+                    case FAIL_HARD:
+                        throw transaction_operation_failed(ec, e.what()).no_rollback();
+                    default:
+                        throw transaction_operation_failed(ec, e.what());
                 }
             }
-            result res;
-            wrap_collection_call(res, [&](result& r) {
-                r = collection->mutate_in(
-                  document.id(),
-                  specs,
-                  mutate_in_options().durability(durability(config_)).access_deleted(document.links().is_deleted()).cas(document.cas()));
-            });
-            info(*this, "removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
-            hooks_.after_staged_remove_complete(this, document.id());
-            document.cas(res.cas);
-            staged_mutations_.add(staged_mutation(document, "", staged_mutation_type::REMOVE));
-            add_mutation_token();
-        } catch (const client_error& e) {
-            error_class ec = e.ec();
-            switch (ec) {
-                case FAIL_EXPIRY:
-                    expiry_overtime_mode_ = true;
-                    throw transaction_operation_failed(ec, e.what()).expired();
-                case FAIL_DOC_NOT_FOUND:
-                    throw transaction_operation_failed(ec, e.what()).retry();
-                case FAIL_DOC_ALREADY_EXISTS:
-                case FAIL_CAS_MISMATCH:
-                    throw transaction_operation_failed(ec, e.what()).retry();
-                case FAIL_TRANSIENT:
-                case FAIL_AMBIGUOUS:
-                    throw transaction_operation_failed(ec, e.what()).retry();
-                case FAIL_HARD:
-                    throw transaction_operation_failed(ec, e.what()).no_rollback();
-                default:
-                    throw transaction_operation_failed(ec, e.what());
-            }
-        }
+        });
     }
 
     void attempt_context::atr_commit()
@@ -417,6 +437,7 @@ namespace transactions
     void attempt_context::commit()
     {
         info(*this, "commit {}", id());
+        existing_error();
         check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {});
         if (atr_collection_ && atr_id_ && !is_done_) {
             retry_op<void>([&]() { atr_commit(); });

@@ -19,7 +19,7 @@
 #include <string>
 #include <thread>
 #include <utility>
-#include <vector>
+#include <list>
 
 #include <couchbase/client/collection.hxx>
 #include <couchbase/transactions/atr_cleanup_entry.hxx>
@@ -52,7 +52,7 @@ namespace transactions
         staged_mutation_queue staged_mutations_;
         attempt_context_testing_hooks hooks_;
         std::chrono::nanoseconds start_time_server_{ 0 };
-        std::vector<transaction_operation_failed> errors_;
+        std::list<transaction_operation_failed> errors_;
         // commit needs to access the hooks
         friend class staged_mutation_queue;
         // entry needs access to private members
@@ -75,6 +75,26 @@ namespace transactions
                 }
             } while (true);
             assert(false && "retry should never reach here");
+        }
+
+        template<typename V>
+        V cache_error(std::function<V()> func)
+        {
+            existing_error();
+            try {
+                return func();
+            } catch (const transaction_operation_failed& e) {
+                errors_.push_back(e);
+                throw;
+            }
+        }
+
+        void existing_error()
+        {
+            if (!errors_.empty()) {
+                // really, we could be more clever with no_rollback and retry by examining errors_, but not now.
+                throw transaction_operation_failed(FAIL_OTHER, "Previous operation failed").cause(PREVIOUS_OPERATION_FAILED);
+            }
         }
 
       public:
