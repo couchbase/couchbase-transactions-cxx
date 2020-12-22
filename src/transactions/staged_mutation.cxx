@@ -247,8 +247,7 @@ tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& ite
     } catch (const client_error& e) {
         error_class ec = e.ec();
         if (ctx.expiry_overtime_mode_) {
-            // TODO new final exception type expired_post_commit
-            throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
+            throw transaction_operation_failed(FAIL_EXPIRY, "expired during commit").no_rollback().failed_post_commit();
         }
         switch (ec) {
             case FAIL_AMBIGUOUS:

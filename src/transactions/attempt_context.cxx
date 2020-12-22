@@ -438,7 +438,17 @@ namespace transactions
     {
         info(*this, "commit {}", id());
         existing_error();
-        check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {});
+        try {
+            check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {});
+        } catch (const client_error& e) {
+            auto ec = e.ec();
+            switch (ec) {
+                case FAIL_EXPIRY:
+                    throw transaction_operation_failed(ec, e.what()).expired();
+                default:
+                    throw transaction_operation_failed(ec, e.what());
+            }
+        }
         if (atr_collection_ && atr_id_ && !is_done_) {
             retry_op<void>([&]() { atr_commit(); });
             staged_mutations_.commit(*this);
