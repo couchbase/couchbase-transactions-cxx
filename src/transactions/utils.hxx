@@ -25,6 +25,12 @@ namespace couchbase
 {
 namespace transactions
 {
+    // returns the parsed server time from the result of a lookup_in_spec::get("$vbucket").xattr() call
+    static uint64_t now_ns_from_vbucket(const nlohmann::json& vbucket)
+    {
+        std::string now_str = vbucket["HLC"]["now"];
+        return stoull(now_str, nullptr, 10) * 1000000000;
+    }
 
     static void wrap_collection_call(result& res, std::function<void(result&)> call)
     {

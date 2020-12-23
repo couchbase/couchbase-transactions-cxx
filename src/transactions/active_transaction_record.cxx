@@ -2,6 +2,8 @@
 #include <libcouchbase/couchbase.h>
 #include <spdlog/spdlog.h>
 
+#include "utils.hxx"
+
 namespace couchbase
 {
 namespace transactions
@@ -15,6 +17,8 @@ namespace transactions
      *
      * Looks like: "0x000058a71dd25c15"
      * Want:        0x155CD21DA7580000   (1539336197457313792 in base10, an epoch time in millionths of a second)
+     *
+     * returns epoch time in ms
      */
     inline uint64_t active_transaction_record::parse_mutation_cas(const std::string& cas)
     {
@@ -53,8 +57,7 @@ namespace transactions
                                                                            nlohmann::json& attempts)
     {
         auto vbucket = res.values[1].value->get<nlohmann::json>();
-        std::string now_str = vbucket["HLC"]["now"];
-        uint64_t now_ns = stoull(now_str, nullptr, 10) * 1000000000;
+        auto now_ns = now_ns_from_vbucket(vbucket);
         std::vector<atr_entry> entries;
         entries.reserve(attempts.size());
         for (auto& element : attempts.items()) {

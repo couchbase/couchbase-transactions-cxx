@@ -205,18 +205,20 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
                 r = coll->lookup_in(CLIENT_RECORD_DOC_ID,
                                     { lookup_in_spec::get(FIELD_CLIENTS).xattr(),
                                       lookup_in_spec::get(FIELD_RECORDS + "." + FIELD_OVERRIDE + "." + FIELD_OVERRIDE_ENABLED).xattr(),
-                                      lookup_in_spec::get(FIELD_RECORDS + "." + FIELD_OVERRIDE + "." + FIELD_OVERRIDE_EXPIRES).xattr() });
+                                      lookup_in_spec::get(FIELD_RECORDS + "." + FIELD_OVERRIDE + "." + FIELD_OVERRIDE_EXPIRES).xattr(),
+                                      lookup_in_spec::get("$vbucket").xattr() });
             });
             std::vector<std::string> active_client_uids;
+            auto hlc = res.values[3].value->get<nlohmann::json>();
+            auto now_ms = now_ns_from_vbucket(hlc) / 1000000;
             if (res.values[0].status == 0) {
                 for (auto& client : res.values[0].value->items()) {
                     const auto& other_client_uuid = client.key();
                     auto cl = client.value();
-                    uint64_t cas_ms = res.cas / 1000000;
                     uint64_t heartbeat_ms = parse_mutation_cas(cl[FIELD_HEARTBEAT].get<std::string>());
                     auto expires_ms = cl[FIELD_EXPIRES].get<uint64_t>();
-                    uint64_t expired_period = cas_ms - heartbeat_ms;
-                    bool has_expired = expired_period >= expires_ms;
+                    int64_t expired_period = now_ms - heartbeat_ms;
+                    bool has_expired = expired_period >= expires_ms && now_ms > heartbeat_ms;
                     if (has_expired && other_client_uuid != uuid) {
                         details.expired_client_ids.push_back(other_client_uuid);
                     } else {
@@ -236,7 +238,7 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
             details.num_expired_clients = details.expired_client_ids.size();
             details.num_existing_clients = details.num_expired_clients + details.num_active_clients;
             details.client_uuid = uuid;
-            details.cas_now_nanos = res.cas;
+            details.cas_now_nanos = now_ms * 1000000;
             std::vector<mutate_in_spec> specs;
             details.override_enabled = false;
             details.override_expires = 0;
