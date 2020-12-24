@@ -17,6 +17,7 @@
 #pragma once
 
 #include <string>
+#include <mutex>
 
 namespace couchbase
 {
@@ -26,6 +27,9 @@ namespace transactions
     {
       public:
         static std::string next();
+
+      private:
+        static std::mutex mutex_;
     };
 } // namespace transactions
 } // namespace couchbase
