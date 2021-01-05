@@ -198,7 +198,7 @@ namespace transactions
                 vbucket_id = atr_ids::vbucket_for_key(id);
                 atr_id_.emplace(atr_ids::atr_id_for_vbucket(vbucket_id));
             }
-            atr_collection_ = collection;
+            atr_collection_ = collection->get_bucket()->default_collection();
             overall_.atr_collection(collection->name());
             overall_.atr_id(*atr_id_);
             state(attempt_state::NOT_STARTED);
@@ -652,7 +652,7 @@ namespace transactions
                 hooks_.before_atr_pending(this);
                 info(*this, "updating atr {}", atr_id_.value());
                 wrap_collection_call(res, [&](result& r) {
-                    r = collection->mutate_in(
+                    r = atr_collection_->mutate_in(
 
                       atr_id_.value(),
                       { mutate_in_spec::insert(prefix + ATR_FIELD_TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
