@@ -74,7 +74,7 @@ tx::transactions::run(const logic& logic)
             er.do_throw(overall);
             // if we don't throw, break here means no retry
             break;
-        } catch (const std::runtime_error& ex) {
+        } catch (const std::exception& ex) {
             spdlog::error("got runtime error {}", ex.what());
             ctx.rollback();
             cleanup_.add_attempt(ctx);

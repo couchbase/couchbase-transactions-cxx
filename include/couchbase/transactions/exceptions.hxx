@@ -50,6 +50,7 @@ namespace transactions
         {
         }
     };
+
     enum error_class {
         FAIL_HARD = 0,
         FAIL_OTHER,

@@ -48,6 +48,7 @@ namespace transactions
         boost::optional<uint32_t> exptime_pre_txn_;
         boost::optional<std::string> crc32_of_staging_;
         boost::optional<std::string> op_;
+        boost::optional<nlohmann::json> forward_compat_;
         bool is_deleted_;
 
       public:
@@ -64,6 +65,7 @@ namespace transactions
                           boost::optional<uint32_t> exptime_pre_txn,
                           boost::optional<std::string> crc32_of_staging,
                           boost::optional<std::string> op,
+                          boost::optional<nlohmann::json> forward_compat,
                           bool is_deleted)
           : atr_id_(std::move(atr_id))
           , atr_bucket_name_(std::move(atr_bucket_name))
@@ -77,6 +79,7 @@ namespace transactions
           , exptime_pre_txn_(exptime_pre_txn)
           , crc32_of_staging_(std::move(crc32_of_staging))
           , op_(std::move(op))
+          , forward_compat_(forward_compat)
           , is_deleted_(is_deleted)
         {
         }
@@ -161,6 +164,11 @@ namespace transactions
         CB_NODISCARD Content staged_content() const
         {
             return staged_content_ ? staged_content_->get<Content>() : Content();
+        }
+
+        CB_NODISCARD boost::optional<nlohmann::json> forward_compat() const
+        {
+            return forward_compat_;
         }
 
         CB_NODISCARD bool is_deleted() const

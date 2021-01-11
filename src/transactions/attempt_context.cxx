@@ -7,6 +7,7 @@
 #include <couchbase/transactions/attempt_state.hxx>
 
 #include "atr_ids.hxx"
+#include "forward_compat.hxx"
 #include "logging.hxx"
 #include "utils.hxx"
 
@@ -28,6 +29,33 @@ namespace transactions
         trace(*this, "added new attempt, state {}", state());
     }
 
+    // not a member of attempt_context, as forward_compat is internal.
+    void attempt_context::check_and_handle_blocking_transactions(attempt_context& ctx,
+                                                                 const transaction_document& doc,
+                                                                 forward_compat_stage stage)
+    {
+        // The main reason to require doc to be fetched inside the transaction is so we can detect this on the client side
+        if (doc.links().has_staged_write()) {
+            // Check not just writing the same doc twice in the same transaction
+            // NOTE: we check the transaction rather than attempt id. This is to handle [RETRY-ERR-AMBIG-REPLACE].
+            if (doc.links().staged_transaction_id().value() == ctx.transaction_id()) {
+                info(ctx, "doc {} has been written by this transaction, ok to continue", doc.id());
+            } else {
+                if (doc.links().atr_id() && doc.links().atr_bucket_name() && doc.links().staged_attempt_id()) {
+                    info(ctx, "doc {} in another txn, checking atr...", doc.id());
+                    forward_compat::check(stage, doc.links().forward_compat());
+                    ctx.check_atr_entry_for_blocking_document(doc);
+                } else {
+                    info(ctx,
+                         "doc {} is in another transaction {}, but doesn't have enough info to check the atr. "
+                         "probably a bug, proceeding to overwrite",
+                         doc.id(),
+                         doc.links().staged_attempt_id().get());
+                }
+            }
+        }
+    }
+
     transaction_document attempt_context::get(std::shared_ptr<couchbase::collection> collection, const std::string& id)
     {
         return cache_error<transaction_document>([&]() {
@@ -47,6 +75,9 @@ namespace transactions
         return cache_error<boost::optional<transaction_document>>([&]() {
             auto retval = do_get(collection, id);
             hooks_.after_get_complete(this, id);
+            if (retval) {
+                forward_compat::check(forward_compat_stage::GETS, retval->links().forward_compat());
+            }
             return retval;
         });
     }
@@ -61,7 +92,7 @@ namespace transactions
                 check_if_done();
                 check_expiry_pre_commit(STAGE_REPLACE, document.id());
                 select_atr_if_needed(collection, document.id());
-                check_and_handle_blocking_transactions(document);
+                check_and_handle_blocking_transactions(*this, document, forward_compat_stage::WWC_REPLACING);
                 set_atr_pending_if_first_mutation(collection);
 
                 std::vector<mutate_in_spec> specs = {
@@ -221,6 +252,7 @@ namespace transactions
                         return e.attempt_id() == doc.links().staged_attempt_id();
                     });
                     if (it != entries.end()) {
+                        forward_compat::check(forward_compat_stage::WWC_READING_ATR, it->forward_compat());
                         if (it->has_expired()) {
                             trace(*this, "existing atr entry has expired (age is {}ms), ignoring", it->age_ms());
                             return;
@@ -259,7 +291,7 @@ namespace transactions
                     throw transaction_operation_failed(FAIL_OTHER, "Cannot remove a document inserted in the same transaction");
                 }
                 trace(*this, "removing {}", document);
-                check_and_handle_blocking_transactions(document);
+                check_and_handle_blocking_transactions(*this, document, forward_compat_stage::WWC_REMOVING);
                 select_atr_if_needed(collection, document.id());
 
                 set_atr_pending_if_first_mutation(collection);
@@ -717,29 +749,6 @@ namespace transactions
         return nullptr;
     }
 
-    void attempt_context::check_and_handle_blocking_transactions(const transaction_document& doc)
-    {
-        // The main reason to require doc to be fetched inside the transaction is so we can detect this on the client side
-        if (doc.links().has_staged_write()) {
-            // Check not just writing the same doc twice in the same transaction
-            // NOTE: we check the transaction rather than attempt id. This is to handle [RETRY-ERR-AMBIG-REPLACE].
-            if (doc.links().staged_transaction_id().value() == overall_.transaction_id()) {
-                info(*this, "doc {} has been written by this transaction, ok to continue", doc.id());
-            } else {
-                if (doc.links().atr_id() && doc.links().atr_bucket_name() && doc.links().staged_attempt_id()) {
-                    info(*this, "doc {} in another txn, checking atr...", doc.id());
-                    check_atr_entry_for_blocking_document(doc);
-                } else {
-                    info(*this,
-                         "doc {} is in another transaction {}, but doesn't have enough info to check the atr. "
-                         "probably a bug, proceeding to overwrite",
-                         doc.id(),
-                         doc.links().staged_attempt_id().get());
-                }
-            }
-        }
-    }
-
     void attempt_context::check_if_done()
     {
         if (is_done_) {
@@ -797,6 +806,7 @@ namespace transactions
                             content = doc.links().staged_content<nlohmann::json>();
                             status = transaction_document_status::OWN_WRITE;
                         } else {
+                            forward_compat::check(forward_compat_stage::GETS_READING_ATR, entry->forward_compat());
                             switch (entry->state()) {
                                 case attempt_state::COMMITTED:
                                     if (doc.links().is_document_being_removed()) {
@@ -885,6 +895,7 @@ namespace transactions
                                             lookup_in_spec::get(TYPE).xattr(),
                                             lookup_in_spec::get("$document").xattr(),
                                             lookup_in_spec::get(CRC32_OF_STAGING).xattr(),
+                                            lookup_in_spec::get(FORWARD_COMPAT).xattr(),
                                             lookup_in_spec::fulldoc_get() },
                                           lookup_in_options().access_deleted(true));
             });
@@ -943,6 +954,7 @@ namespace transactions
                                     boost::none,
                                     boost::none,
                                     std::string("insert"),
+                                    boost::none,
                                     true);
             transaction_document out(id, content, res.cas, *collection, links, transaction_document_status::NORMAL, boost::none);
             staged_mutations_.add(staged_mutation(out, content, staged_mutation_type::INSERT));
@@ -976,6 +988,7 @@ namespace transactions
                                   doc.id(),
                                   doc.links().is_document_in_transaction(),
                                   get_res.is_deleted);
+                            forward_compat::check(forward_compat_stage::WWC_INSERTING, doc.links().forward_compat());
                             if (!doc.links().is_document_in_transaction() && get_res.is_deleted) {
                                 // it is just a deleted doc, so we are ok.  Lets try again, but with the cas
                                 trace(*this, "doc was deleted, retrying with cas {}", doc.cas());
@@ -986,7 +999,7 @@ namespace transactions
                                 // doc was inserted outside txn elsewhere
                                 throw transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, "document already exists");
                             }
-                            check_and_handle_blocking_transactions(doc);
+                            check_and_handle_blocking_transactions(*this, doc, forward_compat_stage::WWC_INSERTING_GET);
                             // if the check didn't throw, we can retry staging with cas
                             trace(*this, "doc ok to overwrite, retrying with cas {}", doc.cas());
                             cas = doc.cas();

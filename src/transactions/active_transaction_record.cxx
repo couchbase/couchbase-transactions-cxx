@@ -62,22 +62,24 @@ namespace transactions
         entries.reserve(attempts.size());
         for (auto& element : attempts.items()) {
             auto& val = element.value();
-            entries.emplace_back(collection->bucket_name(),
-                                 atr_id,
-                                 element.key(),
-                                 attempt_state_value(val[ATR_FIELD_STATUS].get<std::string>()),
-                                 parse_mutation_cas(val.value(ATR_FIELD_START_TIMESTAMP, "")),
-                                 parse_mutation_cas(val.value(ATR_FIELD_START_COMMIT, "")),
-                                 parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_COMPLETE, "")),
-                                 parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_START, "")),
-                                 parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "")),
-                                 val.count(ATR_FIELD_EXPIRES_AFTER_MSECS)
-                                   ? boost::make_optional(val[ATR_FIELD_EXPIRES_AFTER_MSECS].get<std::uint32_t>())
-                                   : boost::optional<std::uint32_t>(),
-                                 process_document_ids(val, ATR_FIELD_DOCS_INSERTED),
-                                 process_document_ids(val, ATR_FIELD_DOCS_REPLACED),
-                                 process_document_ids(val, ATR_FIELD_DOCS_REMOVED),
-                                 now_ns);
+            entries.emplace_back(
+              collection->bucket_name(),
+              atr_id,
+              element.key(),
+              attempt_state_value(val[ATR_FIELD_STATUS].get<std::string>()),
+              parse_mutation_cas(val.value(ATR_FIELD_START_TIMESTAMP, "")),
+              parse_mutation_cas(val.value(ATR_FIELD_START_COMMIT, "")),
+              parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_COMPLETE, "")),
+              parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_START, "")),
+              parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "")),
+              val.count(ATR_FIELD_EXPIRES_AFTER_MSECS) ? boost::make_optional(val[ATR_FIELD_EXPIRES_AFTER_MSECS].get<std::uint32_t>())
+                                                       : boost::optional<std::uint32_t>(),
+              process_document_ids(val, ATR_FIELD_DOCS_INSERTED),
+              process_document_ids(val, ATR_FIELD_DOCS_REPLACED),
+              process_document_ids(val, ATR_FIELD_DOCS_REMOVED),
+              val.contains(ATR_FIELD_FORWARD_COMPAT) ? boost::make_optional(val[ATR_FIELD_FORWARD_COMPAT].get<nlohmann::json>())
+                                                     : boost::none,
+              now_ns);
         }
         return active_transaction_record(atr_id, collection, res.cas, std::move(entries));
     }

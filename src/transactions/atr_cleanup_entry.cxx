@@ -14,11 +14,13 @@
  *   limitations under the License.
  */
 
+#include "forward_compat.hxx"
+#include "utils.hxx"
+
 #include <boost/optional/optional_io.hpp>
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/spdlog.h>
 
-#include "utils.hxx"
 #include <couchbase/transactions.hxx>
 #include <couchbase/transactions/atr_cleanup_entry.hxx>
 #include <couchbase/transactions/exceptions.hxx>
@@ -114,6 +116,7 @@ tx::atr_cleanup_entry::check_atr_and_cleanup(transactions_cleanup_attempt* resul
     if (result) {
         result->state(atr_entry_->state());
     }
+    forward_compat::check(forward_compat_stage::CLEANUP_ENTRY, atr_entry_->forward_compat());
     cleanup_docs();
     cleanup_->config().cleanup_hooks().on_cleanup_docs_completed();
     cleanup_entry();
@@ -165,6 +168,7 @@ tx::atr_cleanup_entry::do_per_doc(std::vector<tx::doc_record> docs,
                                             lookup_in_spec::get(TYPE).xattr(),
                                             lookup_in_spec::get("$document").xattr(),
                                             lookup_in_spec::get(CRC32_OF_STAGING).xattr(),
+                                            lookup_in_spec::get(FORWARD_COMPAT).xattr(),
                                             lookup_in_spec::fulldoc_get() },
                                           lookup_in_options().access_deleted(true));
             });

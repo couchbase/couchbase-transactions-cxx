@@ -41,6 +41,7 @@ namespace transactions
     static const std::string ATR_FIELD_PER_DOC_SCOPE = "scp";
     static const std::string ATR_FIELD_PER_DOC_COLLECTION = "col";
     static const std::string ATR_FIELD_TRANSACTION_ID = "tid";
+    static const std::string ATR_FIELD_FORWARD_COMPAT = "fc";
 
     // Fields inside regular docs that are part of a transaction
     static const std::string TRANSACTION_INTERFACE_PREFIX_ONLY = "txn";
@@ -60,6 +61,7 @@ namespace transactions
     static const std::string STAGED_DATA = TRANSACTION_INTERFACE_PREFIX + "op.stgd";
     static const std::string TYPE = TRANSACTION_INTERFACE_PREFIX + "op.type";
     static const std::string CRC32_OF_STAGING = TRANSACTION_INTERFACE_PREFIX + "op.crc32";
+    static const std::string FORWARD_COMPAT = TRANSACTION_INTERFACE_PREFIX + "fc";
 
     static const std::string PRE_TXN_CAS = TRANSACTION_RESTORE_PREFIX + "CAS";
     static const std::string PRE_TXN_REVID = TRANSACTION_RESTORE_PREFIX + "revid";

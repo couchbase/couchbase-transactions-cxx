@@ -48,6 +48,7 @@ namespace transactions
                   boost::optional<std::vector<doc_record>> inserted_ids,
                   boost::optional<std::vector<doc_record>> replaced_ids,
                   boost::optional<std::vector<doc_record>> removed_ids,
+                  boost::optional<nlohmann::json> forward_compat,
                   std::uint64_t cas)
           : atr_bucket_(std::move(atr_bucket))
           , atr_id_(std::move(atr_id))
@@ -62,6 +63,7 @@ namespace transactions
           , inserted_ids_(std::move(inserted_ids))
           , replaced_ids_(std::move(replaced_ids))
           , removed_ids_(std::move(removed_ids))
+          , forward_compat_(std::move(forward_compat))
           , cas_(cas)
         {
         }
@@ -135,6 +137,11 @@ namespace transactions
             return removed_ids_;
         }
 
+        CB_NODISCARD boost::optional<nlohmann::json> forward_compat() const
+        {
+            return forward_compat_;
+        }
+
         CB_NODISCARD boost::optional<std::uint32_t> expires_after_ms() const
         {
             return expires_after_ms_;
@@ -159,6 +166,7 @@ namespace transactions
         const boost::optional<std::vector<doc_record>> inserted_ids_;
         const boost::optional<std::vector<doc_record>> replaced_ids_;
         const boost::optional<std::vector<doc_record>> removed_ids_;
+        const boost::optional<nlohmann::json> forward_compat_;
         const std::uint64_t cas_{};
     };
 } // namespace transactions

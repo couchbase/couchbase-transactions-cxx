@@ -36,6 +36,7 @@ namespace couchbase
 namespace transactions
 {
     class transactions;
+    enum class forward_compat_stage;
     /**
      * Provides methods to allow an application's transaction logic to read, mutate, insert and delete documents, as well as commit or
      * rollback the transaction.
@@ -268,9 +269,6 @@ namespace transactions
 
         void check_expiry_pre_commit(std::string stage, boost::optional<const std::string> doc_id);
 
-        // The timing of this call is important.
-        // Should be done before doOnNext, which tests often make throw an exception.
-        // In fact, needs to be done without relying on any onNext signal.  What if the operation times out instead.
         void check_expiry_during_commit_or_rollback(const std::string& stage, boost::optional<const std::string> doc_id);
 
         void set_atr_pending_if_first_mutation(std::shared_ptr<collection> collection);
@@ -279,14 +277,9 @@ namespace transactions
 
         staged_mutation* check_for_own_write(std::shared_ptr<collection> collection, const std::string& id);
 
-        void check_atr_entry_for_blocking_document(const transaction_document& doc);
+        void check_and_handle_blocking_transactions(attempt_context& ctx, const transaction_document& doc, forward_compat_stage stage);
 
-        /**
-         * Don't get blocked by lost transactions (see [BLOCKING] in the RFC)
-         *
-         * @param doc
-         */
-        void check_and_handle_blocking_transactions(const transaction_document& doc);
+        void check_atr_entry_for_blocking_document(const transaction_document& doc);
 
         void check_if_done();
 

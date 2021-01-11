@@ -91,6 +91,7 @@ namespace transactions
                                     document.links().exptime_pre_txn(),
                                     document.links().crc32_of_staging(),
                                     document.links().op(),
+                                    document.links().forward_compat(),
                                     document.links().is_deleted());
 
             return transaction_document(
@@ -106,6 +107,7 @@ namespace transactions
             boost::optional<std::string> atr_bucket_name;
             boost::optional<std::string> atr_scope_name;
             boost::optional<std::string> atr_collection_name;
+            boost::optional<nlohmann::json> forward_compat;
 
             // read from xattrs.txn.restore
             boost::optional<std::string> cas_pre_txn;
@@ -166,7 +168,12 @@ namespace transactions
                 crc32_of_staging = res.values[9].value.get();
             }
             if (res.values[10].value) {
-                content = res.values[10].value.get();
+                forward_compat = res.values[10].value.get();
+            } else {
+                forward_compat = nlohmann::json::object();
+            }
+            if (res.values[11].value) {
+                content = res.values[11].value.get();
             } else {
                 content = nlohmann::json::object();
             }
@@ -183,6 +190,7 @@ namespace transactions
                                     exptime_pre_txn,
                                     crc32_of_staging,
                                     op,
+                                    forward_compat,
                                     res.is_deleted);
             document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc, crc32_from_doc);
             return transaction_document(id, content, res.cas, collection, links, status, boost::make_optional(md));
