@@ -1,6 +1,4 @@
-
-#include <couchbase/transactions/transaction_context.hxx>
-
+#include "transaction_context.hxx"
 #include "logging.hxx"
 #include "uid_generator.hxx"
 

@@ -17,14 +17,15 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 
 #include <boost/optional.hpp>
 
 #include <couchbase/client/collection.hxx>
-#include <couchbase/transactions/atr_entry.hxx>
 #include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
-#include <utility>
+
+#include "atr_entry.hxx"
 
 namespace couchbase
 {

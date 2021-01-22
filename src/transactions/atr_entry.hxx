@@ -24,8 +24,10 @@
 
 #include <boost/optional.hpp>
 
+#include <couchbase/support.hxx>
 #include <couchbase/transactions/attempt_state.hxx>
-#include <couchbase/transactions/doc_record.hxx>
+
+#include "doc_record.hxx"
 
 namespace couchbase
 {

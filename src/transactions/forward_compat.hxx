@@ -15,11 +15,11 @@
  */
 #pragma once
 
+#include "exceptions_internal.hxx"
 #include <boost/algorithm/string.hpp>
 #include <boost/optional.hpp>
 #include <chrono>
 #include <couchbase/internal/nlohmann/json.hpp>
-#include <couchbase/transactions/exceptions.hxx>
 #include <list>
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/spdlog.h>

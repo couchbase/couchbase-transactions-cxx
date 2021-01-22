@@ -17,13 +17,14 @@
 #pragma once
 
 #include <couchbase/client/cluster.hxx>
-#include <couchbase/transactions/atr_cleanup_entry.hxx>
-#include <couchbase/transactions/client_record.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 
 #include <atomic>
 #include <condition_variable>
 #include <thread>
+
+#include "atr_cleanup_entry.hxx"
+#include "client_record.hxx"
 
 namespace couchbase
 {

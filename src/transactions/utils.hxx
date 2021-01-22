@@ -15,11 +15,12 @@
  */
 #pragma once
 #include <couchbase/client/result.hxx>
-#include <couchbase/transactions/exceptions.hxx>
 
 #include <chrono>
 #include <functional>
 #include <thread>
+
+#include "exceptions_internal.hxx"
 
 namespace couchbase
 {

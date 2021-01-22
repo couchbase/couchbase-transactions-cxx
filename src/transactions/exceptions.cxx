@@ -13,8 +13,12 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
+#include "exceptions_internal.hxx"
+#include "transaction_context.hxx"
+
 #include <couchbase/transactions/exceptions.hxx>
 #include <libcouchbase/couchbase.h>
+
 namespace couchbase
 {
 namespace transactions
@@ -63,9 +67,9 @@ namespace transactions
         }
     }
 
-    transaction_base::transaction_base(const std::runtime_error& cause, const transaction_context& context)
+    transaction_exception::transaction_exception(const std::runtime_error& cause, const transaction_context& context)
       : std::runtime_error(cause)
-      , context_(context)
+      , result_(context.get_transaction_result())
       , cause_(UNKNOWN)
     {
         auto txn_op = dynamic_cast<const transaction_operation_failed*>(&cause);

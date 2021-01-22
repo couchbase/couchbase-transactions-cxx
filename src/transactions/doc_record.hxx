@@ -18,9 +18,9 @@
 #include <cstdint>
 #include <string>
 
+#include "transaction_fields.hxx"
 #include <couchbase/internal/nlohmann/json.hpp>
-
-#include <couchbase/transactions/transaction_fields.hxx>
+#include <couchbase/support.hxx>
 
 namespace couchbase
 {

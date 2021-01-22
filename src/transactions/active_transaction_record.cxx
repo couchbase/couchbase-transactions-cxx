@@ -1,7 +1,8 @@
-#include <couchbase/transactions/active_transaction_record.hxx>
 #include <libcouchbase/couchbase.h>
 #include <spdlog/spdlog.h>
 
+#include "active_transaction_record.hxx"
+#include "exceptions_internal.hxx"
 #include "utils.hxx"
 
 namespace couchbase

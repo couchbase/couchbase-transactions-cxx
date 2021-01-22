@@ -13,23 +13,33 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
-
 #pragma once
+
+#include <chrono>
 #include <couchbase/support.hxx>
-#include <couchbase/transactions/attempt_context_testing_hooks.hxx>
-#include <couchbase/transactions/cleanup_testing_hooks.hxx>
 #include <couchbase/transactions/durability_level.hxx>
+#include <memory>
 
 namespace couchbase
 {
 namespace transactions
 {
+    class attempt_context_testing_hooks;
+    class cleanup_testing_hooks;
     /**
      * Tunables for the transactions.
      */
     class transaction_config
     {
       public:
+        transaction_config();
+
+        ~transaction_config();
+
+        transaction_config(const transaction_config& c);
+
+        transaction_config& operator=(const transaction_config& c);
+
         enum durability_level durability_level() const
         {
             return level_;
@@ -82,31 +92,26 @@ namespace transactions
             expiration_time_ = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
         }
 
-        void test_factories(attempt_context_testing_hooks& hooks, cleanup_testing_hooks& cleanup_hooks)
+        void test_factories(attempt_context_testing_hooks& hooks, cleanup_testing_hooks& cleanup_hooks);
+
+        attempt_context_testing_hooks& attempt_context_hooks() const
         {
-            attempt_context_hooks_ = hooks;
-            cleanup_hooks_ = cleanup_hooks;
+            return *attempt_context_hooks_;
         }
 
-        CB_NODISCARD attempt_context_testing_hooks attempt_context_hooks() const
+        cleanup_testing_hooks& cleanup_hooks() const
         {
-            return attempt_context_hooks_;
+            return *cleanup_hooks_;
         }
 
-        CB_NODISCARD cleanup_testing_hooks cleanup_hooks() const
-        {
-            return cleanup_hooks_;
-        }
-
-      private:
-        enum couchbase::transactions::durability_level level_{ couchbase::transactions::durability_level::MAJORITY };
-        std::chrono::milliseconds cleanup_window_{ 120000 };
-        std::chrono::nanoseconds expiration_time_{ std::chrono::seconds(15) };
-        bool cleanup_lost_attempts_{ true };
-        bool cleanup_client_attempts_{ true };
-        attempt_context_testing_hooks attempt_context_hooks_;
-        cleanup_testing_hooks cleanup_hooks_;
+      protected:
+        enum couchbase::transactions::durability_level level_;
+        std::chrono::milliseconds cleanup_window_;
+        std::chrono::nanoseconds expiration_time_;
+        bool cleanup_lost_attempts_;
+        bool cleanup_client_attempts_;
+        std::unique_ptr<attempt_context_testing_hooks> attempt_context_hooks_;
+        std::unique_ptr<cleanup_testing_hooks> cleanup_hooks_;
     };
-
 } // namespace transactions
 } // namespace couchbase

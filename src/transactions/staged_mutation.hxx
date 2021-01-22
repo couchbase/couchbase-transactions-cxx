@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include "attempt_context_impl.hxx"
 #include <couchbase/client/mutate_in_spec.hxx>
 #include <couchbase/transactions/transaction_document.hxx>
 
@@ -78,17 +79,20 @@ namespace transactions
       private:
         std::mutex mutex_;
         std::vector<staged_mutation> queue_;
-        void commit_doc(attempt_context& ctx, staged_mutation& item, bool ambiguity_resolution_mode = false, bool cas_zero_mode = false);
-        void remove_doc(attempt_context& ctx, staged_mutation& item);
-        void rollback_insert(attempt_context& ctx, staged_mutation& item);
-        void rollback_remove_or_replace(attempt_context& ctx, staged_mutation& item);
+        void commit_doc(attempt_context_impl& ctx,
+                        staged_mutation& item,
+                        bool ambiguity_resolution_mode = false,
+                        bool cas_zero_mode = false);
+        void remove_doc(attempt_context_impl& ctx, staged_mutation& item);
+        void rollback_insert(attempt_context_impl& ctx, staged_mutation& item);
+        void rollback_remove_or_replace(attempt_context_impl& ctx, staged_mutation& item);
 
       public:
         bool empty();
         void add(const staged_mutation& mutation);
         void extract_to(const std::string& prefix, std::vector<couchbase::mutate_in_spec>& specs);
-        void commit(attempt_context& ctx);
-        void rollback(attempt_context& ctx);
+        void commit(attempt_context_impl& ctx);
+        void rollback(attempt_context_impl& ctx);
         void iterate(std::function<void(staged_mutation&)>);
 
         staged_mutation* find_replace(std::shared_ptr<collection> collection, const std::string& id);

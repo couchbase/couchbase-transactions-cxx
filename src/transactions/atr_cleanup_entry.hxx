@@ -16,16 +16,16 @@
 
 #pragma once
 
+#include "atr_entry.hxx"
 #include <boost/optional/optional.hpp>
 #include <chrono>
 #include <couchbase/client/collection.hxx>
-#include <couchbase/transactions/atr_entry.hxx>
-#include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/transaction_document.hxx>
 #include <memory>
 #include <queue>
 #include <string>
 #include <thread>
+#include <mutex>
 
 namespace couchbase
 {
@@ -35,6 +35,7 @@ namespace transactions
     // need forward declaration to avoid circular dep.
     class transactions_cleanup;
     class transactions_cleanup_attempt;
+    class attempt_context;
 
     // need forward declaration for compare
     class atr_cleanup_entry;

@@ -14,7 +14,13 @@
  *   limitations under the License.
  */
 
+#include "atr_cleanup_entry.hxx"
+#include "active_transaction_record.hxx"
+#include "attempt_context_impl.hxx"
+#include "attempt_context_testing_hooks.hxx"
+#include "cleanup_testing_hooks.hxx"
 #include "forward_compat.hxx"
+#include "transactions_cleanup.hxx"
 #include "utils.hxx"
 
 #include <boost/optional/optional_io.hpp>
@@ -22,9 +28,7 @@
 #include <spdlog/spdlog.h>
 
 #include <couchbase/transactions.hxx>
-#include <couchbase/transactions/atr_cleanup_entry.hxx>
 #include <couchbase/transactions/exceptions.hxx>
-#include <couchbase/transactions/transactions_cleanup.hxx>
 
 namespace tx = couchbase::transactions;
 
@@ -36,7 +40,7 @@ tx::compare_atr_entries::operator()(atr_cleanup_entry& lhs, atr_cleanup_entry& r
     return lhs.min_start_time_ > rhs.min_start_time_;
 }
 // wait a bit after an attempt is expired before cleaning it.
-const uint32_t tx::atr_cleanup_entry::safety_margin_ms_ = 2500;
+const uint32_t tx::atr_cleanup_entry::safety_margin_ms_ = 1500;
 
 tx::atr_cleanup_entry::atr_cleanup_entry(const std::string& atr_id,
                                          const std::string& attempt_id,
@@ -65,18 +69,22 @@ tx::atr_cleanup_entry::atr_cleanup_entry(const atr_entry& entry,
 }
 
 tx::atr_cleanup_entry::atr_cleanup_entry(attempt_context& ctx)
-  : atr_id_(ctx.atr_id())
-  , attempt_id_(ctx.id())
-  , min_start_time_(std::chrono::system_clock::now())
+  : min_start_time_(std::chrono::system_clock::now())
   , check_if_expired_(false)
   , atr_entry_(nullptr)
-  , cleanup_(&ctx.parent_->cleanup())
 {
+    // NOTE: we create these entries externally, in fit_performer tests, hence the
+    // use of attempt_context rather than attempt_context_impl
+    auto& ctx_impl = static_cast<attempt_context_impl&>(ctx);
+    atr_id_ = ctx_impl.atr_id();
+    attempt_id_ = ctx_impl.id();
+    cleanup_ = &ctx_impl.parent_->cleanup();
+
     // add expiration time to min start time - see java impl.
-    min_start_time_ += std::chrono::duration_cast<std::chrono::milliseconds>(ctx.config_.expiration_time());
+    min_start_time_ += std::chrono::duration_cast<std::chrono::milliseconds>(ctx_impl.config_.expiration_time());
     // need the collection to be safe to use in cleanup thread, so get it from
     // the cleanup's cluster.
-    atr_collection_ = cleanup_->cluster().bucket(ctx.atr_collection_->bucket_name())->collection(ctx.atr_collection_->name());
+    atr_collection_ = cleanup_->cluster().bucket(ctx_impl.atr_collection_->bucket_name())->collection(ctx_impl.atr_collection_->name());
 }
 
 void

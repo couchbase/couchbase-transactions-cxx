@@ -17,19 +17,23 @@
 #pragma once
 
 #include <cmath>
-#include <couchbase/client/cluster.hxx>
 #include <functional>
 #include <thread>
 
+#include <couchbase/client/cluster.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
+#include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transaction_result.hxx>
-#include <couchbase/transactions/transactions_cleanup.hxx>
 
 namespace couchbase
 {
 namespace transactions
 {
+    /** @internal
+     */
+    class transactions_cleanup;
+
     /** @brief Transaction logic should be contained in a lambda of this form */
     typedef std::function<void(attempt_context&)> logic;
 
@@ -79,6 +83,11 @@ namespace transactions
          */
         transactions(couchbase::cluster& cluster, const transaction_config& config);
 
+        /**
+         * @brief Destructor
+         */
+        ~transactions();
+
         std::shared_ptr<transactions> clone(couchbase::cluster& new_cluster,
                                             std::shared_ptr<attempt_context_testing_hooks> new_hooks,
                                             std::shared_ptr<cleanup_testing_hooks> new_cleanup_hooks);
@@ -89,45 +98,72 @@ namespace transactions
          * Expects a lambda, which it calls with an @ref attempt_context reference to be used in the lambda for
          * the transaction operations.
          *
-         * @param logic The lambda containing the transaction logic.  See @logic for the
+         * @param logic The lambda containing the transaction logic.
+         * @return A struct containing some internal state information about the transaction.
+         * @throws @ref transaction_failed, @ref transaction_expired, @ref transaction_commit_ambiguous, all of which
+         *         share a common base class @ref transaction_exception.
          */
         transaction_result run(const logic& logic);
 
-        /** called internally - will likely move */
+        /**
+         * @internal
+         * called internally - will likely move
+         */
         void commit(attempt_context& ctx)
         {
             ctx.commit();
         }
 
-        /** called internally - will likely move */
+        /**
+         * @internal
+         * called internally - will likely move
+         */
         void rollback(attempt_context& ctx)
         {
             ctx.rollback();
         }
 
         /**
-         * This shuts down the transactions object
+         * @brief Shut down the transactions object
          *
-         * The object cannot be used after this call.  Called in destructor, but
-         * available to call sooner if needed
+         * The transaction object cannot be used after this call.  Called in destructor, but
+         * available to call sooner if needed.
          */
         void close();
 
+        /**
+         * @brief Return reference to @ref transaction_config.
+         *
+         * @return config for this transactions instance.
+         */
         CB_NODISCARD transaction_config& config()
         {
             return config_;
         }
 
+        /**
+         * @internal
+         * Called internally
+         */
         CB_NODISCARD const transactions_cleanup& cleanup() const
         {
-            return cleanup_;
+            return *cleanup_;
         }
 
+        /**
+         * @internal
+         * Called internally
+         */
         CB_NODISCARD transactions_cleanup& cleanup()
         {
-            return cleanup_;
+            return *cleanup_;
         }
 
+        /**
+         * @brief Return a reference to the @ref cluster
+         *
+         * @return Ref to the cluster used by this transaction object.
+         */
         CB_NODISCARD couchbase::cluster& cluster_ref()
         {
             return cluster_;
@@ -136,8 +172,7 @@ namespace transactions
       private:
         couchbase::cluster& cluster_;
         transaction_config config_;
-        transactions_cleanup cleanup_;
-        // TODO: realistic max - this helps with tests as the expiration is 2 min and thats forever
+        std::unique_ptr<transactions_cleanup> cleanup_;
         const int max_attempts_{ 10 };
         const std::chrono::milliseconds min_retry_delay_{ 10 };
     };

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <iostream>
@@ -7,12 +8,14 @@
 
 #include <couchbase/client/cluster.hxx>
 #include <couchbase/client/collection.hxx>
-#include <couchbase/transactions/client_record.hxx>
-#include <couchbase/transactions/transaction_fields.hxx>
-#include <couchbase/transactions/transactions_cleanup.hxx>
 
+#include "active_transaction_record.hxx"
 #include "atr_ids.hxx"
+#include "cleanup_testing_hooks.hxx"
+#include "client_record.hxx"
 #include "logging.hxx"
+#include "transaction_fields.hxx"
+#include "transactions_cleanup.hxx"
 #include "uid_generator.hxx"
 #include "utils.hxx"
 
@@ -113,6 +116,11 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
     auto coll = cluster_.bucket(bucket_name)->default_collection();
     auto details = get_active_clients(coll, client_uuid_);
     auto all_atrs = atr_ids::all();
+
+    // we put a delay in between handling each atr, such that the delays add up to the total window time.  This
+    // means this takes longer than the window.
+
+    auto delay = std::chrono::milliseconds(config_.cleanup_window().count() / std::max(1ul, all_atrs.size() / details.num_active_clients));
     spdlog::trace("found {} other active clients", details.num_active_clients);
     for (auto it = all_atrs.begin() + details.index_of_this_client; it < all_atrs.end(); it += details.num_active_clients) {
         // clean the ATR entry
@@ -123,6 +131,7 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
         }
         try {
             handle_atr_cleanup(coll, atr_id);
+            std::this_thread::sleep_for(delay);
         } catch (const std::runtime_error& err) {
             spdlog::error("cleanup of atr {} failed with {}, moving on", atr_id, err.what());
         }
@@ -322,13 +331,13 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
 void
 tx::transactions_cleanup::lost_attempts_loop()
 {
-    try {
-        spdlog::info("starting lost attempts loop");
-        while (interruptable_wait(config_.cleanup_window())) {
+    spdlog::info("starting lost attempts loop");
+    while (running_.load()) {
+        std::list<std::thread> workers;
+        try {
             auto names = cluster_.buckets();
             spdlog::info("creating {} tasks to clean buckets", names.size());
             // TODO consider std::async here.
-            std::list<std::thread> workers;
             for (const auto& name : names) {
                 workers.emplace_back([&]() {
                     try {
@@ -343,10 +352,10 @@ tx::transactions_cleanup::lost_attempts_loop()
                     thr.join();
                 }
             }
-            spdlog::info("lost txn loops complete, scheduled to run again in {} ms", config_.cleanup_window().count());
+        } catch (const std::exception& e) {
+            spdlog::error("got error {} in lost attempts loop, rescheduling in {}ms", e.what(), config_.cleanup_window().count());
+            interruptable_wait(config_.cleanup_window());
         }
-    } catch (const std::runtime_error& e) {
-        spdlog::error("got error {} in lost attempts loop", e.what());
     }
 }
 
@@ -437,15 +446,16 @@ tx::transactions_cleanup::attempts_loop()
 void
 tx::transactions_cleanup::add_attempt(attempt_context& ctx)
 {
-    if (ctx.state() == tx::attempt_state::NOT_STARTED) {
+    auto& ctx_impl = static_cast<attempt_context_impl&>(ctx);
+    if (ctx_impl.state() == tx::attempt_state::NOT_STARTED) {
         spdlog::trace("attempt not started, not adding to cleanup");
         return;
     }
     if (config_.cleanup_client_attempts()) {
-        spdlog::trace("adding attempt {} to cleanup queue", ctx.id());
+        spdlog::trace("adding attempt {} to cleanup queue", ctx_impl.id());
         atr_queue_.push(ctx);
     } else {
-        spdlog::trace("not cleaning client attempts, ignoring {}", ctx.id());
+        spdlog::trace("not cleaning client attempts, ignoring {}", ctx_impl.id());
     }
 }
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "transaction_attempt.hxx"
+#include <couchbase/transactions/transaction_attempt.hxx>
 #include <vector>
 
 namespace couchbase

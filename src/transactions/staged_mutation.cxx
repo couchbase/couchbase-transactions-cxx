@@ -1,9 +1,9 @@
+#include "staged_mutation.hxx"
+#include "attempt_context_impl.hxx"
 #include "logging.hxx"
+#include "transaction_fields.hxx"
 #include "utils.hxx"
 #include <couchbase/client/result.hxx>
-#include <couchbase/transactions/attempt_context.hxx>
-#include <couchbase/transactions/staged_mutation.hxx>
-#include <couchbase/transactions/transaction_fields.hxx>
 #include <utility>
 
 namespace tx = couchbase::transactions;
@@ -103,7 +103,7 @@ tx::staged_mutation_queue::iterate(std::function<void(staged_mutation&)> op)
 }
 
 void
-tx::staged_mutation_queue::commit(attempt_context& ctx)
+tx::staged_mutation_queue::commit(attempt_context_impl& ctx)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
@@ -120,7 +120,7 @@ tx::staged_mutation_queue::commit(attempt_context& ctx)
 }
 
 void
-tx::staged_mutation_queue::rollback(attempt_context& ctx)
+tx::staged_mutation_queue::rollback(attempt_context_impl& ctx)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
@@ -137,7 +137,7 @@ tx::staged_mutation_queue::rollback(attempt_context& ctx)
 }
 
 void
-tx::staged_mutation_queue::rollback_insert(attempt_context& ctx, staged_mutation& item)
+tx::staged_mutation_queue::rollback_insert(attempt_context_impl& ctx, staged_mutation& item)
 {
     try {
         trace(ctx, "rolling back staged insert for {} with cas {}", item.doc().id(), item.doc().cas());
@@ -178,7 +178,7 @@ tx::staged_mutation_queue::rollback_insert(attempt_context& ctx, staged_mutation
 }
 
 void
-tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context& ctx, staged_mutation& item)
+tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx, staged_mutation& item)
 {
     try {
         trace(ctx, "rolling back staged remove/replace for {} with cas {}", item.doc().id(), item.doc().cas());
@@ -214,7 +214,7 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context& ctx, stag
     }
 }
 void
-tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& item, bool ambiguity_resolution_mode, bool cas_zero_mode)
+tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation& item, bool ambiguity_resolution_mode, bool cas_zero_mode)
 {
     trace(ctx, "commit doc {}, cas_zero_mode {}, ambiguity_resolution_mode {}", item.doc().id(), cas_zero_mode, ambiguity_resolution_mode);
     try {
@@ -267,7 +267,7 @@ tx::staged_mutation_queue::commit_doc(attempt_context& ctx, staged_mutation& ite
 }
 
 void
-tx::staged_mutation_queue::remove_doc(attempt_context& ctx, staged_mutation& item)
+tx::staged_mutation_queue::remove_doc(attempt_context_impl& ctx, staged_mutation& item)
 {
     try {
         ctx.check_expiry_during_commit_or_rollback(STAGE_REMOVE_DOC, boost::optional<const std::string>(item.doc().id()));

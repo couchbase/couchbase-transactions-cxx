@@ -23,6 +23,7 @@
 
 #include <couchbase/transactions/transaction_attempt.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
+#include <couchbase/transactions/transaction_result.hxx>
 
 namespace couchbase
 {
@@ -89,6 +90,13 @@ namespace transactions
         void atr_collection(const std::string& coll)
         {
             atr_collection_ = coll;
+        }
+
+        CB_NODISCARD transaction_result get_transaction_result() const
+        {
+            return transaction_result{
+                transaction_id(), atr_id(), atr_collection(), attempts(), current_attempt().state == attempt_state::COMPLETED
+            };
         }
 
       private:
