@@ -41,7 +41,6 @@ namespace transactions
         bool is_done_;
         std::unique_ptr<staged_mutation_queue> staged_mutations_;
         attempt_context_testing_hooks hooks_;
-        std::chrono::nanoseconds start_time_server_{ 0 };
         std::list<transaction_operation_failed> errors_;
         // commit needs to access the hooks
         friend class staged_mutation_queue;
@@ -63,6 +62,24 @@ namespace transactions
         V cache_error(std::function<V()> func);
 
         void existing_error();
+
+        template<typename... Args>
+        void trace(const std::string& fmt, Args... args)
+        {
+            txn_log->trace(attempt_format_string + fmt, this->transaction_id(), this->id(), args...);
+        }
+
+        template<typename... Args>
+        void info(const std::string& fmt, Args... args)
+        {
+            txn_log->info(attempt_format_string + fmt, this->transaction_id(), this->id(), args...);
+        }
+
+        template<typename... Args>
+        void error(const std::string& fmt, Args... args)
+        {
+            txn_log->error(attempt_format_string + fmt, this->transaction_id(), this->id(), args...);
+        }
 
       public:
         attempt_context_impl(transactions* parent, transaction_context& transaction_ctx, const transaction_config& config);

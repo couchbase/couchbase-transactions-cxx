@@ -58,4 +58,21 @@ OStream& operator<<(OStream& os, const lcb_st* lcb)
     return os;
 }
 
+namespace couchbase {
+/**
+ * @brief logging levels
+ */
+enum class log_levels {TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL, OFF};
 
+/**
+ * @brief set log level for client
+ */
+void set_client_log_level(log_levels level);
+
+namespace transactions {
+    /**
+     * @brief set log level for transactions
+     */
+    void set_transactions_log_level(log_levels level);
+    } // transactions
+} // couchbase

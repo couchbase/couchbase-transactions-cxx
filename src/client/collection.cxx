@@ -1,8 +1,9 @@
 #include <cassert>
-#include <spdlog/spdlog.h>
 #include <utility>
 
+#include "logging.hxx"
 #include "pool.hxx"
+
 #include <couchbase/client/bucket.hxx>
 #include <couchbase/client/collection.hxx>
 #include <couchbase/client/lookup_in_spec.hxx>
@@ -23,7 +24,7 @@ store_callback(lcb_INSTANCE*, int, const lcb_RESPSTORE* resp)
     size_t ndata = 0;
     lcb_respstore_key(resp, &data, &ndata);
     res->key = std::move(std::string(data, ndata));
-    spdlog::trace("store_callback returning {}", *res);
+    cb::client_log->trace("store_callback returning {}", *res);
 }
 
 static void
@@ -44,7 +45,7 @@ get_callback(lcb_INSTANCE* lcb, int, const lcb_RESPGET* resp)
         lcb_respget_value(resp, &data, &ndata);
         res->value.emplace(nlohmann::json::parse(data, data + ndata));
     }
-    spdlog::trace("{}: get_callback returning {}", (void*)lcb, *res);
+    cb::client_log->trace("{}: get_callback returning {}", (void*)lcb, *res);
 }
 
 static void
@@ -63,7 +64,7 @@ exists_callback(lcb_INSTANCE* lcb, int, const lcb_RESPEXISTS* resp)
     } else {
         res->value.emplace(false);
     }
-    spdlog::trace("{}: exists_callback returning {}", (void*)lcb, *res);
+    cb::client_log->trace("{}: exists_callback returning {}", (void*)lcb, *res);
 }
 
 static void
@@ -77,7 +78,7 @@ remove_callback(lcb_INSTANCE*, int, const lcb_RESPREMOVE* resp)
     size_t ndata = 0;
     lcb_respremove_key(resp, &data, &ndata);
     res->key = std::move(std::string(data, ndata));
-    spdlog::trace("remove_callback returning {}", *res);
+    cb::client_log->trace("remove_callback returning {}", *res);
 }
 
 static void
@@ -215,7 +216,7 @@ couchbase::collection::wrap_call_for_retry(std::function<result(void)> fn)
         if (res.is_success() || (res.rc != LCB_ERR_KVENGINE_INVALID_PACKET && res.rc != LCB_ERR_KVENGINE_UNKNOWN_ERROR)) {
             return res;
         }
-        spdlog::trace("got {}, retrying #{} of 10 (CCBC-1300)", res, retries);
+        cb::client_log->trace("got {}, retrying #{} of 10 (CCBC-1300)", res, retries);
         retries++;
         if (retries < 10) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -380,7 +381,7 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
                 res.rc = LCB_ERR_CAS_MISMATCH;
             }
             res.ignore_subdoc_errors = false;
-            spdlog::trace("mutate_in returning {}", res);
+            cb::client_log->trace("mutate_in returning {}", res);
             return res;
         });
     });
@@ -422,7 +423,7 @@ couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_sp
             }
             lcb_wait(lcb, LCB_WAIT_DEFAULT);
             res.ignore_subdoc_errors = true;
-            spdlog::trace("lookup_in returning {}", res);
+            cb::client_log->trace("lookup_in returning {}", res);
             return res;
         });
     });

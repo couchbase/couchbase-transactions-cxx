@@ -14,29 +14,28 @@
  *   limitations under the License.
  */
 #pragma once
-#include "attempt_context_impl.hxx"
+#include <couchbase/support.hxx>
 #include <spdlog/fmt/ostr.h>
+#include <spdlog/sinks/stdout_sinks.h>
 #include <spdlog/spdlog.h>
 
-static const std::string format_string("[{}/{}]:");
+#define TXN_LOG "transactions"
+#define ATTEMPT_CLEANUP_LOG "attempt_cleanup"
+#define LOST_ATTEMPT_CLEANUP_LOG "lost_attempt_cleanup"
 
-template<typename... Args>
-void
-trace(couchbase::transactions::attempt_context_impl& ctx, const std::string& fmt, Args... args)
+namespace couchbase
 {
-    spdlog::trace(format_string + fmt, ctx.transaction_id(), ctx.id(), args...);
-}
+namespace transactions
+{
+    static const std::string attempt_format_string("[{}/{}]:");
 
-template<typename... Args>
-void
-info(couchbase::transactions::attempt_context_impl& ctx, const std::string& fmt, Args... args)
-{
-    spdlog::info(format_string + fmt, ctx.transaction_id(), ctx.id(), args...);
-}
+    static std::shared_ptr<spdlog::logger> txn_log = spdlog::get(TXN_LOG) ? spdlog::get(TXN_LOG) : spdlog::stdout_logger_mt(TXN_LOG);
 
-template<typename... Args>
-void
-error(couchbase::transactions::attempt_context_impl& ctx, const std::string& fmt, Args... args)
-{
-    spdlog::error(format_string + fmt, ctx.transaction_id(), ctx.id(), args...);
-}
+    static std::shared_ptr<spdlog::logger> attempt_cleanup_log =
+      spdlog::get(ATTEMPT_CLEANUP_LOG) ? spdlog::get(ATTEMPT_CLEANUP_LOG) : spdlog::stdout_logger_mt(ATTEMPT_CLEANUP_LOG);
+
+    static std::shared_ptr<spdlog::logger> lost_attempts_cleanup_log =
+      spdlog::get(LOST_ATTEMPT_CLEANUP_LOG) ? spdlog::get(LOST_ATTEMPT_CLEANUP_LOG) : spdlog::stdout_logger_mt(LOST_ATTEMPT_CLEANUP_LOG);
+
+} // namespace transactions
+} // namespace couchbase

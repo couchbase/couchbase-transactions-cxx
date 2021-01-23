@@ -15,14 +15,15 @@
  */
 #pragma once
 
+#include <atomic>
 #include <boost/optional.hpp>
-#include <spdlog/spdlog.h>
-#include <couchbase/support.hxx>
 #include <condition_variable>
+#include <couchbase/client/cluster.hxx>
 #include <functional>
 #include <list>
 #include <thread>
-#include <atomic>
+
+#include "logging.hxx"
 
 namespace couchbase
 {
@@ -95,7 +96,7 @@ class Pool
                 destroy_fn_(p.second);
             } else {
                 event_fn_(PoolEvent::destroy_not_available, p.second);
-                spdlog::trace("cannot destroy {}, not available!", p.second);
+                client_log->trace("cannot destroy {}, not available!", p.second);
             }
         }
         pool_.clear();
@@ -133,7 +134,7 @@ class Pool
         std::unique_lock<std::mutex> lock(mutex_);
         auto it = std::find_if(pool_.begin(), pool_.end(), [&](const pair_t& p) { return t == p.second; });
         if (it == pool_.end()) {
-            spdlog::error("releasing unknown {}", t);
+            client_log->error("releasing unknown {}", t);
             return;
         }
         it->first = true;
@@ -145,12 +146,12 @@ class Pool
     {
         std::unique_lock<std::mutex> lock(mutex_);
         if (pool_.size() >= max_size_) {
-            spdlog::warn("cannot add {}, pool full");
+            client_log->warn("cannot add {}, pool full");
             return false;
         }
         auto it = std::find_if(pool_.begin(), pool_.end(), [&](const pair_t& p) { return t == p.second; });
         if (it != pool_.end()) {
-            spdlog::warn("trying to add {}, which is already present", t);
+            client_log->warn("trying to add {}, which is already present", t);
             return true;
         }
         pool_.emplace_back(available, std::move(t));
@@ -166,11 +167,11 @@ class Pool
         std::unique_lock<std::mutex> lock(mutex_);
         auto it = std::find_if(pool_.begin(), pool_.end(), [&](const pair_t& p) { return t == p.second; });
         if (it == pool_.end()) {
-            spdlog::error("trying to remove unknown {}", t);
+            client_log->error("trying to remove unknown {}", t);
             return false;
         }
         if (it->first) {
-            spdlog::warn("trying to remove {} which is still available, probably a bug", t);
+            client_log->warn("trying to remove {} which is still available, probably a bug", t);
         } else {
             // if it was unavailable, increment available
             ++available_;
@@ -193,7 +194,7 @@ class Pool
         // other_pool
         T* found = get_internal();
         if (nullptr == found) {
-            spdlog::trace("nothing available in this pool");
+            client_log->trace("nothing available in this pool");
             return false;
         }
         {
@@ -217,7 +218,7 @@ class Pool
                 return true;
             }
         }
-        spdlog::trace("other pool is full, cannot insert {}", *found);
+        client_log->trace("other pool is full, cannot insert {}", *found);
         release(*found);
         return false;
     }

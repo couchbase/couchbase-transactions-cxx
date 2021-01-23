@@ -26,13 +26,13 @@ namespace transactions
         auto expired_millis = std::chrono::duration_cast<std::chrono::milliseconds>(expired_nanos);
         bool is_expired = expired_nanos > config.expiration_time();
         if (is_expired) {
-            spdlog::info("has expired client side (now={}ns, start={}ns, deferred_elapsed={}ns, expired={}ns ({}ms), config={}ms)",
-                         now.time_since_epoch().count(),
-                         start_time_client_.time_since_epoch().count(),
-                         deferred_elapsed_.count(),
-                         expired_nanos.count(),
-                         expired_millis.count(),
-                         std::chrono::duration_cast<std::chrono::milliseconds>(config.expiration_time()).count());
+            txn_log->info("has expired client side (now={}ns, start={}ns, deferred_elapsed={}ns, expired={}ns ({}ms), config={}ms)",
+                          now.time_since_epoch().count(),
+                          start_time_client_.time_since_epoch().count(),
+                          deferred_elapsed_.count(),
+                          expired_nanos.count(),
+                          expired_millis.count(),
+                          std::chrono::duration_cast<std::chrono::milliseconds>(config.expiration_time()).count());
         }
         return is_expired;
     }
@@ -42,7 +42,7 @@ namespace transactions
         // when we retry an operation, we typically call that function recursively.  So, we need to
         // limit total number of times we do it.  Later we can be more sophisticated perhaps.
         auto delay = config.expiration_time() / 100; // the 100 is arbitrary
-        spdlog::trace("about to sleep for {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(delay).count());
+        txn_log->trace("about to sleep for {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(delay).count());
         std::this_thread::sleep_for(delay);
     }
 

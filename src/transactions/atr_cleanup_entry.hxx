@@ -27,6 +27,8 @@
 #include <thread>
 #include <mutex>
 
+#include "logging.hxx"
+
 namespace couchbase
 {
 namespace transactions
@@ -67,16 +69,17 @@ namespace transactions
 
         friend class compare_atr_entries;
 
-        void check_atr_and_cleanup(transactions_cleanup_attempt* result);
-        void cleanup_docs();
-        void cleanup_entry();
-        void commit_docs(boost::optional<std::vector<doc_record>> docs);
-        void remove_docs(boost::optional<std::vector<doc_record>> docs);
-        void remove_docs_staged_for_removal(boost::optional<std::vector<doc_record>> docs);
-        void remove_txn_links(boost::optional<std::vector<doc_record>> docs);
-        void do_per_doc(std::vector<doc_record> docs,
+        void check_atr_and_cleanup(std::shared_ptr<spdlog::logger> logger, transactions_cleanup_attempt* result);
+        void cleanup_docs(std::shared_ptr<spdlog::logger> logger);
+        void cleanup_entry(std::shared_ptr<spdlog::logger> logger);
+        void commit_docs(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<doc_record>> docs);
+        void remove_docs(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<doc_record>> docs);
+        void remove_docs_staged_for_removal(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<doc_record>> docs);
+        void remove_txn_links(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<doc_record>> docs);
+        void do_per_doc(std::shared_ptr<spdlog::logger> logger,
+                        std::vector<doc_record> docs,
                         bool require_crc_to_match,
-                        const std::function<void(transaction_document&, bool)>& call);
+                        const std::function<void(std::shared_ptr<spdlog::logger>, transaction_document&, bool)>& call);
 
       public:
         explicit atr_cleanup_entry(attempt_context& ctx);
@@ -90,7 +93,7 @@ namespace transactions
                                    std::shared_ptr<couchbase::collection> atr_collection,
                                    const transactions_cleanup& cleanup);
 
-        void clean(transactions_cleanup_attempt* result = nullptr);
+        void clean(std::shared_ptr<spdlog::logger> logger, transactions_cleanup_attempt* result = nullptr);
         bool ready() const;
 
         template<typename OStream>

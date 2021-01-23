@@ -262,6 +262,20 @@ TEST_F(SimpleClientCollectionTests, CanReplace)
     ASSERT_FALSE(res.is_deleted);
 }
 
+TEST_F(SimpleClientCollectionTests, CanReplaceFailCASMismatch)
+{
+    // Of course, this depends on being able to upsert and get.
+    auto cas = _coll->get(_id).cas;
+    auto new_content = nlohmann::json::parse("{\"some\":\"thing else\"}");
+    auto res = _coll->replace(_id, new_content, replace_options().cas(100));
+    ASSERT_FALSE(res.is_success());
+    res = _coll->get(_id);
+    ASSERT_TRUE(res.is_success());
+    ASSERT_EQ(res.cas, cas);
+    ASSERT_EQ(res.value->get<nlohmann::json>(), content);
+    ASSERT_FALSE(res.is_deleted);
+}
+
 TEST_F(SimpleClientCollectionTests, CanLookupIn)
 {
     // also depends on upsert

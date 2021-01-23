@@ -4,11 +4,10 @@
 #include <couchbase/support.hxx>
 #include <libcouchbase/couchbase.h>
 #include <memory>
-#include <spdlog/fmt/ostr.h>
-#include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <utility>
 
+#include "logging.hxx"
 #include "pool.hxx"
 
 namespace cb = couchbase;
@@ -36,7 +35,7 @@ shutdown(lcb_st* lcb)
     if (lcb == nullptr) {
         return;
     }
-    spdlog::trace("destroying instance {}", (void*)lcb);
+    cb::client_log->trace("destroying instance {}", (void*)lcb);
     lcb_destroy(lcb);
 }
 
@@ -72,7 +71,7 @@ connect(const std::string& cluster_address, const std::string& user_name, const 
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to connect (wait) libcouchbase instance: ") + lcb_strerror_short(rc));
     }
-    spdlog::trace("cluster connection successful, returning {}", (void*)lcb);
+    cb::client_log->trace("cluster connection successful, returning {}", (void*)lcb);
     return lcb;
 }
 
@@ -89,7 +88,7 @@ cb::cluster::cluster(std::string cluster_address,
 {
     instance_pool_ = std::unique_ptr<Pool<lcb_st*>>(
       new Pool<lcb_st*>(opts.max_instances(), [&] { return connect(cluster_address_, user_name_, password_); }, shutdown));
-    spdlog::info("couchbase client library {} attempting to connect to {}", VERSION_STR, cluster_address_);
+    cb::client_log->info("couchbase client library {} attempting to connect to {}", VERSION_STR, cluster_address_);
 
     if (nullptr != event_counter_) {
         instance_pool_->set_event_handler([&](PoolEvent e, lcb_st* const t) { event_counter_->cluster_counter.handler(e, t); });
@@ -107,7 +106,7 @@ cb::cluster::cluster(const cluster& cluster)
   , max_bucket_instances_(cluster.max_bucket_instances_)
 {
     instance_pool_ = cluster.instance_pool_->clone(max_bucket_instances_);
-    spdlog::info("couchbase client library {} attempting to connect to {}", VERSION_STR, cluster_address_);
+    cb::client_log->info("couchbase client library {} attempting to connect to {}", VERSION_STR, cluster_address_);
     instance_pool_->release(instance_pool_->get());
 }
 
@@ -119,25 +118,21 @@ cb::cluster::operator==(const cluster& other) const
 
 cb::cluster::~cluster()
 {
-    spdlog::trace("shutting down cluster");
+    cb::client_log->trace("shutting down cluster");
+    open_buckets_.clear();
 }
 
 std::shared_ptr<cb::bucket>
 cb::cluster::bucket(const std::string& name)
 {
     std::unique_lock<std::mutex> lock(mutex_);
-    spdlog::trace("open buckets before:");
-    for (auto& b : open_buckets_) {
-        spdlog::trace("{}", *b);
-    }
     auto it =
       std::find_if(open_buckets_.begin(), open_buckets_.end(), [&](const std::shared_ptr<cb::bucket>& b) { return b->name() == name; });
     if (it != open_buckets_.end()) {
-        spdlog::trace("second look found {} already opened, returning", name);
         return *it;
     } else {
         // clone the pool, add lcb to it
-        spdlog::trace("will create bucket {} now...", name);
+        cb::client_log->trace("cloning pool, will create bucket {} now...", name);
         auto bucket_pool = instance_pool_->clone(max_bucket_instances_);
         if (event_counter_) {
             auto& ev = event_counter_->bucket(name);
@@ -147,10 +142,6 @@ cb::cluster::bucket(const std::string& name)
         // create the bucket, push into the bucket list...
         auto b = std::shared_ptr<cb::bucket>(new cb::bucket(bucket_pool, name));
         open_buckets_.push_back(b);
-        spdlog::trace("open buckets after :");
-        for (auto& b : open_buckets_) {
-            spdlog::trace("{}", *b);
-        }
         return b;
     }
 }

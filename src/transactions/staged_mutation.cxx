@@ -1,6 +1,5 @@
 #include "staged_mutation.hxx"
 #include "attempt_context_impl.hxx"
-#include "logging.hxx"
 #include "transaction_fields.hxx"
 #include "utils.hxx"
 #include <couchbase/client/result.hxx>
@@ -140,7 +139,7 @@ void
 tx::staged_mutation_queue::rollback_insert(attempt_context_impl& ctx, staged_mutation& item)
 {
     try {
-        trace(ctx, "rolling back staged insert for {} with cas {}", item.doc().id(), item.doc().cas());
+        ctx.trace("rolling back staged insert for {} with cas {}", item.doc().id(), item.doc().cas());
         ctx.error_if_expired_and_not_in_overtime(STAGE_DELETE_INSERTED, item.doc().id());
         ctx.hooks_.before_rollback_delete_inserted(&ctx, item.doc().id());
         std::vector<mutate_in_spec> specs({ mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() });
@@ -149,12 +148,12 @@ tx::staged_mutation_queue::rollback_insert(attempt_context_impl& ctx, staged_mut
             r =
               item.doc().collection_ref().mutate_in(item.doc().id(), specs, mutate_in_options().access_deleted(true).cas(item.doc().cas()));
         });
-        trace(ctx, "rollback result {}", res);
+        ctx.trace("rollback result {}", res);
         ctx.hooks_.after_rollback_delete_inserted(&ctx, item.doc().id());
     } catch (const client_error& e) {
         auto ec = e.ec();
         if (ctx.expiry_overtime_mode_) {
-            trace(ctx, "rollback_insert for {} error while in overtime mode {}", item.doc().id(), e.what());
+            ctx.trace("rollback_insert for {} error while in overtime mode {}", item.doc().id(), e.what());
             throw transaction_operation_failed(FAIL_EXPIRY, std::string("expired while rolling back insert with {} ") + e.what())
               .no_rollback()
               .expired();
@@ -165,7 +164,7 @@ tx::staged_mutation_queue::rollback_insert(attempt_context_impl& ctx, staged_mut
                 throw transaction_operation_failed(ec, e.what()).no_rollback();
             case FAIL_EXPIRY:
                 ctx.expiry_overtime_mode_ = true;
-                trace(ctx, "rollback_insert in expiry overtime mode, retrying...");
+                ctx.trace("rollback_insert in expiry overtime mode, retrying...");
                 throw retry_operation("retry rollback_insert");
             case FAIL_DOC_NOT_FOUND:
             case FAIL_PATH_NOT_FOUND:
@@ -181,7 +180,7 @@ void
 tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx, staged_mutation& item)
 {
     try {
-        trace(ctx, "rolling back staged remove/replace for {} with cas {}", item.doc().id(), item.doc().cas());
+        ctx.trace("rolling back staged remove/replace for {} with cas {}", item.doc().id(), item.doc().cas());
         ctx.error_if_expired_and_not_in_overtime(STAGE_ROLLBACK_DOC, item.doc().id());
         ctx.hooks_.before_doc_rolled_back(&ctx, item.doc().id());
         std::vector<mutate_in_spec> specs({ mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() });
@@ -189,7 +188,7 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx,
         tx::wrap_collection_call(res, [&](result& r) {
             r = item.doc().collection_ref().mutate_in(item.doc().id(), specs, mutate_in_options().cas(item.doc().cas()));
         });
-        trace(ctx, "rollback result {}", res);
+        ctx.trace("rollback result {}", res);
         ctx.hooks_.after_rollback_replace_or_remove(&ctx, item.doc().id());
 
     } catch (const client_error& e) {
@@ -216,30 +215,32 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx,
 void
 tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation& item, bool ambiguity_resolution_mode, bool cas_zero_mode)
 {
-    trace(ctx, "commit doc {}, cas_zero_mode {}, ambiguity_resolution_mode {}", item.doc().id(), cas_zero_mode, ambiguity_resolution_mode);
+    ctx.trace("commit doc {}, cas_zero_mode {}, ambiguity_resolution_mode {}", item.doc().id(), cas_zero_mode, ambiguity_resolution_mode);
     try {
         ctx.check_expiry_during_commit_or_rollback(STAGE_COMMIT_DOC, boost::optional<const std::string>(item.doc().id()));
         ctx.hooks_.before_doc_committed(&ctx, item.doc().id());
 
         // move staged content into doc
-        trace(ctx, "commit doc id {}, content {}, cas {}", item.doc().id(), item.content<nlohmann::json>().dump(), item.doc().cas());
+        ctx.trace("commit doc id {}, content {}, cas {}", item.doc().id(), item.content<nlohmann::json>().dump(), item.doc().cas());
         result res;
         if (item.type() == staged_mutation_type::INSERT && !cas_zero_mode) {
             tx::wrap_collection_call(
               res, [&](result& r) { r = item.doc().collection_ref().insert(item.doc().id(), item.doc().content<nlohmann::json>()); });
         } else {
             tx::wrap_collection_call(res, [&](result& r) {
-                r = item.doc().collection_ref().mutate_in(
-                  item.doc().id(),
-                  {
-                    mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
-                    mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
-                    mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
-                  },
-                  mutate_in_options().cas(cas_zero_mode ? 0 : item.doc().cas()).store_semantics(subdoc_store_semantics::replace));
+                r = item.doc().collection_ref().mutate_in(item.doc().id(),
+                                                          {
+                                                            mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
+                                                            mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
+                                                            mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
+                                                          },
+                                                          mutate_in_options()
+                                                            .cas(cas_zero_mode ? 0 : item.doc().cas())
+                                                            .store_semantics(subdoc_store_semantics::replace)
+                                                            .durability(attempt_context_impl::durability(ctx.config_)));
             });
         }
-        trace(ctx, "commit doc result {}", res);
+        ctx.trace("commit doc result {}", res);
         // TODO: mutation tokens
         ctx.hooks_.after_doc_committed_before_saving_cas(&ctx, item.doc().id());
         item.doc().cas(res.cas);

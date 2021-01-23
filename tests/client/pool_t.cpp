@@ -1,8 +1,8 @@
 #include "../../src/client/pool.hxx"
+#include "client_env.h"
 #include <atomic>
 #include <boost/optional.hpp>
 #include <gtest/gtest.h>
-#include <spdlog/spdlog.h>
 
 using namespace couchbase;
 
@@ -60,7 +60,7 @@ TEST(PoolTests, GetWillWait)
     // ok, now release one so the thread can run
     pool->release(i);
     if (thr.joinable()) {
-        spdlog::trace("joining...");
+        client_log->trace("joining...");
         thr.join();
     }
     ASSERT_EQ(i, thr_get.load());

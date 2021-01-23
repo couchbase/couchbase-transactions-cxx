@@ -16,13 +16,12 @@
 #pragma once
 
 #include "exceptions_internal.hxx"
+#include "logging.hxx"
 #include <boost/algorithm/string.hpp>
 #include <boost/optional.hpp>
 #include <chrono>
 #include <couchbase/internal/nlohmann/json.hpp>
 #include <list>
-#include <spdlog/fmt/ostr.h>
-#include <spdlog/spdlog.h>
 #include <string>
 #include <vector>
 
@@ -190,12 +189,12 @@ namespace transactions
                     auto behavior = b->check(supported);
                     switch (behavior.behavior) {
                         case forward_compat_behavior::FAIL_FAST_TXN:
-                            spdlog::trace("forward compatiblity FAIL_FAST_TXN");
+                            txn_log->trace("forward compatiblity FAIL_FAST_TXN");
                             throw ex;
                         case forward_compat_behavior::RETRY_TXN:
-                            spdlog::trace("forward compatibility RETRY_TXN");
+                            txn_log->trace("forward compatibility RETRY_TXN");
                             if (behavior.retry_delay) {
-                                spdlog::trace("delay {}ms before retrying", behavior.retry_delay->count());
+                                txn_log->trace("delay {}ms before retrying", behavior.retry_delay->count());
                                 std::this_thread::sleep_for(*behavior.retry_delay);
                             }
                             throw ex.retry();
@@ -210,7 +209,7 @@ namespace transactions
         forward_compat(nlohmann::json& json)
           : json_(json)
         {
-            spdlog::trace("creating forward_compat from {}", json_.dump());
+            txn_log->trace("creating forward_compat from {}", json_.dump());
             // parse it into the map
             for (auto& element : json.items()) {
                 auto stage = create_forward_compat_stage(element.key());

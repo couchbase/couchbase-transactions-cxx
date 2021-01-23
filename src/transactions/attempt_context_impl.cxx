@@ -58,7 +58,7 @@ namespace transactions
     {
         // put a new transaction_attempt in the context...
         overall_.add_attempt();
-        trace(*this, "added new attempt, state {}", state());
+        trace("added new attempt, state {}", state());
     }
 
     attempt_context_impl::~attempt_context_impl() = default;
@@ -71,15 +71,14 @@ namespace transactions
             // Check not just writing the same doc twice in the same transaction
             // NOTE: we check the transaction rather than attempt id. This is to handle [RETRY-ERR-AMBIG-REPLACE].
             if (doc.links().staged_transaction_id().value() == transaction_id()) {
-                info(*this, "doc {} has been written by this transaction, ok to continue", doc.id());
+                info("doc {} has been written by this transaction, ok to continue", doc.id());
             } else {
                 if (doc.links().atr_id() && doc.links().atr_bucket_name() && doc.links().staged_attempt_id()) {
-                    info(*this, "doc {} in another txn, checking atr...", doc.id());
+                    info("doc {} in another txn, checking atr...", doc.id());
                     forward_compat::check(stage, doc.links().forward_compat());
                     check_atr_entry_for_blocking_document(doc);
                 } else {
-                    info(*this,
-                         "doc {} is in another transaction {}, but doesn't have enough info to check the atr. "
+                    info("doc {} is in another transaction {}, but doesn't have enough info to check the atr. "
                          "probably a bug, proceeding to overwrite",
                          doc.id(),
                          doc.links().staged_attempt_id().get());
@@ -93,10 +92,10 @@ namespace transactions
         return cache_error<transaction_document>([&]() {
             auto result = get_optional(collection, id);
             if (result) {
-                trace(*this, "get returning {}", *result);
+                trace("get returning {}", *result);
                 return result.get();
             }
-            error(*this, "Document with id {} not found", id);
+            error("Document with id {} not found", id);
             throw transaction_operation_failed(FAIL_DOC_NOT_FOUND, "Document not found");
         });
     }
@@ -121,7 +120,7 @@ namespace transactions
         return retry_op<transaction_document>([&]() -> transaction_document {
             return cache_error<transaction_document>([&]() {
                 try {
-                    trace(*this, "replacing {} with {}", document, content.dump());
+                    trace("replacing {} with {}", document, content.dump());
                     check_if_done();
                     check_expiry_pre_commit(STAGE_REPLACE, document.id());
                     select_atr_if_needed(collection, document.id());
@@ -159,7 +158,7 @@ namespace transactions
 
                     couchbase::result res;
                     hooks_.before_staged_replace(this, document.id());
-                    trace(*this, "about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
+                    trace("about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
                     wrap_collection_call(res, [&](couchbase::result& r) {
                         r = collection->mutate_in(document.id(),
                                                   specs,
@@ -171,16 +170,16 @@ namespace transactions
                     hooks_.after_staged_replace_complete(this, document.id());
                     transaction_document out = document;
                     out.cas(res.cas);
-                    trace(*this, "replace staged content, result {}", res);
+                    trace("replace staged content, result {}", res);
                     staged_mutation* existing_replace = staged_mutations_->find_replace(collection, document.id());
                     staged_mutation* existing_insert = staged_mutations_->find_insert(collection, document.id());
                     if (existing_replace != nullptr) {
-                        trace(*this, "document {} was replaced already in txn, replacing again", document.id());
+                        trace("document {} was replaced already in txn, replacing again", document.id());
                         // only thing that we need to change are the content, cas
                         existing_replace->content(content);
                         existing_replace->doc().cas(out.cas());
                     } else if (existing_insert != nullptr) {
-                        trace(*this, "document {} replaced after insert in this txn", document.id());
+                        trace("document {} replaced after insert in this txn", document.id());
                         // only thing that we need to change are the content, cas
                         existing_insert->doc().content(content);
                         existing_insert->doc().cas(out.cas());
@@ -270,7 +269,7 @@ namespace transactions
             overall_.atr_collection(collection->name());
             overall_.atr_id(*atr_id_);
             state(attempt_state::NOT_STARTED);
-            info(*this, "first mutated doc in transaction is \"{}\" on vbucket {}, so using atr \"{}\"", id, vbucket_id, atr_id_.value());
+            info("first mutated doc in transaction is \"{}\" on vbucket {}, so using atr \"{}\"", id, vbucket_id, atr_id_.value());
         }
     }
 
@@ -291,21 +290,21 @@ namespace transactions
                     if (it != entries.end()) {
                         forward_compat::check(forward_compat_stage::WWC_READING_ATR, it->forward_compat());
                         if (it->has_expired()) {
-                            trace(*this, "existing atr entry has expired (age is {}ms), ignoring", it->age_ms());
+                            trace("existing atr entry has expired (age is {}ms), ignoring", it->age_ms());
                             return;
                         }
                         switch (it->state()) {
                             case attempt_state::COMPLETED:
                             case attempt_state::ROLLED_BACK:
-                                trace(*this, "existing atr entry can be ignored due to state {}", it->state());
+                                trace("existing atr entry can be ignored due to state {}", it->state());
                                 return;
                             default:
-                                trace(*this, "existing atr entry found in state {}, retrying in 100ms", it->state());
+                                trace("existing atr entry found in state {}, retrying in 100ms", it->state());
                         }
                         // TODO  this (and other retries) probably need a clever class, exponential backoff, etc...
                         std::this_thread::sleep_for(std::chrono::milliseconds(50 * retries));
                     } else {
-                        trace(*this, "no blocking atr entry");
+                        trace("no blocking atr entry");
                         return;
                     }
                 }
@@ -324,17 +323,17 @@ namespace transactions
                 check_if_done();
                 check_expiry_pre_commit(STAGE_REMOVE, document.id());
                 if (staged_mutations_->find_insert(collection, document.id())) {
-                    error(*this, "cannot remove document {}, as it was inserted in this transaction", document.id());
+                    error("cannot remove document {}, as it was inserted in this transaction", document.id());
                     throw transaction_operation_failed(FAIL_OTHER, "Cannot remove a document inserted in the same transaction");
                 }
-                trace(*this, "removing {}", document);
+                trace("removing {}", document);
                 check_and_handle_blocking_transactions(document, forward_compat_stage::WWC_REMOVING);
                 select_atr_if_needed(collection, document.id());
 
                 set_atr_pending_if_first_mutation(collection);
 
                 hooks_.before_staged_remove(this, document.id());
-                info(*this, "about to remove remove doc {} with cas {}", document.id(), document.cas());
+                info("about to remove remove doc {} with cas {}", document.id(), document.cas());
                 std::vector<mutate_in_spec> specs = {
                     mutate_in_spec::upsert(TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
                     mutate_in_spec::upsert(ATTEMPT_ID, id()).create_path().xattr(),
@@ -366,7 +365,7 @@ namespace transactions
                                                 .access_deleted(document.links().is_deleted())
                                                 .cas(document.cas()));
                 });
-                info(*this, "removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
+                info("removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
                 hooks_.after_staged_remove_complete(this, document.id());
                 document.cas(res.cas);
                 staged_mutations_->add(staged_mutation(document, "", staged_mutation_type::REMOVE));
@@ -416,11 +415,11 @@ namespace transactions
                     expiry_overtime_mode_ = true;
                     throw transaction_operation_failed(ec, e.what()).expired();
                 case FAIL_AMBIGUOUS:
-                    trace(*this, "atr_commit got FAIL_AMBIGUOUS, resolving ambiguity...");
+                    trace("atr_commit got FAIL_AMBIGUOUS, resolving ambiguity...");
                     try {
                         return retry_op<void>([&]() { return atr_commit_ambiguity_resolution(); });
                     } catch (const retry_atr_commit& e) {
-                        trace(*this, "ambiguity resolution will retry atr_commit");
+                        trace("ambiguity resolution will retry atr_commit");
                         throw retry_operation(e.what());
                     }
                 case FAIL_TRANSIENT:
@@ -428,7 +427,7 @@ namespace transactions
                 case FAIL_HARD:
                     throw transaction_operation_failed(ec, e.what()).no_rollback();
                 default:
-                    error(*this, "failed to commit transaction {}, attempt {}, with error {}", transaction_id(), id(), e.what());
+                    error("failed to commit transaction {}, attempt {}, with error {}", transaction_id(), id(), e.what());
                     throw transaction_operation_failed(ec, e.what());
             }
         }
@@ -487,7 +486,7 @@ namespace transactions
               mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
             });
             wrap_collection_call(atr_res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
-            trace(*this, "setting attempt state COMPLETED for attempt {}", atr_id_.value());
+            trace("setting attempt state COMPLETED for attempt {}", atr_id_.value());
             hooks_.after_atr_complete(this);
             state(attempt_state::COMPLETED);
         } catch (const client_error& er) {
@@ -496,14 +495,14 @@ namespace transactions
                 case FAIL_HARD:
                     throw transaction_operation_failed(ec, er.what()).no_rollback().failed_post_commit();
                 default:
-                    info(*this, "ignoring error in atr_complete {}", er.what());
+                    info("ignoring error in atr_complete {}", er.what());
             }
         }
     }
 
     void attempt_context_impl::commit()
     {
-        info(*this, "commit {}", id());
+        info("commit {}", id());
         existing_error();
         try {
             check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {});
@@ -524,7 +523,7 @@ namespace transactions
         } else {
             // no mutation, no need to commit
             if (!is_done_) {
-                info(*this, "calling commit on attempt that has got no mutations, skipping");
+                info("calling commit on attempt that has got no mutations, skipping");
                 is_done_ = true;
                 return;
             } else {
@@ -549,16 +548,16 @@ namespace transactions
             wrap_collection_call(res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
             state(attempt_state::ABORTED);
             hooks_.after_atr_aborted(this);
-            trace(*this, "rollback completed atr abort phase");
+            trace("rollback completed atr abort phase");
         } catch (const client_error& e) {
             auto ec = e.ec();
             if (expiry_overtime_mode_) {
-                trace(*this, "atr_abort got error {} while in overtime mode", e.what());
+                trace("atr_abort got error {} while in overtime mode", e.what());
                 throw transaction_operation_failed(FAIL_EXPIRY, std::string("expired in atr_abort with {} ") + e.what())
                   .no_rollback()
                   .expired();
             }
-            trace(*this, "atr_abort got error {}", ec);
+            trace("atr_abort got error {}", ec);
             switch (ec) {
                 case FAIL_EXPIRY:
                     expiry_overtime_mode_ = true;
@@ -596,25 +595,26 @@ namespace transactions
         } catch (const client_error& e) {
             auto ec = e.ec();
             if (expiry_overtime_mode_) {
-                trace(*this, "atr_rolback_complete error while in overtime mode {}", e.what());
+                trace("atr_rolback_complete error while in overtime mode {}", e.what());
                 throw transaction_operation_failed(FAIL_EXPIRY, std::string("expired in atr_rollback_complete with {} ") + e.what())
                   .no_rollback()
                   .expired();
             }
-            trace(*this, "atr_rollback_complete got error {}", ec);
+            trace("atr_rollback_complete got error {}", ec);
             switch (ec) {
                 case FAIL_DOC_NOT_FOUND:
-                    spdlog::trace("atr {} not found", atr_id_);
+                    trace("atr {} not found", atr_id_);
                 case FAIL_PATH_NOT_FOUND:
-                    spdlog::trace("atr entry {}  not found", id());
+                    trace("atr entry {}  not found", id());
                 case FAIL_ATR_FULL:
-                    spdlog::trace("atr {} full!", atr_id_);
+                    trace("atr {} full!", atr_id_);
                 case FAIL_HARD:
+                    trace("timed out writing atr {}", atr_id_);
                     throw transaction_operation_failed(ec, e.what()).no_rollback();
                 case FAIL_EXPIRY:
                     throw transaction_operation_failed(ec, e.what()).no_rollback().expired();
                 default:
-                    spdlog::trace("retrying operation");
+                    trace("retrying operation");
                     throw retry_operation(e.what());
             }
         }
@@ -622,19 +622,19 @@ namespace transactions
 
     void attempt_context_impl::rollback()
     {
-        info(*this, "rolling back");
+        info("rolling back");
         // check for expiry
         check_expiry_during_commit_or_rollback(STAGE_ROLLBACK, boost::none);
         if (!atr_id_ || !atr_collection_ || state() == attempt_state::NOT_STARTED) {
             // TODO: check this, but if we try to rollback an empty txn, we should
             // prevent a subsequent commit
-            trace(*this, "rollback called on txn with no mutations");
+            trace("rollback called on txn with no mutations");
             is_done_ = true;
             return;
         }
         if (is_done()) {
             std::string msg("Transaction already done, cannot rollback");
-            error(*this, msg);
+            error(msg);
             // need to raise a FAIL_OTHER which is not retryable or rollback-able
             throw transaction_operation_failed(FAIL_OTHER, msg).no_rollback();
         }
@@ -643,13 +643,13 @@ namespace transactions
             retry_op<void>([&] { atr_abort(); });
             // (2) rollback staged mutations
             staged_mutations_->rollback(*this);
-            trace(*this, "rollback completed unstaging docs");
+            trace("rollback completed unstaging docs");
 
             // (3) atr_rollback
             retry_op<void>([&] { atr_rollback_complete(); });
         } catch (const client_error& e) {
             error_class ec = e.ec();
-            error(*this, "rollback transaction {}, attempt {} fail with error {}", transaction_id(), id(), e.what());
+            error("rollback transaction {}, attempt {} fail with error {}", transaction_id(), id(), e.what());
             if (ec == FAIL_HARD) {
                 throw transaction_operation_failed(ec, e.what()).no_rollback();
             }
@@ -661,10 +661,10 @@ namespace transactions
         bool over = overall_.has_expired_client_side(config_);
         bool hook = hooks_.has_expired_client_side(this, place, doc_id);
         if (over) {
-            info(*this, "{} expired in {}", id(), place);
+            info("{} expired in {}", id(), place);
         }
         if (hook) {
-            info(*this, "{} fake expiry in {}", id(), place);
+            info("{} fake expiry in {}", id(), place);
         }
         return over || hook;
     }
@@ -672,7 +672,7 @@ namespace transactions
     void attempt_context_impl::check_expiry_pre_commit(std::string stage, boost::optional<const std::string> doc_id)
     {
         if (has_expired_client_side(stage, std::move(doc_id))) {
-            info(*this, "{} has expired in stage {}, entering expiry-overtime mode - will make one attempt to rollback", id(), stage);
+            info("{} has expired in stage {}, entering expiry-overtime mode - will make one attempt to rollback", id(), stage);
 
             // [EXP-ROLLBACK] Combo of setting this mode and throwing AttemptExpired will result in a attempt to rollback, which will
             // ignore expiries, and bail out if anything fails
@@ -684,11 +684,11 @@ namespace transactions
     void attempt_context_impl::error_if_expired_and_not_in_overtime(const std::string& stage, boost::optional<const std::string> doc_id)
     {
         if (expiry_overtime_mode_) {
-            trace(*this, "not doing expired check in {} as already in expiry-overtime", stage);
+            trace("not doing expired check in {} as already in expiry-overtime", stage);
             return;
         }
         if (has_expired_client_side(stage, std::move(doc_id))) {
-            trace(*this, "expired in {}", stage);
+            trace("expired in {}", stage);
             throw client_error(FAIL_EXPIRY, std::string("Expired in ") + stage);
         }
     }
@@ -698,11 +698,11 @@ namespace transactions
         // [EXP-COMMIT-OVERTIME]
         if (!expiry_overtime_mode_) {
             if (has_expired_client_side(stage, std::move(doc_id))) {
-                info(*this, "{} has expired in stage {}, entering expiry-overtime mode (one attempt to complete commit)", id(), stage);
+                info("{} has expired in stage {}, entering expiry-overtime mode (one attempt to complete commit)", id(), stage);
                 expiry_overtime_mode_ = true;
             }
         } else {
-            info(*this, "{} ignoring expiry in stage {}  as in expiry-overtime mode", id(), stage);
+            info("{} ignoring expiry in stage {}  as in expiry-overtime mode", id(), stage);
         }
     }
 
@@ -717,7 +717,7 @@ namespace transactions
             try {
                 error_if_expired_and_not_in_overtime(STAGE_ATR_PENDING, {});
                 hooks_.before_atr_pending(this);
-                info(*this, "updating atr {}", atr_id_.value());
+                info("updating atr {}", atr_id_.value());
                 wrap_collection_call(res, [&](result& r) {
                     r = atr_collection_->mutate_in(
 
@@ -730,8 +730,7 @@ namespace transactions
                           .xattr() },
                       mutate_in_options().durability(durability(config_)).store_semantics(couchbase::subdoc_store_semantics::upsert));
                 });
-                info(*this,
-                     "set ATR {}/{}/{} to Pending, got CAS (start time) {}",
+                info("set ATR {}/{}/{} to Pending, got CAS (start time) {}",
                      collection->bucket_name(),
                      collection->name(),
                      atr_id_.value(),
@@ -739,7 +738,7 @@ namespace transactions
                 hooks_.after_atr_pending(this);
                 state(attempt_state::PENDING);
             } catch (const client_error& e) {
-                trace(*this, "caught {}, ec={}", e.what(), e.ec());
+                trace("caught {}, ec={}", e.what(), e.ec());
                 if (expiry_overtime_mode_) {
                     throw transaction_operation_failed(FAIL_EXPIRY, e.what()).no_rollback().expired();
                 }
@@ -767,7 +766,6 @@ namespace transactions
                         throw transaction_operation_failed(ec, e.what());
                 }
             }
-            start_time_server_ = std::chrono::nanoseconds(res.cas);
         }
     }
 
@@ -800,13 +798,13 @@ namespace transactions
 
             staged_mutation* own_write = check_for_own_write(collection, id);
             if (own_write) {
-                info(*this, "found own-write of mutated doc {}", id);
+                info("found own-write of mutated doc {}", id);
                 return transaction_document::create_from(
                   own_write->doc(), own_write->content<const nlohmann::json&>(), transaction_document_status::OWN_WRITE);
             }
             staged_mutation* own_remove = staged_mutations_->find_remove(collection, id);
             if (own_remove) {
-                info(*this, "found own-write of removed doc {}", id);
+                info("found own-write of removed doc {}", id);
                 return {};
             }
 
@@ -819,7 +817,7 @@ namespace transactions
             auto doc = doc_res->first;
             auto get_doc_res = doc_res->second;
             if (doc.links().is_document_in_transaction()) {
-                trace(*this, "doc {} in transaction", doc);
+                trace("doc {} in transaction", doc);
                 boost::optional<active_transaction_record> atr =
                   active_transaction_record::get_atr(collection, doc.links().atr_id().value());
                 if (atr) {
@@ -886,7 +884,7 @@ namespace transactions
                 }
             } else {
                 if (get_doc_res.is_deleted) {
-                    trace(*this, "doc not in txn, and is_deleted, so not returning it.");
+                    trace("doc not in txn, and is_deleted, so not returning it.");
                     // doc has been deleted, not in txn, so don't return it
                     return {};
                 }
@@ -955,7 +953,7 @@ namespace transactions
     {
         try {
             hooks_.before_staged_insert(this, id);
-            info(*this, "about to insert staged doc {} with cas {}", id, cas);
+            info("about to insert staged doc {} with cas {}", id, cas);
             check_expiry_pre_commit(STAGE_CREATE_STAGED_INSERT, id);
             result res;
             wrap_collection_call(res, [&](result& r) {
@@ -973,7 +971,7 @@ namespace transactions
                   },
                   mutate_in_options().durability(durability(config_)).access_deleted(true).create_as_deleted(true).cas(cas));
             });
-            info(*this, "inserted doc {} CAS={}, rc={}", id, res.cas, res.strerror());
+            info("inserted doc {} CAS={}, rc={}", id, res.cas, res.strerror());
             hooks_.after_staged_insert_complete(this, id);
 
             // TODO: clean this up (do most of this in transactions_document(...))
@@ -1012,21 +1010,20 @@ namespace transactions
                 case FAIL_CAS_MISMATCH:
                     // special handling for doc already existing
                     try {
-                        trace(*this, "found existing doc {}, may still be able to insert", id);
+                        trace("found existing doc {}, may still be able to insert", id);
                         hooks_.before_get_doc_in_exists_during_staged_insert(this, id);
                         auto get_document = get_doc(collection, id);
                         if (get_document) {
                             auto doc = get_document->first;
                             auto get_res = get_document->second;
-                            trace(*this,
-                                  "document {} exists, is_in_transaction {}, is_deleted {} ",
+                            trace("document {} exists, is_in_transaction {}, is_deleted {} ",
                                   doc.id(),
                                   doc.links().is_document_in_transaction(),
                                   get_res.is_deleted);
                             forward_compat::check(forward_compat_stage::WWC_INSERTING, doc.links().forward_compat());
                             if (!doc.links().is_document_in_transaction() && get_res.is_deleted) {
                                 // it is just a deleted doc, so we are ok.  Lets try again, but with the cas
-                                trace(*this, "doc was deleted, retrying with cas {}", doc.cas());
+                                trace("doc was deleted, retrying with cas {}", doc.cas());
                                 cas = doc.cas();
                                 throw retry_operation("create staged insert found existing deleted doc, retrying");
                             }
@@ -1036,7 +1033,7 @@ namespace transactions
                             }
                             check_and_handle_blocking_transactions(doc, forward_compat_stage::WWC_INSERTING_GET);
                             // if the check didn't throw, we can retry staging with cas
-                            trace(*this, "doc ok to overwrite, retrying with cas {}", doc.cas());
+                            trace("doc ok to overwrite, retrying with cas {}", doc.cas());
                             cas = doc.cas();
                             throw retry_operation("create staged insert found existing non-blocking doc, retrying");
                         } else {
@@ -1049,7 +1046,7 @@ namespace transactions
                         switch (get_err.ec()) {
                             case FAIL_TRANSIENT:
                             case FAIL_PATH_NOT_FOUND:
-                                trace(*this, "transient error trying to get doc in insert - retrying txn");
+                                trace("transient error trying to get doc in insert - retrying txn");
                                 throw transaction_operation_failed(get_err.ec(), "error handling found doc in insert").retry();
                             default:
                                 throw;

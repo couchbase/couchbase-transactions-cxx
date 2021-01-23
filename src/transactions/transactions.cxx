@@ -1,7 +1,6 @@
-#include <spdlog/spdlog.h>
-
 #include "attempt_context_impl.hxx"
 #include "exceptions_internal.hxx"
+#include "logging.hxx"
 #include "transactions_cleanup.hxx"
 #include <couchbase/transactions.hxx>
 
@@ -12,7 +11,7 @@ tx::transactions::transactions(couchbase::cluster& cluster, const transaction_co
   , config_(config)
   , cleanup_(new transactions_cleanup(cluster_, config_))
 {
-    spdlog::info("couchbase transactions {} creating new transaction object", VERSION_STR);
+    txn_log->info("couchbase transactions {} creating new transaction object", VERSION_STR);
 }
 
 tx::transactions::~transactions() = default;
@@ -22,7 +21,7 @@ tx::transactions::clone(couchbase::cluster& new_cluster,
                         std::shared_ptr<tx::attempt_context_testing_hooks> new_hooks,
                         std::shared_ptr<tx::cleanup_testing_hooks> new_cleanup_hooks)
 {
-    spdlog::info("couchbase transactions {} copying transaction object", VERSION_STR);
+    txn_log->info("couchbase transactions {} copying transaction object", VERSION_STR);
     tx::transaction_config config = config_;
     config.test_factories(*new_hooks, *new_cleanup_hooks);
     return std::make_shared<transactions>(new_cluster, config);
@@ -34,7 +33,7 @@ tx::transactions::run(const logic& logic)
     tx::transaction_context overall;
     while (overall.num_attempts() < max_attempts_) {
         tx::attempt_context_impl ctx(this, overall, config_);
-        spdlog::info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.id());
+        txn_log->info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.id());
         try {
             logic(ctx);
             if (!ctx.is_done()) {
@@ -43,14 +42,14 @@ tx::transactions::run(const logic& logic)
             cleanup_->add_attempt(ctx);
             break;
         } catch (const transaction_operation_failed& er) {
-            spdlog::error("got transaction_operation_failed {}", er.what());
+            txn_log->error("got transaction_operation_failed {}", er.what());
             if (er.should_rollback()) {
-                spdlog::trace("got rollback-able exception, rolling back");
+                txn_log->trace("got rollback-able exception, rolling back");
                 try {
                     ctx.rollback();
                 } catch (const std::runtime_error& er_rollback) {
                     cleanup_->add_attempt(ctx);
-                    spdlog::trace("got error {} while auto rolling back, throwing original error", er_rollback.what(), er.what());
+                    txn_log->trace("got error {} while auto rolling back, throwing original error", er_rollback.what(), er.what());
                     er.do_throw(overall);
                     // if you get here, we didn't throw, yet we had an error
                     // probably should stop retries, though need to check this
@@ -58,14 +57,14 @@ tx::transactions::run(const logic& logic)
                     break;
                 }
                 if (er.should_retry() && overall.has_expired_client_side(config_)) {
-                    spdlog::trace("auto rollback succeeded, however we are expired so no retry");
+                    txn_log->trace("auto rollback succeeded, however we are expired so no retry");
                     // this always throws
                     transaction_operation_failed(FAIL_EXPIRY, "expired in auto rollback").no_rollback().expired().do_throw(overall);
                 }
             }
             if (er.should_retry()) {
                 if (overall.num_attempts() < max_attempts_) {
-                    spdlog::trace("got retryable exception, retrying");
+                    txn_log->trace("got retryable exception, retrying");
 
                     // simple linear backoff with #of attempts
                     std::this_thread::sleep_for(min_retry_delay_ * pow(2, fmin(10, overall.num_attempts())));
@@ -80,12 +79,12 @@ tx::transactions::run(const logic& logic)
             // if we don't throw, break here means no retry
             break;
         } catch (const std::exception& ex) {
-            spdlog::error("got runtime error {}", ex.what());
+            txn_log->error("got runtime error {}", ex.what());
             ctx.rollback();
             cleanup_->add_attempt(ctx);
             break;
         } catch (...) {
-            spdlog::error("got unexpected error, rolling back");
+            txn_log->error("got unexpected error, rolling back");
             ctx.rollback();
             cleanup_->add_attempt(ctx);
             break;
@@ -97,7 +96,7 @@ tx::transactions::run(const logic& logic)
 void
 tx::transactions::close()
 {
-    spdlog::info("closing transactions");
+    txn_log->info("closing transactions");
     cleanup_->close();
-    spdlog::info("transactions closed");
+    txn_log->info("transactions closed");
 }

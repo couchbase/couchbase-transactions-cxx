@@ -1,5 +1,4 @@
 #include <libcouchbase/couchbase.h>
-#include <spdlog/spdlog.h>
 
 #include "active_transaction_record.hxx"
 #include "exceptions_internal.hxx"

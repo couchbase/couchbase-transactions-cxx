@@ -1,10 +1,10 @@
 #include <memory>
 
+#include "logging.hxx"
+#include "pool.hxx"
 #include <boost/algorithm/string/split.hpp>
 #include <spdlog/fmt/ostr.h>
-#include <spdlog/spdlog.h>
 
-#include "pool.hxx"
 #include <couchbase/client/bucket.hxx>
 #include <couchbase/client/collection.hxx>
 #include <couchbase/support.hxx>
@@ -73,7 +73,7 @@ cb::bucket::bucket(std::unique_ptr<Pool<lcb_st*>>& instance_pool, const std::str
             throw std::runtime_error(std::string("failed to open bucket (wait): ") + lcb_strerror_short(rc));
         }
         collection::install_callbacks(lcb);
-        spdlog::trace("bucket {} opened successfully", name_);
+        cb::client_log->trace("bucket {} opened successfully", name_);
         return lcb;
     });
     if (instance_pool_->size() == 0) {

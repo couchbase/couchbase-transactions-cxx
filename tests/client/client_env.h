@@ -23,7 +23,7 @@ class ClientTestEnvironment : public ::testing::Environment
     void SetUp() override
     {
         // for tests, really chatty logs may be useful.
-        spdlog::set_level(spdlog::level::trace);
+        set_client_log_level(log_levels::TRACE);
         get_cluster();
     }
 
