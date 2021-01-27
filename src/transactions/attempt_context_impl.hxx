@@ -15,6 +15,7 @@
 #include "atr_cleanup_entry.hxx"
 #include "attempt_context_testing_hooks.hxx"
 #include "transaction_context.hxx"
+#include "exceptions_internal.hxx"
 
 namespace couchbase
 {
@@ -56,10 +57,29 @@ namespace transactions
                                                  const nlohmann::json& content);
 
         template<typename R>
-        R retry_op(std::function<R()> func);
+        R retry_op(std::function<R()> func)
+        {
+            do {
+                try {
+                    return func();
+                } catch (const retry_operation& e) {
+                    overall_.retry_delay(config_);
+                }
+            } while (true);
+            assert(false && "retry should never reach here");
+        }
 
         template<typename V>
-        V cache_error(std::function<V()> func);
+        V cache_error(std::function<V()> func)
+        {
+            existing_error();
+            try {
+                return func();
+            } catch (const transaction_operation_failed& e) {
+                errors_.push_back(e);
+                throw;
+            }
+        }
 
         void existing_error();
 

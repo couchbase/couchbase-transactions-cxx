@@ -15,30 +15,6 @@ namespace couchbase
 {
 namespace transactions
 {
-    template<typename R>
-    R attempt_context_impl::retry_op(std::function<R()> func)
-    {
-        do {
-            try {
-                return func();
-            } catch (const retry_operation& e) {
-                overall_.retry_delay(config_);
-            }
-        } while (true);
-        assert(false && "retry should never reach here");
-    }
-
-    template<typename V>
-    V attempt_context_impl::cache_error(std::function<V()> func)
-    {
-        existing_error();
-        try {
-            return func();
-        } catch (const transaction_operation_failed& e) {
-            errors_.push_back(e);
-            throw;
-        }
-    }
 
     void attempt_context_impl::existing_error()
     {
