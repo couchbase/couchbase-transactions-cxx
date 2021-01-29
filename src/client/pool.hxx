@@ -28,17 +28,17 @@
 namespace couchbase
 {
 
-enum class PoolEvent { create, remove, destroy, add, destroy_not_available };
+enum class pool_event { create, remove, destroy, add, destroy_not_available };
 
 template<typename T>
-struct PoolEventCounter {
+struct pool_event_counter {
     std::atomic<uint32_t> create;
     std::atomic<uint32_t> remove;
     std::atomic<uint32_t> destroy;
     std::atomic<uint32_t> add;
     std::atomic<uint32_t> destroy_not_available;
 
-    PoolEventCounter()
+    pool_event_counter()
       : create(0)
       , remove(0)
       , destroy(0)
@@ -47,22 +47,22 @@ struct PoolEventCounter {
     {
     }
 
-    void handler(PoolEvent e, const T&)
+    void handler(pool_event e, const T&)
     {
         switch (e) {
-            case PoolEvent::create:
+            case pool_event::create:
                 ++create;
                 break;
-            case PoolEvent::remove:
+            case pool_event::remove:
                 ++remove;
                 break;
-            case PoolEvent::destroy:
+            case pool_event::destroy:
                 ++destroy;
                 break;
-            case PoolEvent::add:
+            case pool_event::add:
                 ++add;
                 break;
-            case PoolEvent::destroy_not_available:
+            case pool_event::destroy_not_available:
                 ++destroy_not_available;
                 break;
         }
@@ -70,32 +70,32 @@ struct PoolEventCounter {
 };
 
 template<typename T>
-class Pool
+class pool
 {
     typedef std::pair<bool, T> pair_t;
-    typedef std::function<void(PoolEvent, T&)> event_handler;
+    typedef std::function<void(pool_event, T&)> event_handler;
 
   public:
-    Pool(size_t max_size, std::function<T(void)> create_fn, std::function<void(T)> destroy_fn)
+    pool(size_t max_size, std::function<T(void)> create_fn, std::function<void(T)> destroy_fn)
       : max_size_(max_size)
       , available_(max_size)
       , create_fn_(create_fn)
       , destroy_fn_(destroy_fn)
     {
         post_create_fn_ = [](T t) { return t; };
-        event_fn_ = [](PoolEvent, const T&) {};
+        event_fn_ = [](pool_event, const T&) {};
     }
 
-    ~Pool()
+    ~pool()
     {
         // destroy all the objects in the pool.
         std::unique_lock<std::mutex> lock(mutex_);
         for (pair_t& p : pool_) {
             if (p.first) {
-                event_fn_(PoolEvent::destroy, p.second);
+                event_fn_(pool_event::destroy, p.second);
                 destroy_fn_(p.second);
             } else {
-                event_fn_(PoolEvent::destroy_not_available, p.second);
+                event_fn_(pool_event::destroy_not_available, p.second);
                 client_log->trace("cannot destroy {}, not available!", p.second);
             }
         }
@@ -158,7 +158,7 @@ class Pool
         if (!available) {
             --available_;
         }
-        event_fn_(PoolEvent::add, t);
+        event_fn_(pool_event::add, t);
         return true;
     }
 
@@ -179,16 +179,16 @@ class Pool
         pool_.erase(it);
         // at this point, there is an available slot for an instance, so notify
         cv_.notify_one();
-        event_fn_(PoolEvent::remove, t);
+        event_fn_(pool_event::remove, t);
         return true;
     }
 
-    CB_NODISCARD std::unique_ptr<Pool<T>> clone(size_t max_size = 0)
+    CB_NODISCARD std::unique_ptr<pool<T>> clone(size_t max_size = 0)
     {
-        return std::unique_ptr<Pool<T>>(new Pool<T>(max_size ? max_size : max_size_, create_fn_, destroy_fn_));
+        return std::unique_ptr<pool<T>>(new pool<T>(max_size ? max_size : max_size_, create_fn_, destroy_fn_));
     }
 
-    bool swap_available(Pool<T>& other_pool, bool available)
+    bool swap_available(pool<T>& other_pool, bool available)
     {
         // get available from this pool, insert into
         // other_pool
@@ -204,7 +204,7 @@ class Pool
                 if (!available) {
                     --other_pool.available_;
                 }
-                other_pool.event_fn_(PoolEvent::add, *found);
+                other_pool.event_fn_(pool_event::add, *found);
                 lock.unlock();
                 // now erase from our pool
                 std::unique_lock<std::mutex> lock2(mutex_);
@@ -214,7 +214,7 @@ class Pool
                     ++available_;
                     cv_.notify_one();
                 }
-                event_fn_(PoolEvent::remove, *found);
+                event_fn_(pool_event::remove, *found);
                 return true;
             }
         }
@@ -262,9 +262,9 @@ class Pool
     }
 
     template<typename OStream>
-    friend OStream& operator<<(OStream& os, const Pool& p)
+    friend OStream& operator<<(OStream& os, const pool& p)
     {
-        os << "Pool{";
+        os << "pool{";
         os << "available:" << p.available() << ",";
         os << " max: " << p.max_size() << ",";
         os << " size:" << p.size() << ",";
@@ -295,7 +295,7 @@ class Pool
         if (pool_.size() < max_size_) {
             // create a new one, insert it and return.
             auto t = post_create_fn_(create_fn_());
-            event_fn_(PoolEvent::create, t);
+            event_fn_(pool_event::create, t);
             pool_.emplace_back(false, t);
             --available_;
             return &(pool_.back().second);

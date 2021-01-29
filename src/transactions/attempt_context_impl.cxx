@@ -93,7 +93,7 @@ namespace transactions
                                                            const transaction_document& document,
                                                            const nlohmann::json& content)
     {
-        return retry_op<transaction_document>([&]() -> transaction_document {
+        return retry_op_exp<transaction_document>([&]() -> transaction_document {
             return cache_error<transaction_document>([&]() {
                 try {
                     trace("replacing {} with {}", document, content.dump());
@@ -191,7 +191,6 @@ namespace transactions
                                                           const std::string& id,
                                                           const nlohmann::json& content)
     {
-        return retry_op<transaction_document>([&]() -> transaction_document {
             return cache_error<transaction_document>([&]() {
                 try {
                     check_if_done();
@@ -216,8 +215,6 @@ namespace transactions
                             throw transaction_operation_failed(ec, "attempt timed-out").expired();
                         case FAIL_TRANSIENT:
                             throw transaction_operation_failed(ec, "transient error in insert").retry();
-                        case FAIL_AMBIGUOUS:
-                            throw retry_operation("FAIL AMBIGUOUS in insert");
                         case FAIL_OTHER:
                             throw transaction_operation_failed(ec, e.what());
                         case FAIL_HARD:
@@ -227,7 +224,6 @@ namespace transactions
                     }
                 }
             });
-        });
     }
 
     void attempt_context_impl::select_atr_if_needed(std::shared_ptr<couchbase::collection> collection, const std::string& id)
@@ -252,43 +248,48 @@ namespace transactions
     void attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_document& doc)
     {
         auto collection = parent_->cluster_ref().bucket(doc.links().atr_bucket_name().value())->default_collection();
-        int retries = 0;
-        while (retries < 5) {
-            retries++;
-            try {
-                hooks_.before_check_atr_entry_for_blocking_doc(this, doc.id());
-                auto atr = active_transaction_record::get_atr(collection, doc.links().atr_id().value());
-                if (atr) {
-                    auto entries = atr->entries();
-                    auto it = std::find_if(entries.begin(), entries.end(), [&doc](const atr_entry& e) {
-                        return e.attempt_id() == doc.links().staged_attempt_id();
-                    });
-                    if (it != entries.end()) {
-                        forward_compat::check(forward_compat_stage::WWC_READING_ATR, it->forward_compat());
-                        if (it->has_expired()) {
-                            trace("existing atr entry has expired (age is {}ms), ignoring", it->age_ms());
-                            return;
-                        }
-                        switch (it->state()) {
-                            case attempt_state::COMPLETED:
-                            case attempt_state::ROLLED_BACK:
-                                trace("existing atr entry can be ignored due to state {}", it->state());
-                                return;
-                            default:
-                                trace("existing atr entry found in state {}, retrying in 100ms", it->state());
-                        }
-                        // TODO  this (and other retries) probably need a clever class, exponential backoff, etc...
-                        std::this_thread::sleep_for(std::chrono::milliseconds(50 * retries));
-                    } else {
-                        trace("no blocking atr entry");
-                        return;
-                    }
-                }
-                // if we are here, there is still a write-write conflict
-                throw transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, "document is in another transaction").retry();
-            } catch (const client_error& e) {
-                throw transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, e.what()).retry();
-            }
+        try {
+            retry_op_exponential_backoff_timeout<void>(
+              std::chrono::milliseconds(50), std::chrono::milliseconds(500), std::chrono::seconds(1), [&] {
+                  try {
+                      hooks_.before_check_atr_entry_for_blocking_doc(this, doc.id());
+                      auto atr = active_transaction_record::get_atr(collection, doc.links().atr_id().value());
+                      if (atr) {
+                          auto entries = atr->entries();
+                          auto it = std::find_if(entries.begin(), entries.end(), [&doc](const atr_entry& e) {
+                              return e.attempt_id() == doc.links().staged_attempt_id();
+                          });
+                          if (it != entries.end()) {
+                              forward_compat::check(forward_compat_stage::WWC_READING_ATR, it->forward_compat());
+                              if (it->has_expired()) {
+                                  trace("existing atr entry has expired (age is {}ms), ignoring", it->age_ms());
+                                  return;
+                              }
+                              switch (it->state()) {
+                                  case attempt_state::COMPLETED:
+                                  case attempt_state::ROLLED_BACK:
+                                      trace("existing atr entry can be ignored due to state {}", it->state());
+                                      return;
+                                  default:
+                                      trace("existing atr entry found in state {}, retrying", it->state());
+                              }
+                              throw retry_operation("retry check for blocking doc");
+                          } else {
+                              trace("no blocking atr entry");
+                              return;
+                          }
+                      } else {
+                          trace("atr entry not found, assuming we can proceed");
+                          return;
+                      }
+                      // if we are here, there is still a write-write conflict
+                      throw transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, "document is in another transaction").retry();
+                  } catch (const client_error& e) {
+                      throw transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, e.what()).retry();
+                  }
+              });
+        } catch (const retry_operation_timeout& t) {
+            throw transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, t.what()).retry();
         }
     }
 
@@ -775,8 +776,7 @@ namespace transactions
             staged_mutation* own_write = check_for_own_write(collection, id);
             if (own_write) {
                 info("found own-write of mutated doc {}", id);
-                return transaction_document::create_from(
-                  own_write->doc(), own_write->content<const nlohmann::json&>(), transaction_document_status::OWN_WRITE);
+                return transaction_document::create_from(own_write->doc(), own_write->content<const nlohmann::json&>());
             }
             staged_mutation* own_remove = staged_mutations_->find_remove(collection, id);
             if (own_remove) {
@@ -807,13 +807,11 @@ namespace transactions
                     }
                     bool ignore_doc = false;
                     auto content = doc.content<nlohmann::json>();
-                    auto status = doc.status();
                     if (entry) {
                         if (doc.links().staged_attempt_id() && entry->attempt_id() == this->id()) {
                             // Attempt is reading its own writes
                             // This is here as backup, it should be returned from the in-memory cache instead
                             content = doc.links().staged_content<nlohmann::json>();
-                            status = transaction_document_status::OWN_WRITE;
                         } else {
                             forward_compat::check(forward_compat_stage::GETS_READING_ATR, entry->forward_compat());
                             switch (entry->state()) {
@@ -822,11 +820,9 @@ namespace transactions
                                         ignore_doc = true;
                                     } else {
                                         content = doc.links().staged_content<nlohmann::json>();
-                                        status = transaction_document_status::IN_TXN_COMMITTED;
                                     }
                                     break;
                                 default:
-                                    status = transaction_document_status::IN_TXN_OTHER;
                                     if (doc.content<nlohmann::json>().empty()) {
                                         // This document is being inserted, so should not be visible yet
                                         ignore_doc = true;
@@ -837,7 +833,6 @@ namespace transactions
                     } else {
                         // Don't know if transaction was committed or rolled back. Should not happen as ATR should stick around long
                         // enough
-                        status = transaction_document_status::AMBIGUOUS;
                         if (content.empty()) {
                             // This document is being inserted, so should not be visible yet
                             ignore_doc = true;
@@ -846,7 +841,7 @@ namespace transactions
                     if (ignore_doc) {
                         return {};
                     } else {
-                        return transaction_document::create_from(doc, content, status);
+                        return transaction_document::create_from(doc, content);
                     }
                 } else {
                     // failed to get the ATR
@@ -854,7 +849,6 @@ namespace transactions
                         // this document is being inserted, so should not be visible yet
                         return {};
                     } else {
-                        doc.status(transaction_document_status::AMBIGUOUS);
                         return doc;
                     }
                 }
@@ -908,15 +902,13 @@ namespace transactions
                                             lookup_in_spec::fulldoc_get() },
                                           lookup_in_options().access_deleted(true));
             });
-            return std::pair<transaction_document, result>(
-              transaction_document::create_from(*collection, id, res, transaction_document_status::NORMAL), res);
+            return std::pair<transaction_document, result>(transaction_document::create_from(*collection, id, res), res);
         } catch (const client_error& e) {
             if (e.ec() == FAIL_DOC_NOT_FOUND) {
                 return boost::none;
             }
             if (e.ec() == FAIL_PATH_NOT_FOUND) {
-                return std::pair<transaction_document, result>(
-                  transaction_document::create_from(*collection, id, *e.res(), transaction_document_status::NORMAL), *e.res());
+                return std::pair<transaction_document, result>(transaction_document::create_from(*collection, id, *e.res()), *e.res());
             }
             throw;
         }
@@ -928,9 +920,9 @@ namespace transactions
                                                                     uint64_t& cas)
     {
         try {
+            error_if_expired_and_not_in_overtime(STAGE_CREATE_STAGED_INSERT, id);
             hooks_.before_staged_insert(this, id);
             info("about to insert staged doc {} with cas {}", id, cas);
-            check_expiry_pre_commit(STAGE_CREATE_STAGED_INSERT, id);
             result res;
             wrap_collection_call(res, [&](result& r) {
                 r = collection->mutate_in(
@@ -965,7 +957,7 @@ namespace transactions
                                     std::string("insert"),
                                     boost::none,
                                     true);
-            transaction_document out(id, content, res.cas, *collection, links, transaction_document_status::NORMAL, boost::none);
+            transaction_document out(id, content, res.cas, *collection, links, boost::none);
             staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::INSERT));
             add_mutation_token();
             return out;
@@ -981,7 +973,7 @@ namespace transactions
                 case FAIL_TRANSIENT:
                     throw transaction_operation_failed(ec, "transient error in insert").retry();
                 case FAIL_AMBIGUOUS:
-                    throw; // this gets handled in insert (and does a retry of entire insert)
+                    throw retry_operation("FAIL_AMBIGUOUS in create_staged_insert");
                 case FAIL_DOC_ALREADY_EXISTS:
                 case FAIL_CAS_MISMATCH:
                     // special handling for doc already existing

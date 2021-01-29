@@ -30,22 +30,6 @@ namespace transactions
      */
     class transaction_context;
 
-    class retry_operation : public std::runtime_error
-    {
-      public:
-        retry_operation(const std::string& what)
-          : std::runtime_error(what)
-        {
-        }
-    };
-    class retry_operation_timeout : public std::runtime_error
-    {
-      public:
-        retry_operation_timeout(const std::string& what)
-          : std::runtime_error(what)
-        {
-        }
-    };
     //  only used in ambiguity resolution during atr_commit
     class retry_atr_commit : public std::runtime_error
     {

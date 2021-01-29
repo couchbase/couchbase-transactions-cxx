@@ -24,7 +24,6 @@
 
 #include <couchbase/client/collection.hxx>
 #include <couchbase/transactions/document_metadata.hxx>
-#include <couchbase/transactions/transaction_document_status.hxx>
 #include <couchbase/transactions/transaction_links.hxx>
 #include <utility>
 
@@ -40,7 +39,6 @@ namespace transactions
         std::string id_;
         uint64_t cas_;
         transaction_links links_;
-        transaction_document_status status_;
 
         /** This is needed for provide {BACKUP-FIELDS}.  It is only needed from the get to the staged mutation, hence Optional. */
         const boost::optional<document_metadata> metadata_;
@@ -51,7 +49,6 @@ namespace transactions
           , value_(doc.value_)
           , id_(doc.id_)
           , links_(doc.links_)
-          , status_(doc.status_)
           , metadata_(doc.metadata_)
           , cas_(doc.cas_)
         {
@@ -63,20 +60,18 @@ namespace transactions
                              uint64_t cas,
                              collection& collection,
                              transaction_links links,
-                             transaction_document_status status,
                              boost::optional<document_metadata> metadata)
           : id_(std::move(id))
           , cas_(cas)
           , collection_(collection)
           , links_(std::move(links))
-          , status_(status)
           , metadata_(std::move(metadata))
           , value_(std::move(content))
         {
         }
 
         template<typename Content>
-        static transaction_document create_from(transaction_document& document, Content content, transaction_document_status status)
+        static transaction_document create_from(transaction_document& document, Content content)
         {
             // TODO: just copy it instead
             transaction_links links(document.links().atr_id(),
@@ -94,11 +89,10 @@ namespace transactions
                                     document.links().forward_compat(),
                                     document.links().is_deleted());
 
-            return transaction_document(
-              document.id(), content, document.cas(), document.collection_ref(), links, status, document.metadata());
+            return transaction_document(document.id(), content, document.cas(), document.collection_ref(), links, document.metadata());
         }
 
-        static transaction_document create_from(collection& collection, std::string id, result res, transaction_document_status status)
+        static transaction_document create_from(collection& collection, std::string id, result res)
         {
             boost::optional<std::string> atr_id;
             boost::optional<std::string> transaction_id;
@@ -193,7 +187,7 @@ namespace transactions
                                     forward_compat,
                                     res.is_deleted);
             document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc, crc32_from_doc);
-            return transaction_document(id, content, res.cas, collection, links, status, boost::make_optional(md));
+            return transaction_document(id, content, res.cas, collection, links, boost::make_optional(md));
         }
 
         // TODO: make a swap function, use that here and copy constructor
@@ -205,7 +199,6 @@ namespace transactions
                 this->value_ = other.value_;
                 this->id_ = other.id_;
                 this->links_ = other.links_;
-                this->status_ = other.status_;
             }
             return *this;
         }
@@ -236,11 +229,6 @@ namespace transactions
             return links_;
         }
 
-        CB_NODISCARD transaction_document_status status() const
-        {
-            return status_;
-        }
-
         template<typename Content>
         void content(const Content& content)
         {
@@ -252,11 +240,6 @@ namespace transactions
             cas_ = cas;
         }
 
-        void status(transaction_document_status status)
-        {
-            status_ = status;
-        }
-
         CB_NODISCARD const boost::optional<document_metadata>& metadata() const
         {
             return metadata_;
@@ -266,8 +249,8 @@ namespace transactions
         friend OStream& operator<<(OStream& os, const transaction_document document)
         {
             os << "transaction_document{id: " << document.id_ << ", cas: " << document.cas_
-               << ", status: " << transaction_document_status_name(document.status_) << ", bucket: " << document.collection_.bucket_name()
-               << ", coll: " << document.collection_.name() << ", links_: " << document.links_ << "}";
+               << ", bucket: " << document.collection_.bucket_name() << ", coll: " << document.collection_.name()
+               << ", links_: " << document.links_ << "}";
             return os;
         }
     };

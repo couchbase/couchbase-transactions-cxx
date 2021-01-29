@@ -16,17 +16,6 @@ tx::transactions::transactions(couchbase::cluster& cluster, const transaction_co
 
 tx::transactions::~transactions() = default;
 
-std::shared_ptr<tx::transactions>
-tx::transactions::clone(couchbase::cluster& new_cluster,
-                        std::shared_ptr<tx::attempt_context_testing_hooks> new_hooks,
-                        std::shared_ptr<tx::cleanup_testing_hooks> new_cleanup_hooks)
-{
-    txn_log->info("couchbase transactions {} copying transaction object", VERSION_STR);
-    tx::transaction_config config = config_;
-    config.test_factories(*new_hooks, *new_cleanup_hooks);
-    return std::make_shared<transactions>(new_cluster, config);
-}
-
 tx::transaction_result
 tx::transactions::run(const logic& logic)
 {

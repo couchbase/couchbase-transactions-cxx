@@ -88,10 +88,6 @@ namespace transactions
          */
         ~transactions();
 
-        std::shared_ptr<transactions> clone(couchbase::cluster& new_cluster,
-                                            std::shared_ptr<attempt_context_testing_hooks> new_hooks,
-                                            std::shared_ptr<cleanup_testing_hooks> new_cleanup_hooks);
-
         /**
          * @brief Run a transaction
          *
@@ -173,7 +169,7 @@ namespace transactions
         couchbase::cluster& cluster_;
         transaction_config config_;
         std::unique_ptr<transactions_cleanup> cleanup_;
-        const int max_attempts_{ 10 };
+        const int max_attempts_{ 100 };
         const std::chrono::milliseconds min_retry_delay_{ 10 };
     };
 } // namespace transactions

@@ -9,10 +9,10 @@ using namespace couchbase;
 static std::atomic<uint64_t> test_int{ 0 };
 static std::atomic<uint64_t> last_destroyed{ 0 };
 
-static std::shared_ptr<Pool<uint64_t>>
+static std::shared_ptr<pool<uint64_t>>
 create_pool(size_t size)
 {
-    return std::make_shared<Pool<uint64_t>>(size, [&] { return ++test_int; }, [&](uint64_t t) { last_destroyed.store(t); });
+    return std::make_shared<pool<uint64_t>>(size, [&] { return ++test_int; }, [&](uint64_t t) { last_destroyed.store(t); });
 }
 
 TEST(PoolTests, SimpleGet)
@@ -272,8 +272,8 @@ TEST(PoolTest, CanTryGetFail)
 }
 TEST(PoolTest, CreateEvents)
 {
-    PoolEventCounter<uint64_t> ev;
-    auto handler = [&ev](PoolEvent e, const uint64_t& t) { ev.handler(e, t); };
+    pool_event_counter<uint64_t> ev;
+    auto handler = [&ev](pool_event e, const uint64_t& t) { ev.handler(e, t); };
     auto pool = create_pool(2);
     pool->set_event_handler(handler);
     auto t = pool->get();
@@ -281,8 +281,8 @@ TEST(PoolTest, CreateEvents)
 }
 TEST(PoolTest, DeleteEvents)
 {
-    PoolEventCounter<uint64_t> ev;
-    auto handler = [&ev](PoolEvent e, const uint64_t& t) { ev.handler(e, t); };
+    pool_event_counter<uint64_t> ev;
+    auto handler = [&ev](pool_event e, const uint64_t& t) { ev.handler(e, t); };
     {
         auto pool = create_pool(2);
         pool->set_event_handler(handler);
@@ -296,14 +296,14 @@ TEST(PoolTest, DeleteEvents)
 }
 TEST(PoolTest, EventsWithSwap)
 {
-    PoolEventCounter<uint64_t> ev;
-    PoolEventCounter<uint64_t> ev2;
-    auto handler = [&ev](PoolEvent e, const uint64_t& t) { ev.handler(e, t); };
+    pool_event_counter<uint64_t> ev;
+    pool_event_counter<uint64_t> ev2;
+    auto handler = [&ev](pool_event e, const uint64_t& t) { ev.handler(e, t); };
     {
         auto pool1 = create_pool(2);
-        pool1->set_event_handler([&ev](PoolEvent e, const uint64_t& t) { ev.handler(e, t); });
+        pool1->set_event_handler([&ev](pool_event e, const uint64_t& t) { ev.handler(e, t); });
         auto pool2 = create_pool(2);
-        pool2->set_event_handler([&ev2](PoolEvent e, const uint64_t& t) { ev2.handler(e, t); });
+        pool2->set_event_handler([&ev2](pool_event e, const uint64_t& t) { ev2.handler(e, t); });
 
         // now create one, which will be available, in 1
         pool1->release(pool1->get());

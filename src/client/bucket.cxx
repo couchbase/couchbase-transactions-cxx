@@ -56,7 +56,7 @@ cb::bucket::collection(const std::string& collection)
     return find_or_create_collection(collection);
 }
 
-cb::bucket::bucket(std::unique_ptr<Pool<lcb_st*>>& instance_pool, const std::string& name)
+cb::bucket::bucket(std::unique_ptr<pool<lcb_st*>>& instance_pool, const std::string& name)
   : name_(name)
 {
     instance_pool_ = std::move(instance_pool);

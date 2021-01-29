@@ -27,7 +27,7 @@ class collection;
 class cluster;
 
 template<typename T>
-class Pool;
+class pool;
 
 /**
  * Couchbase bucket.
@@ -40,10 +40,10 @@ class bucket : public std::enable_shared_from_this<bucket>
     friend class cluster;
 
   private:
-    std::unique_ptr<Pool<lcb_st*>> instance_pool_;
+    std::unique_ptr<pool<lcb_st*>> instance_pool_;
     const std::string name_;
     std::vector<std::shared_ptr<class collection> > collections_;
-    bucket(std::unique_ptr<Pool<lcb_st*>>& instance_pool, const std::string& name);
+    bucket(std::unique_ptr<pool<lcb_st*>>& instance_pool, const std::string& name);
     std::shared_ptr<class collection> find_or_create_collection(const std::string& name);
   public:
     /**

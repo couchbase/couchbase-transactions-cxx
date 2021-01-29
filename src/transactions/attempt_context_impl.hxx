@@ -56,19 +56,6 @@ namespace transactions
                                                  const transaction_document& document,
                                                  const nlohmann::json& content);
 
-        template<typename R>
-        R retry_op(std::function<R()> func)
-        {
-            do {
-                try {
-                    return func();
-                } catch (const retry_operation& e) {
-                    overall_.retry_delay(config_);
-                }
-            } while (true);
-            assert(false && "retry should never reach here");
-        }
-
         template<typename V>
         V cache_error(std::function<V()> func)
         {

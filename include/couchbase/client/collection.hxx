@@ -59,7 +59,8 @@ class collection
         return store_impl(this, operation, id, payload, cas, level);
     }
 
-    std::unique_ptr<Pool<lcb_st*> >& pool() {
+    std::unique_ptr<pool<lcb_st*>>& instance_pool()
+    {
         return bucket_.lock()->instance_pool_;
     }
     result wrap_call_for_retry(std::function<result(void)> fn);

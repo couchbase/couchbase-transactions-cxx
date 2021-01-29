@@ -83,7 +83,8 @@ parse_mutation_cas(const std::string& cas)
 
 static const std::string CLIENT_RECORD_DOC_ID = "_txn:client-record";
 static const std::string FIELD_RECORDS = "records";
-static const std::string FIELD_CLIENTS = FIELD_RECORDS + ".clients";
+static const std::string FIELD_CLIENTS_ONLY = "clients";
+static const std::string FIELD_CLIENTS = FIELD_RECORDS + "." + FIELD_CLIENTS_ONLY;
 static const std::string FIELD_HEARTBEAT = "heartbeat_ms";
 static const std::string FIELD_EXPIRES = "expires_ms";
 static const std::string FIELD_OVERRIDE = "override";
@@ -107,9 +108,9 @@ tx::transactions_cleanup::interruptable_wait(std::chrono::duration<R, P> delay)
 void
 tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucket_name)
 {
-    lost_attempts_cleanup_log->trace("cleanup for {} starting", bucket_name);
+    lost_attempts_cleanup_log->info("cleanup for {} starting", bucket_name);
     if (!running_.load()) {
-        lost_attempts_cleanup_log->trace("cleanup of {} complete", bucket_name);
+        lost_attempts_cleanup_log->info("cleanup of {} complete", bucket_name);
         return;
     }
     auto coll = cluster_.bucket(bucket_name)->default_collection();
@@ -121,14 +122,14 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
 
     auto delay = std::chrono::milliseconds(config_.cleanup_window().count() / std::max(1ul, all_atrs.size() / details.num_active_clients));
     lost_attempts_cleanup_log->info("{} active clients (including this one), {} atrs to check {}ms delay between checking each atr",
-                                    all_atrs.size(),
                                     details.num_active_clients,
+                                    all_atrs.size(),
                                     delay.count());
     for (auto it = all_atrs.begin() + details.index_of_this_client; it < all_atrs.end(); it += details.num_active_clients) {
         // clean the ATR entry
         std::string atr_id = *it;
         if (!running_.load()) {
-            lost_attempts_cleanup_log->trace("cleanup of {} complete", bucket_name);
+            lost_attempts_cleanup_log->info("cleanup of {} complete", bucket_name);
             return;
         }
         try {
@@ -138,7 +139,7 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
             lost_attempts_cleanup_log->error("cleanup of atr {} failed with {}, moving on", atr_id, err.what());
         }
     }
-    lost_attempts_cleanup_log->trace("cleanup of {} complete", bucket_name);
+    lost_attempts_cleanup_log->info("cleanup of {} complete", bucket_name);
 }
 
 const tx::atr_cleanup_stats
@@ -179,6 +180,7 @@ tx::transactions_cleanup::handle_atr_cleanup(std::shared_ptr<couchbase::collecti
     lost_attempts_cleanup_log->trace("handle_cleanup_atr {} stats: {}", atr_id, stats.exists, stats.num_entries);
     return stats;
 }
+
 void
 tx::transactions_cleanup::create_client_record(std::shared_ptr<couchbase::collection> coll)
 {
@@ -187,7 +189,8 @@ tx::transactions_cleanup::create_client_record(std::shared_ptr<couchbase::collec
         config_.cleanup_hooks().client_record_before_create(coll->bucket_name());
         wrap_collection_call(res, [&](couchbase::result& r) {
             r = coll->mutate_in(CLIENT_RECORD_DOC_ID,
-                                { mutate_in_spec::insert(FIELD_CLIENTS, nlohmann::json::object()).create_path().xattr() },
+                                { mutate_in_spec::insert(FIELD_CLIENTS, nlohmann::json::object()).create_path().xattr(),
+                                  mutate_in_spec::fulldoc_insert(std::string({ 0x00 })) },
                                 mutate_in_options().store_semantics(subdoc_store_semantics::insert));
         });
     } catch (const tx::client_error& e) {
@@ -208,32 +211,51 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
 {
     return retry_op<client_record_details>([&]() -> client_record_details {
         client_record_details details;
-        // Write our cient record, return offset, increment to use
+        // Write our client record, return details.
         try {
             couchbase::result res;
             config_.cleanup_hooks().client_record_before_get(coll->bucket_name());
             wrap_collection_call(res, [&](couchbase::result& r) {
                 r = coll->lookup_in(CLIENT_RECORD_DOC_ID,
-                                    { lookup_in_spec::get(FIELD_CLIENTS).xattr(),
-                                      lookup_in_spec::get(FIELD_RECORDS + "." + FIELD_OVERRIDE + "." + FIELD_OVERRIDE_ENABLED).xattr(),
-                                      lookup_in_spec::get(FIELD_RECORDS + "." + FIELD_OVERRIDE + "." + FIELD_OVERRIDE_EXPIRES).xattr(),
-                                      lookup_in_spec::get("$vbucket").xattr() });
+                                    { lookup_in_spec::get(FIELD_RECORDS).xattr(), lookup_in_spec::get("$vbucket").xattr() });
             });
             std::vector<std::string> active_client_uids;
-            auto hlc = res.values[3].value->get<nlohmann::json>();
+            auto hlc = res.values[1].value->get<nlohmann::json>();
             auto now_ms = now_ns_from_vbucket(hlc) / 1000000;
+            details.override_enabled = false;
+            details.override_expires = 0;
             if (res.values[0].status == 0) {
-                for (auto& client : res.values[0].value->items()) {
-                    const auto& other_client_uuid = client.key();
-                    auto cl = client.value();
-                    uint64_t heartbeat_ms = parse_mutation_cas(cl[FIELD_HEARTBEAT].get<std::string>());
-                    auto expires_ms = cl[FIELD_EXPIRES].get<uint64_t>();
-                    int64_t expired_period = now_ms - heartbeat_ms;
-                    bool has_expired = expired_period >= expires_ms && now_ms > heartbeat_ms;
-                    if (has_expired && other_client_uuid != uuid) {
-                        details.expired_client_ids.push_back(other_client_uuid);
-                    } else {
-                        active_client_uids.push_back(other_client_uuid);
+                auto records = res.values[0].value->get<nlohmann::json>();
+                for (auto& r : records.items()) {
+                    if (r.key() == FIELD_OVERRIDE) {
+                        auto overrides = r.value().get<nlohmann::json>();
+                        for (auto& over : overrides.items()) {
+                            if (over.key() == FIELD_OVERRIDE_ENABLED) {
+                                details.override_enabled = over.value().get<bool>();
+                            } else if (over.key() == FIELD_OVERRIDE_EXPIRES) {
+                                details.override_expires = over.value().get<uint64_t>();
+                            }
+                        }
+                    } else if (r.key() == FIELD_CLIENTS_ONLY) {
+                        auto clients = r.value().get<nlohmann::json>();
+                        for (auto& client : clients.items()) {
+                            const auto& other_client_uuid = client.key();
+                            auto cl = client.value();
+                            uint64_t heartbeat_ms = parse_mutation_cas(cl[FIELD_HEARTBEAT].get<std::string>());
+                            auto expires_ms = cl[FIELD_EXPIRES].get<uint64_t>();
+                            int64_t expired_period = now_ms - heartbeat_ms;
+                            bool has_expired = expired_period >= expires_ms && now_ms > heartbeat_ms;
+                            lost_attempts_cleanup_log->trace("heartbeat_ms: {}, expires_ms:{}, expired_period: {}, now_ms: {}",
+                                                             heartbeat_ms,
+                                                             expires_ms,
+                                                             expired_period,
+                                                             now_ms);
+                            if (has_expired && other_client_uuid != uuid) {
+                                details.expired_client_ids.push_back(other_client_uuid);
+                            } else {
+                                active_client_uids.push_back(other_client_uuid);
+                            }
+                        }
                     }
                 }
             }
@@ -251,14 +273,6 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
             details.client_uuid = uuid;
             details.cas_now_nanos = now_ms * 1000000;
             std::vector<mutate_in_spec> specs;
-            details.override_enabled = false;
-            details.override_expires = 0;
-            if (res.values[1].status == 0) {
-                details.override_enabled = res.values[1].value->get<bool>();
-            }
-            if (res.values[2].status == 0) {
-                details.override_expires = res.values[2].value->get<uint64_t>();
-            }
             details.override_active = (details.override_enabled && details.override_expires > details.cas_now_nanos);
             lost_attempts_cleanup_log->trace("details {}", details);
             if (details.override_active) {
@@ -280,11 +294,13 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
             wrap_collection_call(res, [&](couchbase::result& r) { r = coll->mutate_in(CLIENT_RECORD_DOC_ID, specs); });
             // just update the cas, and return the details
             details.cas_now_nanos = res.cas;
+            lost_attempts_cleanup_log->info("get_active_clients found {}", details);
             return details;
         } catch (const tx::client_error& e) {
             auto ec = e.ec();
             switch (ec) {
                 case FAIL_DOC_NOT_FOUND:
+                    lost_attempts_cleanup_log->info("client record not found, creating new one");
                     create_client_record(coll);
                     throw retry_operation("Client record didn't exist. Creating and retrying");
                 default:
@@ -297,36 +313,39 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
 void
 tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::string& uuid)
 {
-    // using <void> forces me to specialize the template for retry_op, perhaps
-    // not worth it.  using <int> since it is convenient.
-    int buckets = 0;
     for (auto bucket_name : cluster_.buckets()) {
-        buckets++;
-        retry_op<int>([&]() {
-            try {
-                auto coll = cluster_.bucket(bucket_name)->default_collection();
-                config_.cleanup_hooks().client_record_before_remove_client(bucket_name);
-                couchbase::result res;
-                wrap_collection_call(res, [&](couchbase::result& r) {
-                    r = coll->mutate_in(CLIENT_RECORD_DOC_ID, { mutate_in_spec::remove(FIELD_CLIENTS + "." + uuid).xattr() });
-                });
-                lost_attempts_cleanup_log->info("removed {} from {}", uuid, bucket_name);
-                return buckets;
-            } catch (const tx::client_error& e) {
-                lost_attempts_cleanup_log->trace("error removing client records {}", e.what());
-                auto ec = e.ec();
-                switch (ec) {
-                    case FAIL_DOC_NOT_FOUND:
-                        lost_attempts_cleanup_log->trace("no client record in {}, ignoring", bucket_name);
-                        return buckets;
-                    case FAIL_PATH_NOT_FOUND:
-                        lost_attempts_cleanup_log->trace("client {} not in client record for {}, ignoring", uuid, bucket_name);
-                        return buckets;
-                    default:
-                        throw retry_operation("retry remove until timeout");
-                }
-            }
-        });
+        try {
+            retry_op_exponential_backoff_timeout<void>(
+              std::chrono::milliseconds(10), std::chrono::milliseconds(250), std::chrono::milliseconds(500), [&]() {
+                  try {
+                      auto coll = cluster_.bucket(bucket_name)->default_collection();
+                      // insure a client record document exists...
+                      create_client_record(coll);
+                      // now, proceed to remove the client uuid if it exists
+                      config_.cleanup_hooks().client_record_before_remove_client(bucket_name);
+                      couchbase::result res;
+                      wrap_collection_call(res, [&](couchbase::result& r) {
+                          r = coll->mutate_in(CLIENT_RECORD_DOC_ID, { mutate_in_spec::remove(FIELD_CLIENTS + "." + uuid).xattr() });
+                      });
+                      lost_attempts_cleanup_log->info("removed {} from {}", uuid, bucket_name);
+                  } catch (const tx::client_error& e) {
+                      lost_attempts_cleanup_log->trace("error removing client records {}", e.what());
+                      auto ec = e.ec();
+                      switch (ec) {
+                          case FAIL_DOC_NOT_FOUND:
+                              lost_attempts_cleanup_log->trace("no client record in {}, ignoring", bucket_name);
+                              return;
+                          case FAIL_PATH_NOT_FOUND:
+                              lost_attempts_cleanup_log->trace("client {} not in client record for {}, ignoring", uuid, bucket_name);
+                              return;
+                          default:
+                              throw retry_operation("retry remove until timeout");
+                      }
+                  }
+              });
+        } catch (const std::exception& e) {
+            lost_attempts_cleanup_log->error("Error removing client record {} from bucket {}", uuid, bucket_name);
+        }
     }
 }
 
@@ -359,6 +378,7 @@ tx::transactions_cleanup::lost_attempts_loop()
             interruptable_wait(config_.cleanup_window());
         }
     }
+    remove_client_record_from_all_buckets(client_uuid_);
 }
 
 const tx::atr_cleanup_stats

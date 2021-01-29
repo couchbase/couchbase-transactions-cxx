@@ -12,17 +12,17 @@
 
 namespace cb = couchbase;
 
-struct cb::InstancePoolEventCounter {
+struct cb::instance_pool_event_counter {
     // needed for access to the bucket_counters map
     std::mutex mutex_;
-    cb::PoolEventCounter<lcb_st*> cluster_counter;
-    std::map<std::string, cb::PoolEventCounter<lcb_st*>> bucket_counters;
+    cb::pool_event_counter<lcb_st*> cluster_counter;
+    std::map<std::string, cb::pool_event_counter<lcb_st*>> bucket_counters;
 
     // since insertion will not invalidate iterators in a map, this reference
     // is safe to use outside the lock.  A lock is only needed to prevent a reader
     // of this structure from racing a writer (this cluster object) in the creation
     // and insertion.
-    cb::PoolEventCounter<lcb_st*>& bucket(const std::string& name)
+    cb::pool_event_counter<lcb_st*>& bucket(const std::string& name)
     {
         std::unique_lock<std::mutex> lock(mutex_);
         return bucket_counters[name];
@@ -79,19 +79,19 @@ cb::cluster::cluster(std::string cluster_address,
                      std::string user_name,
                      std::string password,
                      const cluster_options& opts,
-                     InstancePoolEventCounter* event_counter)
+                     instance_pool_event_counter* event_counter)
   : cluster_address_(std::move(cluster_address))
   , user_name_(std::move(user_name))
   , password_(std::move(password))
   , max_bucket_instances_(opts.max_bucket_instances())
   , event_counter_(event_counter)
 {
-    instance_pool_ = std::unique_ptr<Pool<lcb_st*>>(
-      new Pool<lcb_st*>(opts.max_instances(), [&] { return connect(cluster_address_, user_name_, password_); }, shutdown));
+    instance_pool_ = std::unique_ptr<pool<lcb_st*>>(
+      new pool<lcb_st*>(opts.max_instances(), [&] { return connect(cluster_address_, user_name_, password_); }, shutdown));
     cb::client_log->info("couchbase client library {} attempting to connect to {}", VERSION_STR, cluster_address_);
 
     if (nullptr != event_counter_) {
-        instance_pool_->set_event_handler([&](PoolEvent e, lcb_st* const t) { event_counter_->cluster_counter.handler(e, t); });
+        instance_pool_->set_event_handler([&](pool_event e, lcb_st* const t) { event_counter_->cluster_counter.handler(e, t); });
     }
 
     // TODO: ponder this - should we connect _now_, or wait until first use?
@@ -136,7 +136,7 @@ cb::cluster::bucket(const std::string& name)
         auto bucket_pool = instance_pool_->clone(max_bucket_instances_);
         if (event_counter_) {
             auto& ev = event_counter_->bucket(name);
-            bucket_pool->set_event_handler([&ev](PoolEvent e, lcb_st* const t) { ev.handler(e, t); });
+            bucket_pool->set_event_handler([&ev](pool_event e, lcb_st* const t) { ev.handler(e, t); });
         }
         instance_pool_->swap_available(*bucket_pool, true);
         // create the bucket, push into the bucket list...

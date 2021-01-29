@@ -16,11 +16,12 @@
 #pragma once
 #include <couchbase/client/result.hxx>
 
+#include "exceptions_internal.hxx"
 #include <chrono>
 #include <functional>
+#include <limits>
+#include <random>
 #include <thread>
-
-#include "exceptions_internal.hxx"
 
 namespace couchbase
 {
@@ -48,28 +49,87 @@ namespace transactions
         }
     }
 
-    static const std::chrono::milliseconds DEFAULT_RETRY_OP_DELAY = std::chrono::milliseconds(50);
-    static const std::chrono::milliseconds DEFAULT_RETRY_OP_TIMEOUT = std::chrono::milliseconds(500);
+    static const std::chrono::milliseconds DEFAULT_RETRY_OP_DELAY = std::chrono::milliseconds(3);
+    static const std::chrono::milliseconds DEFAULT_RETRY_OP_EXP_DELAY = std::chrono::milliseconds(1);
+    static const size_t DEFAULT_RETRY_OP_MAX_RETRIES = 100;
+    static const double RETRY_OP_JITTER = 0.1; // means +/- 10% for jitter.
 
-    template<typename R>
-    R retry_op(std::function<R()> func)
+    static double jitter()
     {
-        auto end_time = std::chrono::system_clock::now() + DEFAULT_RETRY_OP_TIMEOUT;
+        static std::random_device rd;
+        static std::mt19937 gen(rd());
+        static std::uniform_real_distribution<> dist(1 - RETRY_OP_JITTER, 1 + RETRY_OP_JITTER);
 
+        return dist(gen);
+    }
+
+    template<typename R, typename R1, typename P1, typename R2, typename P2, typename R3, typename P3>
+    R retry_op_exponential_backoff_timeout(std::chrono::duration<R1, P1> initial_delay,
+                                           std::chrono::duration<R2, P2> max_delay,
+                                           std::chrono::duration<R3, P3> timeout,
+                                           std::function<R()> func)
+    {
+        auto end_time = std::chrono::system_clock::now() + timeout;
+        uint32_t retries = 0;
         while (std::chrono::system_clock::now() < end_time) {
             try {
                 return func();
             } catch (const retry_operation& e) {
                 auto now = std::chrono::system_clock::now();
-                if (now + DEFAULT_RETRY_OP_DELAY > end_time) {
+                if (now > end_time) {
+                    break;
+                }
+                auto delay = initial_delay * (jitter() * pow(2, retries));
+                if (delay > max_delay) {
+                    delay = max_delay;
+                }
+                if (now + delay > end_time) {
                     std::this_thread::sleep_for(end_time - now);
                 } else {
-                    std::this_thread::sleep_for(DEFAULT_RETRY_OP_DELAY);
+                    std::this_thread::sleep_for(delay);
                 }
             }
         }
-        return R{};
+        throw retry_operation_timeout("timed out");
     }
 
+    template<typename R, typename Rep, typename Period>
+    R retry_op_exponential_backoff(std::chrono::duration<Rep, Period> delay, size_t max_retries, std::function<R()> func)
+    {
+        for (size_t retries = 0; retries < max_retries; retries++) {
+            try {
+                return func();
+            } catch (const retry_operation& e) {
+                // 2^7 = 128, so max delay fixed at 128 * delay
+                std::this_thread::sleep_for(delay * (jitter() * pow(2, fmax(7, retries))));
+            }
+        }
+        throw retry_operation_retries_exhausted("retry_op hit max retries!");
+    }
+
+    template<typename R>
+    R retry_op_exp(std::function<R()> func)
+    {
+        return retry_op_exponential_backoff<R>(DEFAULT_RETRY_OP_EXP_DELAY, DEFAULT_RETRY_OP_MAX_RETRIES, func);
+    }
+
+    template<typename R, typename Rep, typename Period>
+    R retry_op_constant_delay(std::chrono::duration<Rep, Period> delay, size_t max_retries, std::function<R()> func)
+    {
+        for (size_t retries = 0; retries < max_retries; retries++) {
+            try {
+                return func();
+            } catch (const retry_operation& e) {
+                std::this_thread::sleep_for(delay);
+            }
+        }
+        throw retry_operation_retries_exhausted("retry_op hit max retries!");
+    }
+
+    template<typename R>
+    R retry_op(std::function<R()> func)
+    {
+        return retry_op_constant_delay<R>(DEFAULT_RETRY_OP_DELAY, std::numeric_limits<size_t>::max(), func);
+    }
 } // namespace transactions
 } // namespace couchbase

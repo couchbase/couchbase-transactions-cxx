@@ -8,7 +8,32 @@ namespace couchbase
 {
 namespace transactions
 {
+    class retry_operation : public std::runtime_error
+    {
+      public:
+        retry_operation(const std::string& what)
+          : std::runtime_error(what)
+        {
+        }
+    };
 
+    class retry_operation_timeout : public std::runtime_error
+    {
+      public:
+        retry_operation_timeout(const std::string& what)
+          : std::runtime_error(what)
+        {
+        }
+    };
+
+    class retry_operation_retries_exhausted : public std::runtime_error
+    {
+      public:
+        retry_operation_retries_exhausted(const std::string& what)
+          : std::runtime_error(what)
+        {
+        }
+    };
     enum error_class {
         FAIL_HARD = 0,
         FAIL_OTHER,

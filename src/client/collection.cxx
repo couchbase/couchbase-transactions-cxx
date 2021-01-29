@@ -184,7 +184,7 @@ couchbase::store_impl(couchbase::collection* collection,
                       uint64_t cas,
                       couchbase::durability_level level)
 {
-    return collection->pool()->wrap_access<result>([&](lcb_st* lcb) -> result {
+    return collection->instance_pool()->wrap_access<result>([&](lcb_st* lcb) -> result {
         lcb_CMDSTORE* cmd = nullptr;
         lcb_STORE_OPERATION storeop = convert_operation(op);
         lcb_cmdstore_create(&cmd, storeop);
@@ -376,8 +376,10 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
             lcb_wait(lcb, LCB_WAIT_DEFAULT);
             // HACK!  LCB return LCB_ERR_DOCUMENT_EXISTS when it should return
             // LCB_ERR_CAS_MISMATCH, for mutate_in.  For now, hack in a fix till LCB
-            // is fixed (CCBC-1323)
-            if (res.rc == LCB_ERR_DOCUMENT_EXISTS) {
+            // is fixed (CCBC-1323).  However, if the semantics are insert, then the
+            // error is correct
+            if (res.rc == LCB_ERR_DOCUMENT_EXISTS &&
+                (!opts.store_semantics() || !(opts.store_semantics() == couchbase::subdoc_store_semantics::insert))) {
                 res.rc = LCB_ERR_CAS_MISMATCH;
             }
             res.ignore_subdoc_errors = false;

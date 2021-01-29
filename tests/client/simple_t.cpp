@@ -2,7 +2,7 @@
 #include <cstdio>
 #include <memory>
 
-#include "../../src/client/cluster.cxx" // to get the private InstancePoolEventCounter
+#include "../../src/client/cluster.cxx" // to get the private instance_pool_event_counter
 #include "client_env.h"
 #include <couchbase/client/cluster.hxx>
 #include <couchbase/client/collection.hxx>
@@ -92,7 +92,7 @@ TEST(SimpleClientClusterTests, CachesBuckets)
 
 TEST(SimpleClientClusterTests, CreateDestroyEvents)
 {
-    InstancePoolEventCounter ev;
+    instance_pool_event_counter ev;
     auto conf = ClientTestEnvironment::get_conf();
     {
         auto c = std::make_shared<cluster>(conf["connection_string"], conf["username"], conf["password"], cluster_options(), &ev);

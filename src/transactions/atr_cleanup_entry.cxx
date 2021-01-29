@@ -89,7 +89,7 @@ tx::atr_cleanup_entry::atr_cleanup_entry(attempt_context& ctx)
 void
 tx::atr_cleanup_entry::clean(std::shared_ptr<spdlog::logger> logger, transactions_cleanup_attempt* result)
 {
-    logger->info("cleaning {}", *this);
+    logger->trace("cleaning {}", *this);
     // get atr entry if needed
     atr_entry entry;
     if (nullptr == atr_entry_) {
@@ -117,7 +117,7 @@ void
 tx::atr_cleanup_entry::check_atr_and_cleanup(std::shared_ptr<spdlog::logger> logger, transactions_cleanup_attempt* result)
 {
     if (check_if_expired_ && !atr_entry_->has_expired(safety_margin_ms_)) {
-        logger->info("{} not expired, nothing to clean", *this);
+        logger->trace("{} not expired, nothing to clean", *this);
         return;
     }
     if (result) {
@@ -128,7 +128,6 @@ tx::atr_cleanup_entry::check_atr_and_cleanup(std::shared_ptr<spdlog::logger> log
     cleanup_->config().cleanup_hooks().on_cleanup_docs_completed();
     cleanup_entry(logger);
     cleanup_->config().cleanup_hooks().on_cleanup_completed();
-    logger->info("cleaned {}", *this);
     return;
 }
 
@@ -184,7 +183,7 @@ tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
                 logger->trace("cannot create a transaction document from {}, ignoring", res);
                 continue;
             }
-            transaction_document doc = transaction_document::create_from(*collection, dr.id(), res, transaction_document_status::NORMAL);
+            transaction_document doc = transaction_document::create_from(*collection, dr.id(), res);
             // now lets decide if we call the function or not
             if (!(doc.links().has_staged_content() || doc.links().is_document_being_removed()) || !doc.links().has_staged_write()) {
                 logger->trace("document {} has no staged content - assuming it was "
@@ -198,10 +197,10 @@ tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
             if (require_crc_to_match) {
                 if (!doc.metadata()->crc32() || !doc.links().crc32_of_staging() ||
                     doc.links().crc32_of_staging() != doc.metadata()->crc32()) {
-                    logger->info("document {} crc32 {} doesn't match staged value {}, skipping",
-                                 dr.id(),
-                                 doc.metadata()->crc32(),
-                                 doc.links().crc32_of_staging());
+                    logger->trace("document {} crc32 {} doesn't match staged value {}, skipping",
+                                  dr.id(),
+                                  doc.metadata()->crc32(),
+                                  doc.links().crc32_of_staging());
                     continue;
                 }
             }

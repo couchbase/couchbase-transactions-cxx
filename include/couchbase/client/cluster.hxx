@@ -31,10 +31,10 @@ namespace couchbase
 class bucket;
 // forward declare the internal pool class
 template<typename T>
-class Pool;
+class pool;
 
 // and the internal counter struct
-struct InstancePoolEventCounter;
+struct instance_pool_event_counter;
 
 static const size_t DEFAULT_CLUSTER_MAX_INSTANCES = 4;
 static const size_t DEFAULT_BUCKET_MAX_INSTANCES = 4;
@@ -116,8 +116,8 @@ class cluster
     std::mutex mutex_;
     size_t max_bucket_instances_;
     std::list<std::shared_ptr<class bucket>> open_buckets_;
-    std::unique_ptr<Pool<lcb_st*>> instance_pool_;
-    InstancePoolEventCounter* event_counter_;
+    std::unique_ptr<pool<lcb_st*>> instance_pool_;
+    instance_pool_event_counter* event_counter_;
 
   public:
     /**
@@ -134,7 +134,7 @@ class cluster
                      std::string user_name,
                      std::string password,
                      const cluster_options& opts = cluster_options(),
-                     InstancePoolEventCounter* = nullptr);
+                     instance_pool_event_counter* = nullptr);
     /**
      *
      * @brief Copy cluster

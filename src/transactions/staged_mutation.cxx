@@ -125,11 +125,11 @@ tx::staged_mutation_queue::rollback(attempt_context_impl& ctx)
     for (auto& item : queue_) {
         switch (item.type()) {
             case staged_mutation_type::INSERT:
-                ctx.retry_op<void>([&]() { rollback_insert(ctx, item); });
+                retry_op<void>([&]() { rollback_insert(ctx, item); });
                 break;
             case staged_mutation_type::REMOVE:
             case staged_mutation_type::REPLACE:
-                ctx.retry_op<void>([&]() { rollback_remove_or_replace(ctx, item); });
+                retry_op<void>([&]() { rollback_remove_or_replace(ctx, item); });
                 break;
         }
     }
@@ -215,80 +215,83 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx,
 void
 tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation& item, bool ambiguity_resolution_mode, bool cas_zero_mode)
 {
-    ctx.trace("commit doc {}, cas_zero_mode {}, ambiguity_resolution_mode {}", item.doc().id(), cas_zero_mode, ambiguity_resolution_mode);
-    try {
-        ctx.check_expiry_during_commit_or_rollback(STAGE_COMMIT_DOC, boost::optional<const std::string>(item.doc().id()));
-        ctx.hooks_.before_doc_committed(&ctx, item.doc().id());
+    retry_op<void>([&] {
+        ctx.trace(
+          "commit doc {}, cas_zero_mode {}, ambiguity_resolution_mode {}", item.doc().id(), cas_zero_mode, ambiguity_resolution_mode);
+        try {
+            ctx.check_expiry_during_commit_or_rollback(STAGE_COMMIT_DOC, boost::optional<const std::string>(item.doc().id()));
+            ctx.hooks_.before_doc_committed(&ctx, item.doc().id());
 
-        // move staged content into doc
-        ctx.trace("commit doc id {}, content {}, cas {}", item.doc().id(), item.content<nlohmann::json>().dump(), item.doc().cas());
-        result res;
-        if (item.type() == staged_mutation_type::INSERT && !cas_zero_mode) {
-            tx::wrap_collection_call(
-              res, [&](result& r) { r = item.doc().collection_ref().insert(item.doc().id(), item.doc().content<nlohmann::json>()); });
-        } else {
-            tx::wrap_collection_call(res, [&](result& r) {
-                r = item.doc().collection_ref().mutate_in(item.doc().id(),
-                                                          {
-                                                            mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
-                                                            mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
-                                                            mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
-                                                          },
-                                                          mutate_in_options()
-                                                            .cas(cas_zero_mode ? 0 : item.doc().cas())
-                                                            .store_semantics(subdoc_store_semantics::replace)
-                                                            .durability(attempt_context_impl::durability(ctx.config_)));
-            });
-        }
-        ctx.trace("commit doc result {}", res);
-        // TODO: mutation tokens
-        ctx.hooks_.after_doc_committed_before_saving_cas(&ctx, item.doc().id());
-        item.doc().cas(res.cas);
-        ctx.hooks_.after_doc_committed(&ctx, item.doc().id());
-    } catch (const client_error& e) {
-        error_class ec = e.ec();
-        if (ctx.expiry_overtime_mode_) {
-            throw transaction_operation_failed(FAIL_EXPIRY, "expired during commit").no_rollback().failed_post_commit();
-        }
-        switch (ec) {
-            case FAIL_AMBIGUOUS:
-                ctx.overall_.retry_delay(ctx.config_);
-                return commit_doc(ctx, item, true);
-            case FAIL_CAS_MISMATCH:
-            case FAIL_DOC_ALREADY_EXISTS:
-                if (ambiguity_resolution_mode) {
+            // move staged content into doc
+            ctx.trace("commit doc id {}, content {}, cas {}", item.doc().id(), item.content<nlohmann::json>().dump(), item.doc().cas());
+            result res;
+            if (item.type() == staged_mutation_type::INSERT && !cas_zero_mode) {
+                tx::wrap_collection_call(
+                  res, [&](result& r) { r = item.doc().collection_ref().insert(item.doc().id(), item.doc().content<nlohmann::json>()); });
+            } else {
+                tx::wrap_collection_call(res, [&](result& r) {
+                    r = item.doc().collection_ref().mutate_in(item.doc().id(),
+                                                              {
+                                                                mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
+                                                                mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
+                                                                mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
+                                                              },
+                                                              mutate_in_options()
+                                                                .cas(cas_zero_mode ? 0 : item.doc().cas())
+                                                                .store_semantics(subdoc_store_semantics::replace)
+                                                                .durability(attempt_context_impl::durability(ctx.config_)));
+                });
+            }
+            ctx.trace("commit doc result {}", res);
+            // TODO: mutation tokens
+            ctx.hooks_.after_doc_committed_before_saving_cas(&ctx, item.doc().id());
+            item.doc().cas(res.cas);
+            ctx.hooks_.after_doc_committed(&ctx, item.doc().id());
+        } catch (const client_error& e) {
+            error_class ec = e.ec();
+            if (ctx.expiry_overtime_mode_) {
+                throw transaction_operation_failed(FAIL_EXPIRY, "expired during commit").no_rollback().failed_post_commit();
+            }
+            switch (ec) {
+                case FAIL_AMBIGUOUS:
+                    ambiguity_resolution_mode = true;
+                    throw retry_operation("FAIL_AMBIGUOUS in commit_doc");
+                case FAIL_CAS_MISMATCH:
+                case FAIL_DOC_ALREADY_EXISTS:
+                    if (ambiguity_resolution_mode) {
+                        throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
+                    }
+                    ambiguity_resolution_mode = true;
+                    cas_zero_mode = true;
+                    throw retry_operation("FAIL_DOC_ALREADY_EXISTS in commit_doc");
+                default:
                     throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
-                }
-                ctx.overall_.retry_delay(ctx.config_);
-                return commit_doc(ctx, item, true, true);
-            default:
-                throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
+            }
         }
-    }
+    });
 }
 
 void
 tx::staged_mutation_queue::remove_doc(attempt_context_impl& ctx, staged_mutation& item)
 {
-    try {
-        ctx.check_expiry_during_commit_or_rollback(STAGE_REMOVE_DOC, boost::optional<const std::string>(item.doc().id()));
-        ctx.hooks_.before_doc_removed(&ctx, item.doc().id());
-        result res;
-        tx::wrap_collection_call(res, [&](result& r) { r = item.doc().collection_ref().remove(item.doc().id()); });
-        ctx.hooks_.after_doc_removed_pre_retry(&ctx, item.doc().id());
-        // TODO:mutation tokens
-    } catch (const client_error& e) {
-        error_class ec = e.ec();
-        if (ctx.expiry_overtime_mode_) {
-            // TODO new final exception type expired_post_commit
-            throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
-        }
-        switch (ec) {
-            case FAIL_AMBIGUOUS:
-                ctx.overall_.retry_delay(ctx.config_);
-                return remove_doc(ctx, item);
-            default:
+    retry_op<void>([&] {
+        try {
+            ctx.check_expiry_during_commit_or_rollback(STAGE_REMOVE_DOC, boost::optional<const std::string>(item.doc().id()));
+            ctx.hooks_.before_doc_removed(&ctx, item.doc().id());
+            result res;
+            tx::wrap_collection_call(res, [&](result& r) { r = item.doc().collection_ref().remove(item.doc().id()); });
+            ctx.hooks_.after_doc_removed_pre_retry(&ctx, item.doc().id());
+        } catch (const client_error& e) {
+            error_class ec = e.ec();
+            if (ctx.expiry_overtime_mode_) {
                 throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
+            }
+            switch (ec) {
+                case FAIL_AMBIGUOUS:
+                    throw retry_operation("remove_doc got FAIL_AMBIGUOUS");
+                default:
+                    throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
+            }
         }
-    }
+    });
 }
