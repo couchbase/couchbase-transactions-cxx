@@ -161,7 +161,6 @@ namespace transactions
                         existing_insert->doc().cas(out.cas());
                     } else {
                         staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::REPLACE));
-                        add_mutation_token();
                     }
                     return out;
                 } catch (const client_error& e) {
@@ -346,7 +345,6 @@ namespace transactions
                 hooks_.after_staged_remove_complete(this, document.id());
                 document.cas(res.cas);
                 staged_mutations_->add(staged_mutation(document, "", staged_mutation_type::REMOVE));
-                add_mutation_token();
             } catch (const client_error& e) {
                 error_class ec = e.ec();
                 switch (ec) {
@@ -959,7 +957,6 @@ namespace transactions
                                     true);
             transaction_document out(id, content, res.cas, *collection, links, boost::none);
             staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::INSERT));
-            add_mutation_token();
             return out;
         } catch (const client_error& e) {
             error_class ec = e.ec();

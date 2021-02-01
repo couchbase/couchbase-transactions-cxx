@@ -21,7 +21,7 @@
 #include <thread>
 #include <vector>
 
-#include <couchbase/transactions/transaction_attempt.hxx>
+#include "transaction_attempt.hxx"
 #include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transaction_result.hxx>
 
@@ -94,9 +94,7 @@ namespace transactions
 
         CB_NODISCARD transaction_result get_transaction_result() const
         {
-            return transaction_result{
-                transaction_id(), atr_id(), atr_collection(), attempts(), current_attempt().state == attempt_state::COMPLETED
-            };
+            return transaction_result{ transaction_id(), atr_id(), atr_collection(), current_attempt().state == attempt_state::COMPLETED };
         }
 
       private:

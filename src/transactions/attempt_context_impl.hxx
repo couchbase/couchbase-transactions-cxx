@@ -123,11 +123,6 @@ namespace transactions
             overall_.current_attempt().state = s;
         }
 
-        void add_mutation_token()
-        {
-            overall_.current_attempt().add_mutation_token();
-        }
-
         CB_NODISCARD const std::string atr_id()
         {
             return overall_.atr_id();

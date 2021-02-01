@@ -24,18 +24,10 @@ namespace couchbase
 {
 namespace transactions
 {
-    struct mutation_token {
-        // Currently empty - tests only check for its existence.  That makes you wonder
-        // why it is here at all, even just for testing, but there you go.   TODO: review
-        // why/if it is actually needed.
-    };
-
     struct transaction_attempt {
         std::string id;
         attempt_state state;
-        std::vector<mutation_token> mutation_tokens;
         transaction_attempt();
-        void add_mutation_token();
     };
 } // namespace transactions
 } // namespace couchbase

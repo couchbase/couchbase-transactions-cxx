@@ -1,7 +1,6 @@
 #pragma once
 
-#include <couchbase/transactions/transaction_attempt.hxx>
-#include <vector>
+#include <string>
 
 namespace couchbase
 {
@@ -11,7 +10,6 @@ namespace transactions
         std::string transaction_id;
         std::string atr_id;
         std::string atr_collection;
-        std::vector<transaction_attempt> attempts;
         bool unstaging_complete;
     };
 } // namespace transactions
