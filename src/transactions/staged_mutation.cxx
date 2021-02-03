@@ -145,8 +145,8 @@ tx::staged_mutation_queue::rollback_insert(attempt_context_impl& ctx, staged_mut
         std::vector<mutate_in_spec> specs({ mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() });
         result res;
         tx::wrap_collection_call(res, [&](result& r) {
-            r =
-              item.doc().collection_ref().mutate_in(item.doc().id(), specs, mutate_in_options().access_deleted(true).cas(item.doc().cas()));
+            r = item.doc().collection_ref().mutate_in(
+              item.doc().id(), specs, wrap_option(mutate_in_options(), ctx.config_).access_deleted(true).cas(item.doc().cas()));
         });
         ctx.trace("rollback result {}", res);
         ctx.hooks_.after_rollback_delete_inserted(&ctx, item.doc().id());
@@ -186,7 +186,8 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx,
         std::vector<mutate_in_spec> specs({ mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() });
         result res;
         tx::wrap_collection_call(res, [&](result& r) {
-            r = item.doc().collection_ref().mutate_in(item.doc().id(), specs, mutate_in_options().cas(item.doc().cas()));
+            r = item.doc().collection_ref().mutate_in(
+              item.doc().id(), specs, wrap_option(mutate_in_options(), ctx.config_).cas(item.doc().cas()));
         });
         ctx.trace("rollback result {}", res);
         ctx.hooks_.after_rollback_replace_or_remove(&ctx, item.doc().id());
@@ -236,10 +237,9 @@ tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation
                                                                 mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
                                                                 mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
                                                               },
-                                                              mutate_in_options()
+                                                              wrap_option(mutate_in_options(), ctx.config_)
                                                                 .cas(cas_zero_mode ? 0 : item.doc().cas())
-                                                                .store_semantics(subdoc_store_semantics::replace)
-                                                                .durability(attempt_context_impl::durability(ctx.config_)));
+                                                                .store_semantics(subdoc_store_semantics::replace));
                 });
             }
             ctx.trace("commit doc result {}", res);

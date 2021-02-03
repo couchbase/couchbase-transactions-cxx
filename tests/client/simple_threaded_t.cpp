@@ -61,8 +61,10 @@ TEST(ThreadedClusterTests, CanOpenMultipleBuckets)
         threads.emplace_back([&]() {
             // secBucket expected for fit tests, so expect it here, in addition
             // to default bucket.
-            ASSERT_EQ(c->bucket("default"), default_bucket);
-            ASSERT_EQ(c->bucket("secBucket"), sec_bucket);
+            EXPECT_NO_THROW({
+                ASSERT_EQ(c->bucket("default"), default_bucket);
+                ASSERT_EQ(c->bucket("secBucket"), sec_bucket);
+            });
         });
     }
     for (auto& t : threads) {
@@ -87,17 +89,19 @@ TEST(ThreadedClusterTests, CanOpenBucketAndUse)
     auto id = ClientTestEnvironment::get_uuid();
     for (int i = 0; i < NUM_ITERATIONS; i++) {
         threads.emplace_back([&]() {
-            auto coll = c->bucket("secBucket")->default_collection();
-            if (!coll->exists(id).value->get<bool>()) {
-                if (coll->insert(id, content).is_success()) {
-                    return;
+            EXPECT_NO_THROW({
+                auto coll = c->bucket("secBucket")->default_collection();
+                if (!coll->exists(id).value->get<bool>()) {
+                    if (coll->insert(id, content).is_success()) {
+                        return;
+                    }
                 }
-            }
-            auto get_res = coll->get(id);
-            auto new_content = get_res.value->get<nlohmann::json>();
-            new_content["another num"] = ++counter;
-            auto upsert_res = coll->upsert(id, content);
-            ASSERT_TRUE(upsert_res.is_success());
+                auto get_res = coll->get(id);
+                auto new_content = get_res.value->get<nlohmann::json>();
+                new_content["another num"] = ++counter;
+                auto upsert_res = coll->upsert(id, content);
+                ASSERT_TRUE(upsert_res.is_success());
+            });
         });
     }
     for (auto& t : threads) {
@@ -119,14 +123,16 @@ TEST(ThreadedCollectionTests, CanUseMultipleBuckets)
     const auto id = ClientTestEnvironment::get_uuid();
     for (int i = 0; i < NUM_THREADS; i++) {
         threads.emplace_back([&]() {
-            for (int j = 0; j < NUM_ITERATIONS; j++) {
-                auto new_content = content;
-                new_content["new thing"] = ++counter;
-                auto res = c1->upsert(id, new_content);
-                ASSERT_TRUE(res.is_success());
-                auto res2 = c2->upsert(id, new_content);
-                ASSERT_TRUE(res2.is_success());
-            }
+            EXPECT_NO_THROW({
+                for (int j = 0; j < NUM_ITERATIONS; j++) {
+                    auto new_content = content;
+                    new_content["new thing"] = ++counter;
+                    auto res = c1->upsert(id, new_content);
+                    ASSERT_TRUE(res.is_success());
+                    auto res2 = c2->upsert(id, new_content);
+                    ASSERT_TRUE(res2.is_success());
+                }
+            });
         });
     }
     for (auto& t : threads) {
@@ -157,12 +163,14 @@ TEST(ThreadedCollectionTests, CanGetAndUpsert)
     std::vector<std::thread> threads;
     for (int i = 0; i < NUM_THREADS; i++) {
         threads.emplace_back([&]() {
-            for (int j = 0; j < NUM_ITERATIONS; j++) {
-                auto res = coll->get(id);
-                auto val = res.value->get<nlohmann::json>();
-                val["another_num"] = ++counter;
-                auto res2 = coll->upsert(id, val);
-            }
+            EXPECT_NO_THROW({
+                for (int j = 0; j < NUM_ITERATIONS; j++) {
+                    auto res = coll->get(id);
+                    auto val = res.value->get<nlohmann::json>();
+                    val["another_num"] = ++counter;
+                    auto res2 = coll->upsert(id, val);
+                }
+            });
         });
     }
     for (auto& t : threads) {

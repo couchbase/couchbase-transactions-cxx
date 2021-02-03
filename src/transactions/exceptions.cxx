@@ -50,8 +50,6 @@ namespace transactions
                 return FAIL_PATH_ALREADY_EXISTS;
             case LCB_ERR_CAS_MISMATCH:
                 return FAIL_CAS_MISMATCH;
-            case LCB_ERR_TIMEOUT:
-                return FAIL_EXPIRY;
             case LCB_ERR_VALUE_TOO_LARGE:
                 return FAIL_ATR_FULL;
             case LCB_ERR_UNAMBIGUOUS_TIMEOUT:

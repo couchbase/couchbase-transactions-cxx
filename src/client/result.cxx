@@ -26,6 +26,12 @@ couchbase::result::is_value_too_large() const
     return rc == LCB_ERR_VALUE_TOO_LARGE;
 }
 
+bool
+couchbase::result::is_timeout() const
+{
+    return rc == LCB_ERR_TIMEOUT;
+}
+
 uint32_t
 couchbase::result::error() const
 {

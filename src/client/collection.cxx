@@ -241,6 +241,10 @@ couchbase::collection::get(const std::string& id, const get_options& opts)
             // does a 'get and touch'
             lcb_cmdget_expiry(cmd, *opts.expiry());
         }
+        if (opts.timeout()) {
+            client_log->trace("setting timeout to {}", opts.timeout()->count());
+            lcb_cmdget_timeout(cmd, opts.timeout()->count());
+        }
         lcb_STATUS rc;
         return bucket_.lock()->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
             result res;
@@ -264,6 +268,9 @@ couchbase::collection::exists(const std::string& id, const exists_options& opts)
         lcb_cmdexists_key(cmd, id.data(), id.size());
         lcb_cmdexists_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
         lcb_STATUS rc;
+        if (opts.timeout()) {
+            lcb_cmdexists_timeout(cmd, opts.timeout()->count());
+        }
         return bucket_.lock()->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
             result res;
             rc = lcb_exists(lcb, reinterpret_cast<void*>(&res), cmd);
@@ -282,6 +289,10 @@ couchbase::collection::remove(const std::string& id, const remove_options& opts)
 {
     return wrap_call_for_retry([&]() -> result {
         lcb_CMDREMOVE* cmd;
+        lcb_cmdremove_create(&cmd);
+        if (opts.timeout()) {
+            lcb_cmdremove_timeout(cmd, opts.timeout()->count());
+        }
         lcb_cmdremove_create(&cmd);
         lcb_cmdremove_key(cmd, id.data(), id.size());
         if (opts.cas()) {
@@ -311,6 +322,9 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
     return wrap_call_for_retry([&]() -> result {
         lcb_CMDSUBDOC* cmd;
         lcb_cmdsubdoc_create(&cmd);
+        if (opts.timeout()) {
+            lcb_cmdsubdoc_timeout(cmd, opts.timeout()->count());
+        }
         lcb_cmdsubdoc_key(cmd, id.data(), id.size());
         lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
         uint64_t cas = opts.cas().value_or(0);
@@ -395,6 +409,9 @@ couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_sp
     return wrap_call_for_retry([&]() -> result {
         lcb_CMDSUBDOC* cmd;
         lcb_cmdsubdoc_create(&cmd);
+        if (opts.timeout()) {
+            lcb_cmdsubdoc_timeout(cmd, opts.timeout()->count());
+        }
         lcb_cmdsubdoc_key(cmd, id.data(), id.size());
         lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
         if (opts.access_deleted()) {

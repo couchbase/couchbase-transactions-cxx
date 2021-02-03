@@ -136,12 +136,10 @@ namespace transactions
                     hooks_.before_staged_replace(this, document.id());
                     trace("about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
                     wrap_collection_call(res, [&](couchbase::result& r) {
-                        r = collection->mutate_in(document.id(),
-                                                  specs,
-                                                  mutate_in_options()
-                                                    .cas(document.cas())
-                                                    .access_deleted(document.links().is_deleted())
-                                                    .durability(durability(config_)));
+                        r = collection->mutate_in(
+                          document.id(),
+                          specs,
+                          wrap_option(mutate_in_options(), config_).cas(document.cas()).access_deleted(document.links().is_deleted()));
                     });
                     hooks_.after_staged_replace_complete(this, document.id());
                     transaction_document out = document;
@@ -334,12 +332,10 @@ namespace transactions
                 }
                 result res;
                 wrap_collection_call(res, [&](result& r) {
-                    r = collection->mutate_in(document.id(),
-                                              specs,
-                                              mutate_in_options()
-                                                .durability(durability(config_))
-                                                .access_deleted(document.links().is_deleted())
-                                                .cas(document.cas()));
+                    r = collection->mutate_in(
+                      document.id(),
+                      specs,
+                      wrap_option(mutate_in_options(), config_).access_deleted(document.links().is_deleted()).cas(document.cas()));
                 });
                 info("removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
                 hooks_.after_staged_remove_complete(this, document.id());
@@ -380,7 +376,8 @@ namespace transactions
             hooks_.before_atr_commit(this);
             staged_mutations_->extract_to(prefix, specs);
             result res;
-            wrap_collection_call(res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
+            wrap_collection_call(
+              res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs, wrap_option(mutate_in_options(), config_)); });
             hooks_.after_atr_commit(this);
             state(attempt_state::COMMITTED);
         } catch (const client_error& e) {
@@ -460,7 +457,9 @@ namespace transactions
               mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMPLETED)).xattr(),
               mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
             });
-            wrap_collection_call(atr_res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
+            wrap_collection_call(atr_res, [&](result& r) {
+                r = atr_collection_->mutate_in(atr_id_.value(), specs, wrap_option(mutate_in_options(), config_));
+            });
             trace("setting attempt state COMPLETED for attempt {}", atr_id_.value());
             hooks_.after_atr_complete(this);
             state(attempt_state::COMPLETED);
@@ -520,7 +519,8 @@ namespace transactions
             staged_mutations_->extract_to(prefix, specs);
             hooks_.before_atr_aborted(this);
             result res;
-            wrap_collection_call(res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
+            wrap_collection_call(
+              res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs, wrap_option(mutate_in_options(), config_)); });
             state(attempt_state::ABORTED);
             hooks_.after_atr_aborted(this);
             trace("rollback completed atr abort phase");
@@ -562,7 +562,9 @@ namespace transactions
               mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
             });
             result atr_res;
-            wrap_collection_call(atr_res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs); });
+            wrap_collection_call(atr_res, [&](result& r) {
+                r = atr_collection_->mutate_in(atr_id_.value(), specs, wrap_option(mutate_in_options(), config_));
+            });
             state(attempt_state::ROLLED_BACK);
             hooks_.after_atr_rolled_back(this);
             is_done_ = true;
@@ -652,7 +654,7 @@ namespace transactions
             // [EXP-ROLLBACK] Combo of setting this mode and throwing AttemptExpired will result in a attempt to rollback, which will
             // ignore expiries, and bail out if anything fails
             expiry_overtime_mode_ = true;
-            throw client_error(FAIL_EXPIRY, std::string("Attempt has expired in stage ") + stage);
+            throw attempt_expired(std::string("Attempt has expired in stage ") + stage);
         }
     }
 
@@ -664,7 +666,7 @@ namespace transactions
         }
         if (has_expired_client_side(stage, std::move(doc_id))) {
             trace("expired in {}", stage);
-            throw client_error(FAIL_EXPIRY, std::string("Expired in ") + stage);
+            throw attempt_expired(std::string("Expired in ") + stage);
         }
     }
 
@@ -703,7 +705,7 @@ namespace transactions
                         mutate_in_spec::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
                                                std::chrono::duration_cast<std::chrono::milliseconds>(config_.expiration_time()).count())
                           .xattr() },
-                      mutate_in_options().durability(durability(config_)).store_semantics(couchbase::subdoc_store_semantics::upsert));
+                      wrap_option(mutate_in_options(), config_).store_semantics(couchbase::subdoc_store_semantics::upsert));
                 });
                 info("set ATR {}/{}/{} to Pending, got CAS (start time) {}",
                      collection->bucket_name(),
@@ -935,7 +937,7 @@ namespace transactions
                     mutate_in_spec::upsert(TYPE, "insert").create_path().xattr(),
                     mutate_in_spec::upsert(CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C).create_path().xattr().expand_macro(),
                   },
-                  mutate_in_options().durability(durability(config_)).access_deleted(true).create_as_deleted(true).cas(cas));
+                  wrap_option(mutate_in_options(), config_).access_deleted(true).create_as_deleted(true).cas(cas));
             });
             info("inserted doc {} CAS={}, rc={}", id, res.cas, res.strerror());
             hooks_.after_staged_insert_complete(this, id);

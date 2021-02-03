@@ -222,5 +222,15 @@ class collection
         return bucket_.lock();
     }
 
+    /**
+     * @brief Return default timeout for the kv operations
+     *
+     * @return Default kv timeout.  @see cluster_options::kv_timeout for setting this,
+     * and @see common_options::timeout to use a different timeout on an operation.
+     */
+    CB_NODISCARD std::chrono::microseconds default_kv_timeout() const
+    {
+        return bucket_.lock()->default_kv_timeout();
+    }
 };
 } // namespace couchbase

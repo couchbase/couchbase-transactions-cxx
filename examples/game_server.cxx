@@ -161,7 +161,7 @@ class GameServer
 int
 main(int argc, const char* argv[])
 {
-    string cluster_address = "couchbase://10.143.210.101";
+    string cluster_address = "couchbase://127.0.0.1";
     string user_name = "Administrator";
     string password = "password";
     string bucket_name = "default";
@@ -175,7 +175,7 @@ main(int argc, const char* argv[])
     Player player_data{ 14248, 23832, "player", 141, true, "Jane", make_uuid() };
 
     string monster_id = "a_grue";
-    Monster monster_data{ 91, 4000, 0.19239324085462631, "monster", "Grue", make_uuid() };
+    Monster monster_data{ 91, 400000, 0.19239324085462631, "monster", "Grue", make_uuid() };
 
     collection->upsert(player_id, player_data);
     cout << "Upserted sample player document: " << player_id << endl;
@@ -190,7 +190,7 @@ main(int argc, const char* argv[])
     bool monster_exists = true;
     while (monster_exists) {
         cout << "Monster exists -- lets hit it!" << endl;
-        game_server.player_hits_monster(make_uuid(), rand() % 8000, player_id, monster_id);
+        game_server.player_hits_monster(make_uuid(), rand() % 80, player_id, monster_id);
         auto result = collection->get(monster_id);
         monster_exists = result.is_success();
     }

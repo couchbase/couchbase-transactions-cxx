@@ -95,7 +95,8 @@ TEST(SimpleClientClusterTests, CreateDestroyEvents)
     instance_pool_event_counter ev;
     auto conf = ClientTestEnvironment::get_conf();
     {
-        auto c = std::make_shared<cluster>(conf["connection_string"], conf["username"], conf["password"], cluster_options(), &ev);
+        auto c =
+          std::make_shared<cluster>(conf["connection_string"], conf["username"], conf["password"], cluster_options().event_counter(&ev));
         auto b = c->bucket("default");
     }
     ASSERT_EQ(1, ev.cluster_counter.create.load());
@@ -105,6 +106,17 @@ TEST(SimpleClientClusterTests, CreateDestroyEvents)
     ASSERT_EQ(0, ev.bucket_counters["default"].create.load());
     ASSERT_EQ(1, ev.bucket_counters["default"].destroy.load());
     ASSERT_EQ(0, ev.bucket_counters["default"].destroy_not_available.load());
+}
+
+TEST(SimpleClientClusterTests, CanGetSetKVTimeout)
+{
+    std::chrono::microseconds our_timeout(12345);
+    auto conf = ClientTestEnvironment::get_conf();
+    auto c =
+      std::make_shared<cluster>(conf["connection_string"], conf["username"], conf["password"], cluster_options().kv_timeout(our_timeout));
+    // be sure this matches what we set.  When testing cluster, we verify that the timeout is
+    // actually honored
+    ASSERT_EQ(our_timeout, c->default_kv_timeout());
 }
 
 TEST(SimpleClientBucketTests, CanGetDefaultCollection)
@@ -131,6 +143,17 @@ TEST(SimpleClientBucketTests, CachesCollections)
     ASSERT_EQ((void*)&(*coll1), (void*)&(*coll2));
 }
 
+TEST(SimpleClientBucketTests, CanGetKVTimeout)
+{
+    auto conf = ClientTestEnvironment::get_conf();
+    std::chrono::microseconds our_default(1234);
+    auto c =
+      std::make_shared<cluster>(conf["connection_string"], conf["username"], conf["password"], cluster_options().kv_timeout(our_default));
+    ASSERT_EQ(c->default_kv_timeout(), our_default);
+    auto b = c->bucket("default");
+    ASSERT_EQ(b->default_kv_timeout(), our_default);
+}
+
 class SimpleClientCollectionTests : public ::testing::Test
 {
 
@@ -154,7 +177,9 @@ class SimpleClientCollectionTests : public ::testing::Test
     void TearDown() override
     {
         spdlog::info("tearing down, removing {}", _id);
-        _coll->remove(_id);
+        if (nullptr != _coll) {
+            _coll->remove(_id);
+        }
     }
 
     std::shared_ptr<couchbase::collection> _coll;
@@ -312,6 +337,17 @@ TEST_F(SimpleClientCollectionTests, CanGetBucketNameEtc)
     ASSERT_EQ(_coll->bucket_name(), ::bucket_name);
     ASSERT_EQ(std::string("_default"), _coll->name());
     ASSERT_EQ(std::string("_default"), _coll->scope());
+}
+
+TEST_F(SimpleClientCollectionTests, CanGetKVTimeout)
+{
+    auto conf = ClientTestEnvironment::get_conf();
+    std::chrono::microseconds our_default(1234);
+    auto c =
+      std::make_shared<cluster>(conf["connection_string"], conf["username"], conf["password"], cluster_options().kv_timeout(our_default));
+    ASSERT_EQ(c->default_kv_timeout(), our_default);
+    auto coll = c->bucket("default")->default_collection();
+    ASSERT_EQ(coll->default_kv_timeout(), our_default);
 }
 
 int

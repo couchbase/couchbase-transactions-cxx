@@ -8,7 +8,7 @@ namespace transactions
 {
 
     transaction_config::transaction_config()
-      : level_(couchbase::transactions::durability_level::MAJORITY)
+      : level_(durability_level::MAJORITY)
       , cleanup_window_(std::chrono::seconds(120))
       , expiration_time_(std::chrono::seconds(15))
       , cleanup_lost_attempts_(true)

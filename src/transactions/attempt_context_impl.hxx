@@ -146,21 +146,6 @@ namespace transactions
         bool has_expired_client_side(std::string place, boost::optional<const std::string> doc_id);
 
       private:
-        static couchbase::durability_level durability(const transaction_config& config)
-        {
-            switch (config.durability_level()) {
-                case durability_level::NONE:
-                    return couchbase::durability_level::none;
-                case durability_level::MAJORITY:
-                    return couchbase::durability_level::majority;
-                case durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE:
-                    return couchbase::durability_level::majority_and_persist_to_active;
-                case durability_level::PERSIST_TO_MAJORITY:
-                    return couchbase::durability_level::persist_to_majority;
-            }
-            throw std::runtime_error("unknown durability");
-        }
-
         bool expiry_overtime_mode_{ false };
 
         void check_expiry_pre_commit(std::string stage, boost::optional<const std::string> doc_id);

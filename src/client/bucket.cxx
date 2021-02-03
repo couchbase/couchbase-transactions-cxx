@@ -81,6 +81,18 @@ cb::bucket::bucket(std::unique_ptr<pool<lcb_st*>>& instance_pool, const std::str
     }
 }
 
+std::chrono::microseconds
+cb::bucket::default_kv_timeout() const
+{
+    uint32_t op_timeout;
+    auto rv =
+      instance_pool_->wrap_access<lcb_STATUS>([&](lcb_st* lcb) { return lcb_cntl(lcb, LCB_CNTL_GET, LCB_CNTL_OP_TIMEOUT, &op_timeout); });
+    if (0 != rv) {
+        client_log->trace("error reading default kv timeout {}", lcb_strerror_short(rv));
+    }
+    return std::chrono::microseconds(op_timeout);
+}
+
 cb::bucket::~bucket()
 {
     close();

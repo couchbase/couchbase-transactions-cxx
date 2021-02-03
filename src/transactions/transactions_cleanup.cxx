@@ -191,7 +191,7 @@ tx::transactions_cleanup::create_client_record(std::shared_ptr<couchbase::collec
             r = coll->mutate_in(CLIENT_RECORD_DOC_ID,
                                 { mutate_in_spec::insert(FIELD_CLIENTS, nlohmann::json::object()).create_path().xattr(),
                                   mutate_in_spec::fulldoc_insert(std::string({ 0x00 })) },
-                                mutate_in_options().store_semantics(subdoc_store_semantics::insert));
+                                wrap_option(mutate_in_options(), config_).store_semantics(subdoc_store_semantics::insert));
         });
     } catch (const tx::client_error& e) {
         lost_attempts_cleanup_log->trace("create_client_record got error {}", e.what());
@@ -291,7 +291,9 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
                 specs.push_back(mutate_in_spec::remove(FIELD_CLIENTS + "." + details.expired_client_ids[idx]).xattr());
             }
             config_.cleanup_hooks().client_record_before_update(coll->bucket_name());
-            wrap_collection_call(res, [&](couchbase::result& r) { r = coll->mutate_in(CLIENT_RECORD_DOC_ID, specs); });
+            wrap_collection_call(res, [&](couchbase::result& r) {
+                r = coll->mutate_in(CLIENT_RECORD_DOC_ID, specs, wrap_option(mutate_in_options(), config_));
+            });
             // just update the cas, and return the details
             details.cas_now_nanos = res.cas;
             lost_attempts_cleanup_log->info("get_active_clients found {}", details);
@@ -325,7 +327,9 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
                       config_.cleanup_hooks().client_record_before_remove_client(bucket_name);
                       couchbase::result res;
                       wrap_collection_call(res, [&](couchbase::result& r) {
-                          r = coll->mutate_in(CLIENT_RECORD_DOC_ID, { mutate_in_spec::remove(FIELD_CLIENTS + "." + uuid).xattr() });
+                          r = coll->mutate_in(CLIENT_RECORD_DOC_ID,
+                                              { mutate_in_spec::remove(FIELD_CLIENTS + "." + uuid).xattr() },
+                                              wrap_option(mutate_in_options(), config_));
                       });
                       lost_attempts_cleanup_log->info("removed {} from {}", uuid, bucket_name);
                   } catch (const tx::client_error& e) {

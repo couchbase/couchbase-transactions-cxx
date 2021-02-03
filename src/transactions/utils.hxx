@@ -14,10 +14,11 @@
  *   limitations under the License.
  */
 #pragma once
-#include <couchbase/client/result.hxx>
-
 #include "exceptions_internal.hxx"
 #include <chrono>
+#include <couchbase/client/options.hxx>
+#include <couchbase/client/result.hxx>
+#include <couchbase/transactions/transaction_config.hxx>
 #include <functional>
 #include <limits>
 #include <random>
@@ -32,6 +33,36 @@ namespace transactions
     {
         std::string now_str = vbucket["HLC"]["now"];
         return stoull(now_str, nullptr, 10) * 1000000000;
+    }
+
+    static couchbase::durability_level durability(durability_level level)
+    {
+        switch (level) {
+            case durability_level::NONE:
+                return couchbase::durability_level::none;
+            case durability_level::MAJORITY:
+                return couchbase::durability_level::majority;
+            case durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE:
+                return couchbase::durability_level::majority_and_persist_to_active;
+            case durability_level::PERSIST_TO_MAJORITY:
+                return couchbase::durability_level::persist_to_majority;
+            default:
+                // mimic java here
+                return couchbase::durability_level::majority;
+        }
+    }
+
+    template<typename T>
+    T& wrap_option(T&& opt, const transaction_config& config)
+    {
+        if (config.kv_timeout()) {
+            opt.timeout(*config.kv_timeout());
+        }
+        auto durable_opt = dynamic_cast<common_mutate_options<T>*>(&opt);
+        if (nullptr != durable_opt) {
+            opt.durability(durability(config.durability_level()));
+        }
+        return opt;
     }
 
     static void wrap_collection_call(result& res, std::function<void(result&)> call)

@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <couchbase/support.hxx>
 #include <memory>
 #include <string>
@@ -114,6 +115,17 @@ class bucket : public std::enable_shared_from_this<bucket>
      */
     CB_NODISCARD size_t available_instances() const;
 
+    /**
+     * @brief return default kv timeout
+     *
+     * @return The default kv timeout.  @see cluster_options::kv_timeout for setting this,
+     * and @see common_options::timeout to use a different timeout on an operation.
+     */
+    CB_NODISCARD std::chrono::microseconds default_kv_timeout() const;
+
+    /**
+     * @brief convienence method to allow outputtng information about the bucket to an ostream or similar.
+     */
     template<typename OStream>
     friend OStream& operator<<(OStream& os, const bucket& b)
     {

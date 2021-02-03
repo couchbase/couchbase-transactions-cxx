@@ -130,6 +130,7 @@ struct result {
     CB_NODISCARD bool is_not_found() const;
     CB_NODISCARD bool is_success() const;
     CB_NODISCARD bool is_value_too_large() const;
+    CB_NODISCARD bool is_timeout() const;
     /**
      *  Get error code.  This is either the rc_, or if that is LCB_SUCCESS,
      *  then the first error in the values (if any) see @ref subdoc_results

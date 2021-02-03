@@ -54,7 +54,7 @@ class common_options
      *  Contains options common to all operations.
      */
   private:
-    boost::optional<std::chrono::milliseconds> timeout_;
+    boost::optional<std::chrono::microseconds> timeout_;
 
   public:
     /**
@@ -64,7 +64,7 @@ class common_options
      *
      * @return The timeout value.
      */
-    CB_NODISCARD boost::optional<std::chrono::milliseconds> timeout()
+    CB_NODISCARD boost::optional<std::chrono::microseconds> timeout() const
     {
         return timeout_;
     }
@@ -74,9 +74,10 @@ class common_options
      * @param timeout Set the timeout for this option object.
      * @return reference to this options class.  Makes these calls chainable.
      */
-    T& timeout(std::chrono::milliseconds timeout)
+    template<typename R>
+    T& timeout(R timeout)
     {
-        timeout_ = timeout;
+        timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(timeout);
         return *static_cast<T*>(this);
     }
 };

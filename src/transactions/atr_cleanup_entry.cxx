@@ -219,22 +219,6 @@ tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
     }
 }
 
-couchbase::durability_level
-durability(const tx::transaction_config& config)
-{
-    switch (config.durability_level()) {
-        case tx::durability_level::NONE:
-            return couchbase::durability_level::none;
-        case tx::durability_level::MAJORITY:
-            return couchbase::durability_level::majority;
-        case tx::durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE:
-            return couchbase::durability_level::majority_and_persist_to_active;
-        case tx::durability_level::PERSIST_TO_MAJORITY:
-            return couchbase::durability_level::persist_to_majority;
-    }
-    throw std::runtime_error("unknown durability");
-}
-
 void
 tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<tx::doc_record>> docs)
 {
@@ -251,7 +235,9 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, boost
                         r = doc.collection_ref().mutate_in(
                           doc.id(),
                           { mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(), mutate_in_spec::fulldoc_upsert(content) },
-                          mutate_in_options().cas(doc.cas()).store_semantics(subdoc_store_semantics::replace));
+                          wrap_option(mutate_in_options(), cleanup_->config())
+                            .cas(doc.cas())
+                            .store_semantics(subdoc_store_semantics::replace));
                     }
                 });
                 logger->trace("commit_docs replaced content of doc {} with {}", doc.id(), content.dump());
@@ -270,9 +256,10 @@ tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger, boost
             couchbase::result res;
             tx::wrap_collection_call(res, [&](result& r) {
                 if (is_deleted) {
-                    r = doc.collection_ref().mutate_in(doc.id(),
-                                                       { mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() },
-                                                       mutate_in_options().access_deleted(true).cas(doc.cas()));
+                    r = doc.collection_ref().mutate_in(
+                      doc.id(),
+                      { mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() },
+                      wrap_option(mutate_in_options(), cleanup_->config()).access_deleted(true).cas(doc.cas()));
                 } else {
                     r = doc.collection_ref().remove(doc.id(), remove_options().cas(doc.cas()));
                 }
@@ -312,13 +299,13 @@ tx::atr_cleanup_entry::remove_txn_links(std::shared_ptr<spdlog::logger> logger, 
             couchbase::result res;
             tx::wrap_collection_call(res, [&](result& r) {
                 cleanup_->config().cleanup_hooks().before_remove_links(doc.id());
-                r = doc.collection_ref().mutate_in(
-                  doc.id(),
-                  {
-                    mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
-                    mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
-                  },
-                  mutate_in_options().durability(durability(cleanup_->config())).access_deleted(true).cas(doc.cas()));
+                r =
+                  doc.collection_ref().mutate_in(doc.id(),
+                                                 {
+                                                   mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
+                                                   mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
+                                                 },
+                                                 wrap_option(mutate_in_options(), cleanup_->config()).access_deleted(true).cas(doc.cas()));
                 logger->trace("remove_txn_links removed links for doc {}", doc.id());
             });
         });
@@ -335,7 +322,9 @@ tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger)
         tx::wrap_collection_call(res, [&](result& r) {
             std::string path("attempts.");
             path += attempt_id_;
-            r = coll->mutate_in(atr_id_, { mutate_in_spec::upsert(path, nullptr).xattr(), mutate_in_spec::remove(path).xattr() });
+            r = coll->mutate_in(atr_id_,
+                                { mutate_in_spec::upsert(path, nullptr).xattr(), mutate_in_spec::remove(path).xattr() },
+                                wrap_option(mutate_in_options(), cleanup_->config()));
         });
         logger->info("successfully removed attempt {}", attempt_id_);
     } catch (const client_error& e) {

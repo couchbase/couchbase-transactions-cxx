@@ -16,15 +16,15 @@
 
 #pragma once
 
+#include <chrono>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <string>
 
+#include <boost/optional.hpp>
 #include <couchbase/client/bucket.hxx>
 #include <couchbase/support.hxx>
-
-// struct lcb_st;
 
 namespace couchbase
 {
@@ -48,11 +48,17 @@ class cluster_options
   private:
     size_t max_instances_;
     size_t max_bucket_instances_;
+    boost::optional<std::chrono::microseconds> kv_timeout_;
+    instance_pool_event_counter* event_counter_;
 
   public:
+    /**
+     * @brief Default constructor for cluster_options
+     */
     cluster_options()
       : max_instances_(DEFAULT_CLUSTER_MAX_INSTANCES)
       , max_bucket_instances_(DEFAULT_BUCKET_MAX_INSTANCES)
+      , event_counter_(nullptr)
     {
     }
 
@@ -104,6 +110,49 @@ class cluster_options
         max_bucket_instances_ = max;
         return *this;
     }
+    /**
+     * @brief Default kv timeout
+     *
+     * This is the default kv timeout to use for any kv operation within the cluster
+     * if it has not been specified in the options for that operation.
+     *
+     * @return The duration this cluster is using, if it was set.
+     */
+    CB_NODISCARD boost::optional<std::chrono::microseconds> kv_timeout() const
+    {
+        return kv_timeout_;
+    }
+    /**
+     * @brief Set default kv timeout
+     *
+     * Sets the kv timeout to use for any kv operation within the cluster if it has not
+     * been specified in the options for that operation.  The @ref result will indicate
+     * that the operation timed out, @see @result::is_timeout().
+     *
+     * @param duration The desired duration to use.
+     */
+    template<typename T>
+    cluster_options& kv_timeout(T duration)
+    {
+        kv_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(duration);
+        return *this;
+    }
+
+    /**
+     * @internal
+     */
+    CB_NODISCARD instance_pool_event_counter* event_counter() const
+    {
+        return event_counter_;
+    }
+    /**
+     * @internal
+     */
+    cluster_options& event_counter(instance_pool_event_counter* counter)
+    {
+        event_counter_ = counter;
+        return *this;
+    }
 };
 
 class cluster
@@ -118,6 +167,7 @@ class cluster
     std::list<std::shared_ptr<class bucket>> open_buckets_;
     std::unique_ptr<pool<lcb_st*>> instance_pool_;
     instance_pool_event_counter* event_counter_;
+    boost::optional<std::chrono::microseconds> kv_timeout_;
 
   public:
     /**
@@ -133,8 +183,7 @@ class cluster
     explicit cluster(std::string cluster_address,
                      std::string user_name,
                      std::string password,
-                     const cluster_options& opts = cluster_options(),
-                     instance_pool_event_counter* = nullptr);
+                     const cluster_options& opts = cluster_options());
     /**
      *
      * @brief Copy cluster
@@ -209,6 +258,16 @@ class cluster
      */
     CB_NODISCARD size_t available_instances() const;
 
+    /**
+     * @brief Default kv timeout
+     *
+     * @return The default kv timeout.
+     */
+    CB_NODISCARD std::chrono::microseconds default_kv_timeout() const;
+
+    /**
+     * @brief compare two clusters for equality
+     */
     CB_NODISCARD bool operator==(const couchbase::cluster& other) const;
 };
 } // namespace couchbase

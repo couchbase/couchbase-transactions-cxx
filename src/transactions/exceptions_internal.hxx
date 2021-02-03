@@ -91,6 +91,16 @@ namespace transactions
         }
     };
 
+    // Prefer this as it reads better than throw client_error(FAIL_EXPIRY, ...)
+    class attempt_expired : public client_error
+    {
+      public:
+        attempt_expired(const std::string& what)
+          : client_error(FAIL_EXPIRY, what)
+        {
+        }
+    };
+
     /**
      * All exceptions within a transaction are, or are converted to, an exception
      * derived from this.  The transaciton logic then consumes them to decide to

@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <boost/optional.hpp>
 #include <chrono>
 #include <couchbase/support.hxx>
 #include <couchbase/transactions/durability_level.hxx>
@@ -40,12 +41,12 @@ namespace transactions
 
         transaction_config& operator=(const transaction_config& c);
 
-        enum durability_level durability_level() const
+        couchbase::transactions::durability_level durability_level() const
         {
             return level_;
         }
 
-        void durability_level(enum durability_level level)
+        void durability_level(enum couchbase::transactions::durability_level level)
         {
             level_ = level;
         }
@@ -59,6 +60,17 @@ namespace transactions
         void cleanup_window(T duration)
         {
             cleanup_window_ = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+        }
+
+        template<typename T>
+        void kv_timeout(T duration)
+        {
+            kv_timeout_ = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+        }
+
+        CB_NODISCARD boost::optional<std::chrono::milliseconds> kv_timeout() const
+        {
+            return kv_timeout_;
         }
 
         CB_NODISCARD std::chrono::nanoseconds expiration_time() const
@@ -105,9 +117,10 @@ namespace transactions
         }
 
       protected:
-        enum couchbase::transactions::durability_level level_;
+        couchbase::transactions::durability_level level_;
         std::chrono::milliseconds cleanup_window_;
         std::chrono::nanoseconds expiration_time_;
+        boost::optional<std::chrono::milliseconds> kv_timeout_;
         bool cleanup_lost_attempts_;
         bool cleanup_client_attempts_;
         std::unique_ptr<attempt_context_testing_hooks> attempt_context_hooks_;

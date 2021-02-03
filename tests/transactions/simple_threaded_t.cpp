@@ -15,6 +15,8 @@ TEST(ThreadedTransactions, CanGetReplace)
 {
     auto cluster = ClientTestEnvironment::get_cluster();
     transactions::transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
     transactions::transactions txn(*cluster, cfg);
     std::vector<std::thread> threads;
 
@@ -32,18 +34,20 @@ TEST(ThreadedTransactions, CanGetReplace)
     std::atomic<uint64_t> expired{ 0 };
     for (int i = 0; i < num_threads; i++) {
         threads.emplace_back([&]() {
-            try {
-                for (int j = 0; j < num_iterations; j++) {
-                    txn.run([&](transactions::attempt_context& ctx) {
-                        auto doc = ctx.get(coll, id);
-                        auto content = doc.content<nlohmann::json>();
-                        content["another one"] = ++counter;
-                        ctx.replace(coll, doc, content);
-                    });
+            EXPECT_NO_THROW({
+                try {
+                    for (int j = 0; j < num_iterations; j++) {
+                        txn.run([&](transactions::attempt_context& ctx) {
+                            auto doc = ctx.get(coll, id);
+                            auto content = doc.content<nlohmann::json>();
+                            content["another one"] = ++counter;
+                            ctx.replace(coll, doc, content);
+                        });
+                    }
+                } catch (const transactions::transaction_expired& e) {
+                    ++expired;
                 }
-            } catch (const transactions::transaction_expired& e) {
-                ++expired;
-            }
+            });
         });
     }
     for (auto& t : threads) {
@@ -63,6 +67,8 @@ TEST(ThreadedTransactions, CanInsertThenGetRemove)
     set_client_log_level(log_levels::WARN);
     auto cluster = ClientTestEnvironment::get_cluster();
     transactions::transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
     transactions::transactions txn(*cluster, cfg);
     std::vector<std::thread> threads;
     auto coll = cluster->bucket("default")->default_collection();
@@ -85,19 +91,21 @@ TEST(ThreadedTransactions, CanInsertThenGetRemove)
 
     for (int i = 0; i < num_threads; i++) {
         threads.emplace_back([&, i]() {
-            auto id = get_id(i);
-            for (int j = 0; j < num_iterations; j++) {
-                try {
-                    coll->insert(id, content);
-                    txn.run([&](transactions::attempt_context& ctx) {
-                        auto doc = ctx.get(coll, id);
-                        ctx.remove(coll, doc);
-                        ++counter;
-                    });
-                } catch (transactions::transaction_expired& e) {
-                    ++expired;
+            EXPECT_NO_THROW({
+                auto id = get_id(i);
+                for (int j = 0; j < num_iterations; j++) {
+                    try {
+                        coll->insert(id, content);
+                        txn.run([&](transactions::attempt_context& ctx) {
+                            auto doc = ctx.get(coll, id);
+                            ctx.remove(coll, doc);
+                            ++counter;
+                        });
+                    } catch (transactions::transaction_expired& e) {
+                        ++expired;
+                    }
                 }
-            }
+            });
         });
     }
 

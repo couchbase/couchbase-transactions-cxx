@@ -3,7 +3,9 @@
 #include <couchbase/client/result.hxx>
 #include <couchbase/support.hxx>
 #include <libcouchbase/couchbase.h>
+
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 
@@ -40,7 +42,10 @@ shutdown(lcb_st* lcb)
 }
 
 lcb_st*
-connect(const std::string& cluster_address, const std::string& user_name, const std::string& password)
+connect(const std::string& cluster_address,
+        const std::string& user_name,
+        const std::string& password,
+        boost::optional<std::chrono::microseconds> kv_timeout)
 {
     lcb_st* lcb = nullptr;
     lcb_STATUS rc;
@@ -71,25 +76,38 @@ connect(const std::string& cluster_address, const std::string& user_name, const 
     if (rc != LCB_SUCCESS) {
         throw std::runtime_error(std::string("failed to connect (wait) libcouchbase instance: ") + lcb_strerror_short(rc));
     }
+    if (kv_timeout) {
+        uint32_t op_timeout = kv_timeout->count();
+        uint32_t durability_timeout;
+        lcb_STATUS rv;
+        // get the durability timeout floor
+        lcb_cntl(lcb, LCB_CNTL_GET, LCB_CNTL_PERSISTENCE_TIMEOUT_FLOOR, &durability_timeout);
+        // set the timeout
+        rv = lcb_cntl(lcb, LCB_CNTL_SET, LCB_CNTL_OP_TIMEOUT, &op_timeout);
+        cb::client_log->trace("Set kv timeout to {} with result {}", op_timeout, rv);
+        // set the durability timeout to match the kv timeout, _iff_ op timeout is longer than the current floor
+        if (op_timeout > durability_timeout) {
+            cb::client_log->trace(
+              "durability_timeout {} < op_timeout {}, increasing durability timeout to match", durability_timeout, op_timeout);
+            lcb_cntl(lcb, LCB_CNTL_SET, LCB_CNTL_PERSISTENCE_TIMEOUT_FLOOR, &op_timeout);
+        }
+    }
     cb::client_log->trace("cluster connection successful, returning {}", (void*)lcb);
     return lcb;
 }
 
-cb::cluster::cluster(std::string cluster_address,
-                     std::string user_name,
-                     std::string password,
-                     const cluster_options& opts,
-                     instance_pool_event_counter* event_counter)
+cb::cluster::cluster(std::string cluster_address, std::string user_name, std::string password, const cluster_options& opts)
   : cluster_address_(std::move(cluster_address))
   , user_name_(std::move(user_name))
   , password_(std::move(password))
   , max_bucket_instances_(opts.max_bucket_instances())
-  , event_counter_(event_counter)
+  , event_counter_(opts.event_counter())
+  , kv_timeout_(opts.kv_timeout())
 {
     instance_pool_ = std::unique_ptr<pool<lcb_st*>>(
-      new pool<lcb_st*>(opts.max_instances(), [&] { return connect(cluster_address_, user_name_, password_); }, shutdown));
-    cb::client_log->info("couchbase client library {} attempting to connect to {}", VERSION_STR, cluster_address_);
+      new pool<lcb_st*>(opts.max_instances(), [&] { return connect(cluster_address_, user_name_, password_, kv_timeout_); }, shutdown));
 
+    cb::client_log->info("couchbase client library {} attempting to connect to {}", VERSION_STR, cluster_address_);
     if (nullptr != event_counter_) {
         instance_pool_->set_event_handler([&](pool_event e, lcb_st* const t) { event_counter_->cluster_counter.handler(e, t); });
     }
@@ -108,6 +126,18 @@ cb::cluster::cluster(const cluster& cluster)
     instance_pool_ = cluster.instance_pool_->clone(max_bucket_instances_);
     cb::client_log->info("couchbase client library {} attempting to connect to {}", VERSION_STR, cluster_address_);
     instance_pool_->release(instance_pool_->get());
+}
+
+std::chrono::microseconds
+cb::cluster::default_kv_timeout() const
+{
+    uint32_t op_timeout = 0;
+    auto rv =
+      instance_pool_->wrap_access<lcb_STATUS>([&](lcb_st* lcb) { return lcb_cntl(lcb, LCB_CNTL_GET, LCB_CNTL_OP_TIMEOUT, &op_timeout); });
+    if (0 != rv) {
+        client_log->trace("error reading default kv timeout {}", lcb_strerror_short(rv));
+    }
+    return std::chrono::microseconds(op_timeout);
 }
 
 bool
