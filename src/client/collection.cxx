@@ -124,10 +124,11 @@ cb::collection::install_callbacks(lcb_st* lcb)
     lcb_install_callback(lcb, LCB_CALLBACK_SDMUTATE, reinterpret_cast<lcb_RESPCALLBACK>(subdoc_callback));
 }
 
-cb::collection::collection(std::shared_ptr<cb::bucket> bucket, std::string scope, std::string name)
+cb::collection::collection(std::shared_ptr<cb::bucket> bucket, std::string scope, std::string name, std::chrono::microseconds kv_timeout)
   : bucket_(std::move(bucket))
   , scope_(std::move(scope))
   , name_(std::move(name))
+  , kv_timeout_(std::move(kv_timeout))
 {
 }
 
@@ -182,7 +183,8 @@ couchbase::store_impl(couchbase::collection* collection,
                       const std::string& id,
                       const std::string& payload,
                       uint64_t cas,
-                      couchbase::durability_level level)
+                      durability_level level,
+                      std::chrono::microseconds timeout)
 {
     return collection->instance_pool()->wrap_access<result>([&](lcb_st* lcb) -> result {
         lcb_CMDSTORE* cmd = nullptr;
@@ -194,6 +196,7 @@ couchbase::store_impl(couchbase::collection* collection,
         lcb_cmdstore_collection(
           cmd, collection->scope_.data(), collection->scope_.size(), collection->name_.data(), collection->name_.size());
         lcb_cmdstore_durability(cmd, convert_durability(level));
+        lcb_cmdstore_timeout(cmd, timeout.count());
         result res;
         lcb_STATUS rc = lcb_store(lcb, reinterpret_cast<void*>(&res), cmd);
         lcb_cmdstore_destroy(cmd);
@@ -206,33 +209,46 @@ couchbase::store_impl(couchbase::collection* collection,
 }
 
 couchbase::result
-couchbase::collection::wrap_call_for_retry(std::function<result(void)> fn)
+couchbase::collection::wrap_call_for_retry(std::chrono::microseconds initial_timeout,
+                                           std::function<result(std::chrono::microseconds timeout)> fn)
 {
     int retries = 0;
-    while (retries < 10) {
-        auto res = fn();
-        // TODO: this is not great - but it works around CCBC-1300.  Remove this when CCBC-1300 has
-        // been fixed.
-        if (res.is_success() || (res.rc != LCB_ERR_KVENGINE_INVALID_PACKET && res.rc != LCB_ERR_KVENGINE_UNKNOWN_ERROR)) {
-            return res;
-        }
-        cb::client_log->trace("got {}, retrying #{} of 10 (CCBC-1300)", res, retries);
-        retries++;
-        if (retries < 10) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            continue;
-        } else {
-            return res;
+    auto end = std::chrono::steady_clock::now() + initial_timeout;
+    auto timeout = initial_timeout;
+    auto delay = std::chrono::milliseconds(1);
+    while (timeout.count() > 0) {
+        auto res = fn(timeout);
+        switch (res.rc) {
+            case LCB_ERR_KVENGINE_INVALID_PACKET:
+            case LCB_ERR_KVENGINE_UNKNOWN_ERROR:
+                // remove these when CCBC-1300 is fixed
+                cb::client_log->trace("got {}, retrying due to CCBC-1300", res.rc);
+            case LCB_ERR_COLLECTION_NOT_FOUND:
+            case LCB_ERR_SCOPE_NOT_FOUND:
+                cb::client_log->trace("retry #{}, sleeping {}ms before retrying...", retries, delay.count());
+                std::this_thread::sleep_for(delay);
+                retries++;
+                if (retries < 7) {
+                    // 2^7 = 128 -- that seems like a reasonable random cap.
+                    delay = 2 * delay;
+                }
+                timeout = std::chrono::duration_cast<std::chrono::microseconds>(end - std::chrono::steady_clock::now());
+                break;
+            default:
+                return res;
         }
     }
-    assert("should never get here");
-    throw std::runtime_error("should never get here");
+    // if we are here, we timed out after retrying, so...
+    result r;
+    r.rc = LCB_ERR_TIMEOUT;
+    return r;
 }
 
 couchbase::result
 couchbase::collection::get(const std::string& id, const get_options& opts)
 {
-    return wrap_call_for_retry([&]() -> result {
+    auto init_timeout = (opts.timeout() ? *opts.timeout() : default_kv_timeout());
+    return wrap_call_for_retry(init_timeout, [&](std::chrono::microseconds timeout) -> result {
         lcb_CMDGET* cmd;
         lcb_cmdget_create(&cmd);
         lcb_cmdget_key(cmd, id.data(), id.size());
@@ -241,10 +257,7 @@ couchbase::collection::get(const std::string& id, const get_options& opts)
             // does a 'get and touch'
             lcb_cmdget_expiry(cmd, *opts.expiry());
         }
-        if (opts.timeout()) {
-            client_log->trace("setting timeout to {}", opts.timeout()->count());
-            lcb_cmdget_timeout(cmd, opts.timeout()->count());
-        }
+        lcb_cmdget_timeout(cmd, timeout.count());
         lcb_STATUS rc;
         return bucket_.lock()->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
             result res;
@@ -262,15 +275,14 @@ couchbase::collection::get(const std::string& id, const get_options& opts)
 couchbase::result
 couchbase::collection::exists(const std::string& id, const exists_options& opts)
 {
-    return wrap_call_for_retry([&]() -> result {
+    auto init_timeout = (opts.timeout() ? *opts.timeout() : default_kv_timeout());
+    return wrap_call_for_retry(init_timeout, [&](std::chrono::microseconds timeout) -> result {
         lcb_CMDEXISTS* cmd;
         lcb_cmdexists_create(&cmd);
         lcb_cmdexists_key(cmd, id.data(), id.size());
         lcb_cmdexists_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        lcb_cmdexists_timeout(cmd, timeout.count());
         lcb_STATUS rc;
-        if (opts.timeout()) {
-            lcb_cmdexists_timeout(cmd, opts.timeout()->count());
-        }
         return bucket_.lock()->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
             result res;
             rc = lcb_exists(lcb, reinterpret_cast<void*>(&res), cmd);
@@ -287,12 +299,11 @@ couchbase::collection::exists(const std::string& id, const exists_options& opts)
 couchbase::result
 couchbase::collection::remove(const std::string& id, const remove_options& opts)
 {
-    return wrap_call_for_retry([&]() -> result {
+    auto init_timeout = (opts.timeout() ? *opts.timeout() : default_kv_timeout());
+    return wrap_call_for_retry(init_timeout, [&](std::chrono::microseconds timeout) -> result {
         lcb_CMDREMOVE* cmd;
         lcb_cmdremove_create(&cmd);
-        if (opts.timeout()) {
-            lcb_cmdremove_timeout(cmd, opts.timeout()->count());
-        }
+        lcb_cmdremove_timeout(cmd, timeout.count());
         lcb_cmdremove_create(&cmd);
         lcb_cmdremove_key(cmd, id.data(), id.size());
         if (opts.cas()) {
@@ -319,12 +330,11 @@ couchbase::collection::remove(const std::string& id, const remove_options& opts)
 couchbase::result
 couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_spec> specs, const mutate_in_options& opts)
 {
-    return wrap_call_for_retry([&]() -> result {
+    auto init_timeout = (opts.timeout() ? *opts.timeout() : default_kv_timeout());
+    return wrap_call_for_retry(init_timeout, [&](std::chrono::microseconds timeout) -> result {
         lcb_CMDSUBDOC* cmd;
         lcb_cmdsubdoc_create(&cmd);
-        if (opts.timeout()) {
-            lcb_cmdsubdoc_timeout(cmd, opts.timeout()->count());
-        }
+        lcb_cmdsubdoc_timeout(cmd, timeout.count());
         lcb_cmdsubdoc_key(cmd, id.data(), id.size());
         lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
         uint64_t cas = opts.cas().value_or(0);
@@ -388,10 +398,10 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
                 throw std::runtime_error(std::string("failed to mutate (sched) sub-document: ") + lcb_strerror_short(rc));
             }
             lcb_wait(lcb, LCB_WAIT_DEFAULT);
-            // HACK!  LCB return LCB_ERR_DOCUMENT_EXISTS when it should return
+            // HACK!  LCB returns LCB_ERR_DOCUMENT_EXISTS when it should return
             // LCB_ERR_CAS_MISMATCH, for mutate_in.  For now, hack in a fix till LCB
             // is fixed (CCBC-1323).  However, if the semantics are insert, then the
-            // error is correct
+            // error code is correct
             if (res.rc == LCB_ERR_DOCUMENT_EXISTS &&
                 (!opts.store_semantics() || !(opts.store_semantics() == couchbase::subdoc_store_semantics::insert))) {
                 res.rc = LCB_ERR_CAS_MISMATCH;
@@ -406,12 +416,11 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
 couchbase::result
 couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_spec> specs, const lookup_in_options& opts)
 {
-    return wrap_call_for_retry([&]() -> result {
+    auto init_timeout = (opts.timeout() ? *opts.timeout() : default_kv_timeout());
+    return wrap_call_for_retry(init_timeout, [&](std::chrono::microseconds timeout) -> result {
         lcb_CMDSUBDOC* cmd;
         lcb_cmdsubdoc_create(&cmd);
-        if (opts.timeout()) {
-            lcb_cmdsubdoc_timeout(cmd, opts.timeout()->count());
-        }
+        lcb_cmdsubdoc_timeout(cmd, timeout.count());
         lcb_cmdsubdoc_key(cmd, id.data(), id.size());
         lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
         if (opts.access_deleted()) {

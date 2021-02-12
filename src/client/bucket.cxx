@@ -21,24 +21,42 @@ open_callback(lcb_INSTANCE* instance, lcb_STATUS status)
 }
 }
 
+// we expect this to be of the form "<scope>.<collection>", or "<collection>".
 std::shared_ptr<cb::collection>
 cb::bucket::find_or_create_collection(const std::string& collection)
 {
-    // TODO maybe more validation?
-    std::vector<std::string> splits;
-    boost::split(splits, collection, [](char c) { return c == '.'; });
-    std::string scope_name("_default");
-    std::string collection_name("_default");
-    if (splits.size() == 2) {
-        scope_name = splits[0];
-        collection_name = splits[1];
+    if (collection.empty()) {
+        throw std::runtime_error("collection name is empty");
     }
+    std::vector<std::string> splits;
+    std::string scope_name;
+    std::string collection_name;
+    boost::split(splits, collection, [](char c) { return c == '.'; });
+    switch (splits.size()) {
+        case 2:
+            scope_name = splits[0];
+            collection_name = splits[1];
+            break;
+        case 1:
+            collection_name = splits[0];
+            break;
+        default:
+            throw std::runtime_error("malformed collection name");
+    }
+    if (scope_name.empty()) {
+        scope_name = "_default";
+    }
+    if (collection_name.empty()) {
+        collection_name = "_default";
+    }
+    std::unique_lock<std::mutex> lock(mutex_);
     auto it = std::find_if(collections_.begin(), collections_.end(), [&](const std::shared_ptr<cb::collection>& c) {
         return c->scope() == scope_name && c->name() == collection_name;
     });
     if (it == collections_.end()) {
 
-        collections_.push_back(std::shared_ptr<cb::collection>(new cb::collection(shared_from_this(), scope_name, collection_name)));
+        collections_.push_back(
+          std::shared_ptr<cb::collection>(new cb::collection(shared_from_this(), scope_name, collection_name, default_kv_timeout())));
         return collections_.back();
     }
     return *it;
@@ -56,8 +74,9 @@ cb::bucket::collection(const std::string& collection)
     return find_or_create_collection(collection);
 }
 
-cb::bucket::bucket(std::unique_ptr<pool<lcb_st*>>& instance_pool, const std::string& name)
+cb::bucket::bucket(std::unique_ptr<pool<lcb_st*>>& instance_pool, const std::string& name, std::chrono::microseconds kv_timeout)
   : name_(name)
+  , kv_timeout_(kv_timeout)
 {
     instance_pool_ = std::move(instance_pool);
     instance_pool_->post_create_fn([this](lcb_st* lcb) -> lcb_st* {
@@ -84,13 +103,7 @@ cb::bucket::bucket(std::unique_ptr<pool<lcb_st*>>& instance_pool, const std::str
 std::chrono::microseconds
 cb::bucket::default_kv_timeout() const
 {
-    uint32_t op_timeout;
-    auto rv =
-      instance_pool_->wrap_access<lcb_STATUS>([&](lcb_st* lcb) { return lcb_cntl(lcb, LCB_CNTL_GET, LCB_CNTL_OP_TIMEOUT, &op_timeout); });
-    if (0 != rv) {
-        client_log->trace("error reading default kv timeout {}", lcb_strerror_short(rv));
-    }
-    return std::chrono::microseconds(op_timeout);
+    return kv_timeout_;
 }
 
 cb::bucket::~bucket()

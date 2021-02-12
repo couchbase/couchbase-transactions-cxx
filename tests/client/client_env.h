@@ -27,6 +27,11 @@ class ClientTestEnvironment : public ::testing::Environment
         get_cluster();
     }
 
+    static bool supports_collections()
+    {
+        return nullptr != std::getenv("SUPPORTS_COLLECTIONS");
+    }
+
     static const nlohmann::json& get_conf()
     {
         // read config.json

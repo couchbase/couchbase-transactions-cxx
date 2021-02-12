@@ -45,7 +45,7 @@ lcb_st*
 connect(const std::string& cluster_address,
         const std::string& user_name,
         const std::string& password,
-        boost::optional<std::chrono::microseconds> kv_timeout)
+        boost::optional<std::chrono::microseconds>& kv_timeout)
 {
     lcb_st* lcb = nullptr;
     lcb_STATUS rc;
@@ -91,7 +91,19 @@ connect(const std::string& cluster_address,
               "durability_timeout {} < op_timeout {}, increasing durability timeout to match", durability_timeout, op_timeout);
             lcb_cntl(lcb, LCB_CNTL_SET, LCB_CNTL_PERSISTENCE_TIMEOUT_FLOOR, &op_timeout);
         }
+    } else {
+        uint32_t op_timeout;
+        lcb_cntl(lcb, LCB_CNTL_GET, LCB_CNTL_OP_TIMEOUT, &op_timeout);
+        cb::client_log->trace("default kv_timeout {}us", op_timeout);
+        // set it!  Since this _only_ happens in the constructor, we are threadsafe.
+        kv_timeout = std::chrono::microseconds(op_timeout);
     }
+
+    rc = lcb_get_bootstrap_status(lcb);
+    if (rc != LCB_SUCCESS) {
+        throw std::runtime_error(std::string("bootstrap failed with error: ") + lcb_strerror_short(rc));
+    }
+
     cb::client_log->trace("cluster connection successful, returning {}", (void*)lcb);
     return lcb;
 }
@@ -131,13 +143,7 @@ cb::cluster::cluster(const cluster& cluster)
 std::chrono::microseconds
 cb::cluster::default_kv_timeout() const
 {
-    uint32_t op_timeout = 0;
-    auto rv =
-      instance_pool_->wrap_access<lcb_STATUS>([&](lcb_st* lcb) { return lcb_cntl(lcb, LCB_CNTL_GET, LCB_CNTL_OP_TIMEOUT, &op_timeout); });
-    if (0 != rv) {
-        client_log->trace("error reading default kv timeout {}", lcb_strerror_short(rv));
-    }
-    return std::chrono::microseconds(op_timeout);
+    return *kv_timeout_;
 }
 
 bool
@@ -170,7 +176,7 @@ cb::cluster::bucket(const std::string& name)
         }
         instance_pool_->swap_available(*bucket_pool, true);
         // create the bucket, push into the bucket list...
-        auto b = std::shared_ptr<cb::bucket>(new cb::bucket(bucket_pool, name));
+        auto b = std::shared_ptr<cb::bucket>(new cb::bucket(bucket_pool, name, default_kv_timeout()));
         open_buckets_.push_back(b);
         return b;
     }

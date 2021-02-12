@@ -43,29 +43,37 @@ class collection
     std::string scope_;
     std::string name_;
     std::weak_ptr<bucket> bucket_;
+    std::chrono::microseconds kv_timeout_;
+    static const std::string DEFAULT;
 
     friend result store_impl(collection* coll,
                              store_operation op,
                              const std::string& id,
                              const std::string& payload,
                              uint64_t cas,
-                             durability_level level);
+                             durability_level level,
+                             std::chrono::microseconds timeout);
 
     template<typename Content>
-    result store(store_operation operation, const std::string& id, const Content& value, uint64_t cas, durability_level level)
+    result store(store_operation operation,
+                 const std::string& id,
+                 const Content& value,
+                 uint64_t cas,
+                 durability_level level,
+                 std::chrono::microseconds timeout)
     {
         nlohmann::json j = value;
         std::string payload = j.dump();
-        return store_impl(this, operation, id, payload, cas, level);
+        return store_impl(this, operation, id, payload, cas, level, timeout);
     }
 
     std::unique_ptr<pool<lcb_st*>>& instance_pool()
     {
         return bucket_.lock()->instance_pool_;
     }
-    result wrap_call_for_retry(std::function<result(void)> fn);
+    result wrap_call_for_retry(std::chrono::microseconds timeout, std::function<result(std::chrono::microseconds)> fn);
 
-    collection(std::shared_ptr<bucket> bucket, std::string scope, std::string name);
+    collection(std::shared_ptr<bucket> bucket, std::string scope, std::string name, std::chrono::microseconds kv_timeout);
 
     static void install_callbacks(lcb_st* lcb);
 
@@ -101,8 +109,9 @@ class collection
     template<typename Content>
     result upsert(const std::string& id, const Content& value, const upsert_options& opts = upsert_options())
     {
-        return wrap_call_for_retry([&]() -> result {
-            return store(store_operation::upsert, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none));
+        return wrap_call_for_retry(opts.timeout().value_or(default_kv_timeout()), [&](std::chrono::microseconds timeout) -> result {
+            return store(
+              store_operation::upsert, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none), timeout);
         });
     }
 
@@ -120,8 +129,9 @@ class collection
     template<typename Content>
     result insert(const std::string& id, const Content& value, const insert_options& opts = insert_options())
     {
-        return wrap_call_for_retry(
-          [&]() -> result { return store(store_operation::insert, id, value, 0, opts.durability().value_or(durability_level::none)); });
+        return wrap_call_for_retry(opts.timeout().value_or(default_kv_timeout()), [&](std::chrono::microseconds timeout) -> result {
+            return store(store_operation::insert, id, value, 0, opts.durability().value_or(durability_level::none), timeout);
+        });
     }
 
     /**
@@ -139,8 +149,9 @@ class collection
     template<typename Content>
     result replace(const std::string& id, const Content& value, const replace_options& opts = replace_options())
     {
-        return wrap_call_for_retry([&]() -> result {
-            return store(store_operation::replace, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none));
+        return wrap_call_for_retry(opts.timeout().value_or(default_kv_timeout()), [&](std::chrono::microseconds timeout) -> result {
+            return store(
+              store_operation::replace, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none), timeout);
         });
     }
 
@@ -230,7 +241,7 @@ class collection
      */
     CB_NODISCARD std::chrono::microseconds default_kv_timeout() const
     {
-        return bucket_.lock()->default_kv_timeout();
+        return kv_timeout_;
     }
 };
 } // namespace couchbase

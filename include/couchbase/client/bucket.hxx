@@ -16,10 +16,13 @@
 
 #pragma once
 
-#include <chrono>
 #include <couchbase/support.hxx>
+
+#include <chrono>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace couchbase
@@ -44,8 +47,11 @@ class bucket : public std::enable_shared_from_this<bucket>
     std::unique_ptr<pool<lcb_st*>> instance_pool_;
     const std::string name_;
     std::vector<std::shared_ptr<class collection> > collections_;
-    bucket(std::unique_ptr<pool<lcb_st*>>& instance_pool, const std::string& name);
+    bucket(std::unique_ptr<pool<lcb_st*>>& instance_pool, const std::string& name, std::chrono::microseconds kv_timeout);
     std::shared_ptr<class collection> find_or_create_collection(const std::string& name);
+    std::mutex mutex_;
+    std::chrono::microseconds kv_timeout_;
+
   public:
     /**
      * Get the default collection for this bucket

@@ -31,21 +31,20 @@ TEST(ThreadedTransactions, CanGetReplace)
 
     // use counter to be sure all txns were successful
     std::atomic<uint64_t> counter{ 0 };
-    std::atomic<uint64_t> expired{ 0 };
     for (int i = 0; i < num_threads; i++) {
         threads.emplace_back([&]() {
             EXPECT_NO_THROW({
-                try {
-                    for (int j = 0; j < num_iterations; j++) {
+                for (int j = 0; j < num_iterations; j++) {
+                    try {
                         txn.run([&](transactions::attempt_context& ctx) {
                             auto doc = ctx.get(coll, id);
                             auto content = doc.content<nlohmann::json>();
                             content["another one"] = ++counter;
                             ctx.replace(coll, doc, content);
                         });
+                    } catch (const transactions::transaction_exception& e) {
+                        // don't do anything, just don't want to raise out of the thread.
                     }
-                } catch (const transactions::transaction_expired& e) {
-                    ++expired;
                 }
             });
         });
@@ -115,7 +114,7 @@ TEST(ThreadedTransactions, CanInsertThenGetRemove)
         }
     }
     // we are not contending for same doc in this one, so counter should be exact.
-    ASSERT_EQ(counter.load(), num_threads * num_iterations);
+    ASSERT_EQ(counter.load() + expired.load(), num_threads * num_iterations);
     // TODO: verify those docs are not there.
     for (int i = 0; i < num_threads; i++) {
         ASSERT_TRUE(coll->get(get_id(i)).is_not_found());

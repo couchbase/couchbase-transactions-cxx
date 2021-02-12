@@ -127,6 +127,49 @@ TEST(SimpleClientBucketTests, CanGetDefaultCollection)
     ASSERT_TRUE(coll.get() != nullptr);
 }
 
+TEST(SimpleClientBucketTests, CanSpecifyScopeAndCollection)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto b = c->bucket("default");
+    auto coll = b->collection("ascope.acollection");
+    ASSERT_EQ(coll->scope(), "ascope");
+    ASSERT_EQ(coll->name(), "acollection");
+}
+
+TEST(SimpleClientBucketTests, CanSpecifyJustCollection)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto b = c->bucket("default");
+    auto coll = b->collection("acollection");
+    ASSERT_EQ(coll->scope(), "_default");
+    ASSERT_EQ(coll->name(), "acollection");
+}
+
+TEST(SimpleClientBucketTests, CanSpecifyEmptyScope)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto b = c->bucket("default");
+    auto coll = b->collection(".acollection");
+    ASSERT_EQ(coll->scope(), "_default");
+    ASSERT_EQ(coll->name(), "acollection");
+}
+
+TEST(SimpleClientBucketTests, CanSpecifyEmptyCollection)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto b = c->bucket("default");
+    auto coll = b->collection("ascope.");
+    ASSERT_EQ(coll->scope(), "ascope");
+    ASSERT_EQ(coll->name(), "_default");
+}
+
+TEST(SimpleClientBucketTests, CanNotSpecifyEmptyStringForCollection)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto b = c->bucket("default");
+    EXPECT_THROW(b->collection(""), std::runtime_error);
+}
+
 TEST(SimpleClientBucketTests, CanGetBucketName)
 {
     auto c = ClientTestEnvironment::get_cluster();
@@ -348,6 +391,46 @@ TEST_F(SimpleClientCollectionTests, CanGetKVTimeout)
     ASSERT_EQ(c->default_kv_timeout(), our_default);
     auto coll = c->bucket("default")->default_collection();
     ASSERT_EQ(coll->default_kv_timeout(), our_default);
+}
+
+TEST_F(SimpleClientCollectionTests, CanNotGetInCollectionThatDoesNotExist)
+{
+    if (ClientTestEnvironment::supports_collections()) {
+        auto cluster = ClientTestEnvironment::get_cluster();
+        auto bad_coll = cluster->bucket("default")->collection("idonotexist");
+        auto r = bad_coll->get(_id);
+        ASSERT_TRUE(r.is_timeout());
+    }
+}
+
+TEST_F(SimpleClientCollectionTests, CanNotMutateInCollectionThatDoesNotExist)
+{
+    if (ClientTestEnvironment::supports_collections()) {
+        auto cluster = ClientTestEnvironment::get_cluster();
+        auto bad_coll = cluster->bucket("default")->collection("idonotexist");
+        auto r = bad_coll->upsert(_id, content);
+        ASSERT_TRUE(r.is_timeout());
+    }
+}
+
+TEST_F(SimpleClientCollectionTests, CanNotMutateInScopeThatDoesNotExist)
+{
+    if (ClientTestEnvironment::supports_collections()) {
+        auto cluster = ClientTestEnvironment::get_cluster();
+        auto bad_coll = cluster->bucket("default")->collection("idonotexist.");
+        auto r = bad_coll->upsert(_id, content);
+        ASSERT_TRUE(r.is_timeout());
+    }
+}
+
+TEST_F(SimpleClientCollectionTests, CanNotMutateInScopeAndCollectionThatDoesNotExist)
+{
+    if (ClientTestEnvironment::supports_collections()) {
+        auto cluster = ClientTestEnvironment::get_cluster();
+        auto bad_coll = cluster->bucket("default")->collection("idonotexist.neitherdoi");
+        auto r = bad_coll->upsert(_id, content);
+        ASSERT_TRUE(r.is_timeout());
+    }
 }
 
 int
