@@ -12,6 +12,8 @@
 
 namespace cb = couchbase;
 
+const std::string cb::bucket::default_name = "_default";
+
 extern "C" {
 static void
 open_callback(lcb_INSTANCE* instance, lcb_STATUS status)
@@ -44,10 +46,10 @@ cb::bucket::find_or_create_collection(const std::string& collection)
             throw std::runtime_error("malformed collection name");
     }
     if (scope_name.empty()) {
-        scope_name = "_default";
+        scope_name = default_name;
     }
     if (collection_name.empty()) {
-        collection_name = "_default";
+        collection_name = default_name;
     }
     std::unique_lock<std::mutex> lock(mutex_);
     auto it = std::find_if(collections_.begin(), collections_.end(), [&](const std::shared_ptr<cb::collection>& c) {
@@ -65,7 +67,7 @@ cb::bucket::find_or_create_collection(const std::string& collection)
 std::shared_ptr<cb::collection>
 cb::bucket::default_collection()
 {
-    return find_or_create_collection("_default._default");
+    return find_or_create_collection(default_name + std::string(".") + default_name);
 }
 
 std::shared_ptr<cb::collection>

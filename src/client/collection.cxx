@@ -193,8 +193,10 @@ couchbase::store_impl(couchbase::collection* collection,
         lcb_cmdstore_key(cmd, id.data(), id.size());
         lcb_cmdstore_value(cmd, payload.data(), payload.size());
         lcb_cmdstore_cas(cmd, cas);
-        lcb_cmdstore_collection(
-          cmd, collection->scope_.data(), collection->scope_.size(), collection->name_.data(), collection->name_.size());
+        if (collection->set_collection()) {
+            lcb_cmdstore_collection(
+              cmd, collection->scope_.data(), collection->scope_.size(), collection->name_.data(), collection->name_.size());
+        }
         lcb_cmdstore_durability(cmd, convert_durability(level));
         lcb_cmdstore_timeout(cmd, timeout.count());
         result res;
@@ -252,7 +254,9 @@ couchbase::collection::get(const std::string& id, const get_options& opts)
         lcb_CMDGET* cmd;
         lcb_cmdget_create(&cmd);
         lcb_cmdget_key(cmd, id.data(), id.size());
-        lcb_cmdget_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        if (set_collection()) {
+            lcb_cmdget_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        }
         if (opts.expiry()) {
             // does a 'get and touch'
             lcb_cmdget_expiry(cmd, *opts.expiry());
@@ -280,8 +284,10 @@ couchbase::collection::exists(const std::string& id, const exists_options& opts)
         lcb_CMDEXISTS* cmd;
         lcb_cmdexists_create(&cmd);
         lcb_cmdexists_key(cmd, id.data(), id.size());
-        lcb_cmdexists_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
         lcb_cmdexists_timeout(cmd, timeout.count());
+        if (set_collection()) {
+            lcb_cmdexists_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        }
         lcb_STATUS rc;
         return bucket_.lock()->instance_pool_->wrap_access<couchbase::result>([&](lcb_st* lcb) -> couchbase::result {
             result res;
@@ -309,7 +315,9 @@ couchbase::collection::remove(const std::string& id, const remove_options& opts)
         if (opts.cas()) {
             lcb_cmdremove_cas(cmd, *opts.cas());
         }
-        lcb_cmdremove_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        if (set_collection()) {
+            lcb_cmdremove_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        }
         if (opts.durability()) {
             lcb_cmdremove_durability(cmd, convert_durability(*opts.durability()));
         }
@@ -336,13 +344,16 @@ couchbase::collection::mutate_in(const std::string& id, std::vector<mutate_in_sp
         lcb_cmdsubdoc_create(&cmd);
         lcb_cmdsubdoc_timeout(cmd, timeout.count());
         lcb_cmdsubdoc_key(cmd, id.data(), id.size());
-        lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
-        uint64_t cas = opts.cas().value_or(0);
-        lcb_cmdsubdoc_cas(cmd, cas);
+        if (set_collection()) {
+            lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        }
+        if (opts.cas()) {
+            lcb_cmdsubdoc_cas(cmd, *opts.cas());
+        }
 
         if (opts.create_as_deleted()) {
             lcb_cmdsubdoc_create_as_deleted(cmd, true);
-            if (cas > 0) {
+            if (opts.cas() && *opts.cas() > 0) {
                 lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_UPSERT);
             } else {
                 lcb_cmdsubdoc_store_semantics(cmd, LCB_SUBDOC_STORE_INSERT);
@@ -422,7 +433,9 @@ couchbase::collection::lookup_in(const std::string& id, std::vector<lookup_in_sp
         lcb_cmdsubdoc_create(&cmd);
         lcb_cmdsubdoc_timeout(cmd, timeout.count());
         lcb_cmdsubdoc_key(cmd, id.data(), id.size());
-        lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        if (set_collection()) {
+            lcb_cmdsubdoc_collection(cmd, scope_.data(), scope_.size(), name_.data(), name_.size());
+        }
         if (opts.access_deleted()) {
             lcb_cmdsubdoc_access_deleted(cmd, true);
         }

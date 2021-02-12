@@ -77,6 +77,11 @@ class collection
 
     static void install_callbacks(lcb_st* lcb);
 
+    bool set_collection()
+    {
+        return (name_ != bucket::default_name || scope_ != bucket::default_name);
+    }
+
   public:
     /**
      *  @brief Get a document by key
@@ -109,10 +114,15 @@ class collection
     template<typename Content>
     result upsert(const std::string& id, const Content& value, const upsert_options& opts = upsert_options())
     {
-        return wrap_call_for_retry(opts.timeout().value_or(default_kv_timeout()), [&](std::chrono::microseconds timeout) -> result {
-            return store(
-              store_operation::upsert, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none), timeout);
-        });
+        return wrap_call_for_retry(boost::get_optional_value_or(opts.timeout(), default_kv_timeout()),
+                                   [&](std::chrono::microseconds timeout) -> result {
+                                       return store(store_operation::upsert,
+                                                    id,
+                                                    value,
+                                                    boost::get_optional_value_or(opts.cas(), 0),
+                                                    boost::get_optional_value_or(opts.durability(), durability_level::none),
+                                                    timeout);
+                                   });
     }
 
     /**
@@ -129,9 +139,11 @@ class collection
     template<typename Content>
     result insert(const std::string& id, const Content& value, const insert_options& opts = insert_options())
     {
-        return wrap_call_for_retry(opts.timeout().value_or(default_kv_timeout()), [&](std::chrono::microseconds timeout) -> result {
-            return store(store_operation::insert, id, value, 0, opts.durability().value_or(durability_level::none), timeout);
-        });
+        return wrap_call_for_retry(
+          boost::get_optional_value_or(opts.timeout(), default_kv_timeout()), [&](std::chrono::microseconds timeout) -> result {
+              return store(
+                store_operation::insert, id, value, 0, boost::get_optional_value_or(opts.durability(), durability_level::none), timeout);
+          });
     }
 
     /**
@@ -149,10 +161,15 @@ class collection
     template<typename Content>
     result replace(const std::string& id, const Content& value, const replace_options& opts = replace_options())
     {
-        return wrap_call_for_retry(opts.timeout().value_or(default_kv_timeout()), [&](std::chrono::microseconds timeout) -> result {
-            return store(
-              store_operation::replace, id, value, opts.cas().value_or(0), opts.durability().value_or(durability_level::none), timeout);
-        });
+        return wrap_call_for_retry(boost::get_optional_value_or(opts.timeout(), default_kv_timeout()),
+                                   [&](std::chrono::microseconds timeout) -> result {
+                                       return store(store_operation::replace,
+                                                    id,
+                                                    value,
+                                                    boost::get_optional_value_or(opts.cas(), 0),
+                                                    boost::get_optional_value_or(opts.durability(), durability_level::none),
+                                                    timeout);
+                                   });
     }
 
     /**

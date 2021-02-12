@@ -52,6 +52,8 @@ class bucket : public std::enable_shared_from_this<bucket>
     std::mutex mutex_;
     std::chrono::microseconds kv_timeout_;
 
+    static const std::string default_name;
+
   public:
     /**
      * Get the default collection for this bucket
