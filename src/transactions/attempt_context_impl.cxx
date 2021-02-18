@@ -541,8 +541,6 @@ namespace transactions
                     throw transaction_operation_failed(ec, e.what()).no_rollback().cause(ACTIVE_TRANSACTION_RECORD_ENTRY_NOT_FOUND);
                 case FAIL_DOC_NOT_FOUND:
                     throw transaction_operation_failed(ec, e.what()).no_rollback().cause(ACTIVE_TRANSACTION_RECORD_NOT_FOUND);
-                case FAIL_ATR_FULL:
-                    throw transaction_operation_failed(ec, e.what()).no_rollback().cause(ACTIVE_TRANSACTION_RECORD_FULL);
                 case FAIL_HARD:
                     throw transaction_operation_failed(ec, e.what()).no_rollback();
                 default:
@@ -581,10 +579,13 @@ namespace transactions
             switch (ec) {
                 case FAIL_DOC_NOT_FOUND:
                     trace("atr {} not found", atr_id_);
+                    throw transaction_operation_failed(ec, e.what()).no_rollback();
                 case FAIL_PATH_NOT_FOUND:
                     trace("atr entry {}  not found", id());
+                    break;
                 case FAIL_ATR_FULL:
                     trace("atr {} full!", atr_id_);
+                    throw retry_operation(e.what());
                 case FAIL_HARD:
                     trace("timed out writing atr {}", atr_id_);
                     throw transaction_operation_failed(ec, e.what()).no_rollback();
