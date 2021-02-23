@@ -125,11 +125,11 @@ tx::staged_mutation_queue::rollback(attempt_context_impl& ctx)
     for (auto& item : queue_) {
         switch (item.type()) {
             case staged_mutation_type::INSERT:
-                retry_op<void>([&]() { rollback_insert(ctx, item); });
+                retry_op_exp<void>([&]() { rollback_insert(ctx, item); });
                 break;
             case staged_mutation_type::REMOVE:
             case staged_mutation_type::REPLACE:
-                retry_op<void>([&]() { rollback_remove_or_replace(ctx, item); });
+                retry_op_exp<void>([&]() { rollback_remove_or_replace(ctx, item); });
                 break;
         }
     }
@@ -204,6 +204,7 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx,
                 throw transaction_operation_failed(ec, e.what()).no_rollback();
             case FAIL_EXPIRY:
                 ctx.expiry_overtime_mode_ = true;
+                ctx.trace("setting expiry overtime mode in {}", STAGE_ROLLBACK_DOC);
                 throw retry_operation("retry rollback_remove_or_replace");
             case FAIL_PATH_NOT_FOUND:
                 // already cleaned up?

@@ -328,7 +328,8 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
                       couchbase::result res;
                       wrap_collection_call(res, [&](couchbase::result& r) {
                           r = coll->mutate_in(CLIENT_RECORD_DOC_ID,
-                                              { mutate_in_spec::remove(FIELD_CLIENTS + "." + uuid).xattr() },
+                                              { mutate_in_spec::upsert(FIELD_CLIENTS + "." + uuid, nullptr).xattr(),
+                                                mutate_in_spec::remove(FIELD_CLIENTS + "." + uuid).xattr() },
                                               wrap_option(mutate_in_options(), config_));
                       });
                       lost_attempts_cleanup_log->info("removed {} from {}", uuid, bucket_name);
@@ -442,23 +443,9 @@ tx::transactions_cleanup::attempts_loop()
                     attempt_cleanup_log->trace("beginning cleanup on {}", *entry);
                     try {
                         entry->clean(attempt_cleanup_log);
-                    } catch (const std::runtime_error& e) {
-                        // TODO: perhaps in config later?
-                        auto backoff_duration = std::chrono::milliseconds(10000);
-                        entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
-                        attempt_cleanup_log->info("got error '{}' cleaning {}, will retry in {} seconds",
-                                                  e.what(),
-                                                  entry,
-                                                  std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
-                        atr_queue_.push(*entry);
                     } catch (...) {
-                        // TODO: perhaps in config later?
-                        auto backoff_duration = std::chrono::milliseconds(10000);
-                        entry->min_start_time(std::chrono::system_clock::now() + backoff_duration);
-                        attempt_cleanup_log->info("got error cleaning {}, will retry in {} seconds",
-                                                  entry,
-                                                  std::chrono::duration_cast<std::chrono::seconds>(backoff_duration).count());
-                        atr_queue_.push(*entry);
+                        // catch everything as we don't want to raise out of this thread
+                        attempt_cleanup_log->info("got error cleaning {}, leaving for lost txn cleanup", entry);
                     }
                 }
             }
@@ -473,15 +460,19 @@ void
 tx::transactions_cleanup::add_attempt(attempt_context& ctx)
 {
     auto& ctx_impl = static_cast<attempt_context_impl&>(ctx);
-    if (ctx_impl.state() == tx::attempt_state::NOT_STARTED) {
-        attempt_cleanup_log->trace("attempt not started, not adding to cleanup");
-        return;
-    }
-    if (config_.cleanup_client_attempts()) {
-        attempt_cleanup_log->trace("adding attempt {} to cleanup queue", ctx_impl.id());
-        atr_queue_.push(ctx);
-    } else {
-        attempt_cleanup_log->trace("not cleaning client attempts, ignoring {}", ctx_impl.id());
+    switch (ctx_impl.state()) {
+        case tx::attempt_state::NOT_STARTED:
+        case tx::attempt_state::COMPLETED:
+        case tx::attempt_state::ROLLED_BACK:
+            attempt_cleanup_log->trace("attempt in state {}, not adding to cleanup", tx::attempt_state_name(ctx_impl.state()));
+            return;
+        default:
+            if (config_.cleanup_client_attempts()) {
+                attempt_cleanup_log->trace("adding attempt {} to cleanup queue", ctx_impl.id());
+                atr_queue_.push(ctx);
+            } else {
+                attempt_cleanup_log->trace("not cleaning client attempts, ignoring {}", ctx_impl.id());
+            }
     }
 }
 

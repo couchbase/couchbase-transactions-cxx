@@ -450,17 +450,15 @@ namespace transactions
         try {
             result atr_res;
             hooks_.before_atr_complete(this);
-            // if we have expired now, just raise the final error.
+            // if we have expired (and not in overtime mode), just raise the final error.
             error_if_expired_and_not_in_overtime(STAGE_ATR_COMPLETE, {});
-            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
-            std::vector<mutate_in_spec> specs({
-              mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMPLETED)).xattr(),
-              mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
-            });
+            trace("removing attempt {} from atr", atr_id_.value());
+            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id());
             wrap_collection_call(atr_res, [&](result& r) {
-                r = atr_collection_->mutate_in(atr_id_.value(), specs, wrap_option(mutate_in_options(), config_));
+                r = atr_collection_->mutate_in(atr_id_.value(),
+                                               { mutate_in_spec::upsert(prefix, nullptr).xattr(), mutate_in_spec::remove(prefix).xattr() },
+                                               wrap_option(mutate_in_options(), config_));
             });
-            trace("setting attempt state COMPLETED for attempt {}", atr_id_.value());
             hooks_.after_atr_complete(this);
             state(attempt_state::COMPLETED);
         } catch (const client_error& er) {
@@ -490,7 +488,7 @@ namespace transactions
             }
         }
         if (atr_collection_ && atr_id_ && !is_done_) {
-            retry_op<void>([&]() { atr_commit(); });
+            retry_op_exp<void>([&]() { atr_commit(); });
             staged_mutations_->commit(*this);
             atr_complete();
             is_done_ = true;
@@ -511,13 +509,13 @@ namespace transactions
     {
         try {
             error_if_expired_and_not_in_overtime(STAGE_ATR_ABORT, {});
+            hooks_.before_atr_aborted(this);
             std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
             std::vector<mutate_in_spec> specs({
               mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::ABORTED)).xattr(),
               mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, "${Mutation.CAS}").xattr().expand_macro(),
             });
             staged_mutations_->extract_to(prefix, specs);
-            hooks_.before_atr_aborted(this);
             result res;
             wrap_collection_call(
               res, [&](result& r) { r = atr_collection_->mutate_in(atr_id_.value(), specs, wrap_option(mutate_in_options(), config_)); });
@@ -541,6 +539,8 @@ namespace transactions
                     throw transaction_operation_failed(ec, e.what()).no_rollback().cause(ACTIVE_TRANSACTION_RECORD_ENTRY_NOT_FOUND);
                 case FAIL_DOC_NOT_FOUND:
                     throw transaction_operation_failed(ec, e.what()).no_rollback().cause(ACTIVE_TRANSACTION_RECORD_NOT_FOUND);
+                case FAIL_ATR_FULL:
+                    throw transaction_operation_failed(ec, e.what()).no_rollback().cause(ACTIVE_TRANSACTION_RECORD_FULL);
                 case FAIL_HARD:
                     throw transaction_operation_failed(ec, e.what()).no_rollback();
                 default:
@@ -552,16 +552,14 @@ namespace transactions
     void attempt_context_impl::atr_rollback_complete()
     {
         try {
-            check_expiry_during_commit_or_rollback(STAGE_ATR_ROLLBACK_COMPLETE, boost::none);
+            error_if_expired_and_not_in_overtime(STAGE_ATR_ROLLBACK_COMPLETE, boost::none);
             hooks_.before_atr_rolled_back(this);
-            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
-            std::vector<mutate_in_spec> specs({
-              mutate_in_spec::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::ROLLED_BACK)).xattr(),
-              mutate_in_spec::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "${Mutation.CAS}").xattr().expand_macro(),
-            });
+            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id());
             result atr_res;
             wrap_collection_call(atr_res, [&](result& r) {
-                r = atr_collection_->mutate_in(atr_id_.value(), specs, wrap_option(mutate_in_options(), config_));
+                r = atr_collection_->mutate_in(atr_id_.value(),
+                                               { mutate_in_spec::upsert(prefix, nullptr).xattr(), mutate_in_spec::remove(prefix).xattr() },
+                                               wrap_option(mutate_in_options(), config_));
             });
             state(attempt_state::ROLLED_BACK);
             hooks_.after_atr_rolled_back(this);
@@ -578,10 +576,9 @@ namespace transactions
             trace("atr_rollback_complete got error {}", ec);
             switch (ec) {
                 case FAIL_DOC_NOT_FOUND:
-                    trace("atr {} not found", atr_id_);
-                    throw transaction_operation_failed(ec, e.what()).no_rollback();
                 case FAIL_PATH_NOT_FOUND:
-                    trace("atr entry {}  not found", id());
+                    trace("atr {} not found, ignoring", atr_id_.value());
+                    is_done_ = true;
                     break;
                 case FAIL_ATR_FULL:
                     trace("atr {} full!", atr_id_);
@@ -618,13 +615,13 @@ namespace transactions
         }
         try {
             // (1) atr_abort
-            retry_op<void>([&] { atr_abort(); });
+            retry_op_exp<void>([&] { atr_abort(); });
             // (2) rollback staged mutations
             staged_mutations_->rollback(*this);
             trace("rollback completed unstaging docs");
 
             // (3) atr_rollback
-            retry_op<void>([&] { atr_rollback_complete(); });
+            retry_op_exp<void>([&] { atr_rollback_complete(); });
         } catch (const client_error& e) {
             error_class ec = e.ec();
             error("rollback transaction {}, attempt {} fail with error {}", transaction_id(), id(), e.what());

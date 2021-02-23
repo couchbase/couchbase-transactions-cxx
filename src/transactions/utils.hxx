@@ -132,7 +132,7 @@ namespace transactions
                 return func();
             } catch (const retry_operation& e) {
                 // 2^7 = 128, so max delay fixed at 128 * delay
-                std::this_thread::sleep_for(delay * (jitter() * pow(2, fmax(7, retries))));
+                std::this_thread::sleep_for(delay * (jitter() * pow(2, fmax(8, retries))));
             }
         }
         throw retry_operation_retries_exhausted("retry_op hit max retries!");

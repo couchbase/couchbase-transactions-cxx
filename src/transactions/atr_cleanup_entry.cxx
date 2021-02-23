@@ -79,8 +79,6 @@ tx::atr_cleanup_entry::atr_cleanup_entry(attempt_context& ctx)
     attempt_id_ = ctx_impl.id();
     cleanup_ = &ctx_impl.parent_->cleanup();
 
-    // add expiration time to min start time - see java impl.
-    min_start_time_ += std::chrono::duration_cast<std::chrono::milliseconds>(ctx_impl.config_.expiration_time());
     // need the collection to be safe to use in cleanup thread, so get it from
     // the cleanup's cluster.
     atr_collection_ = cleanup_->cluster().bucket(ctx_impl.atr_collection_->bucket_name())->collection(ctx_impl.atr_collection_->name());
