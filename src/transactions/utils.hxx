@@ -84,7 +84,7 @@ namespace transactions
     static const std::chrono::milliseconds DEFAULT_RETRY_OP_EXP_DELAY = std::chrono::milliseconds(1);
     static const size_t DEFAULT_RETRY_OP_MAX_RETRIES = 100;
     static const double RETRY_OP_JITTER = 0.1; // means +/- 10% for jitter.
-
+    static const size_t DEFAULT_RETRY_OP_EXPONENT_CAP = 8;
     static double jitter()
     {
         static std::random_device rd;
@@ -100,17 +100,17 @@ namespace transactions
                                            std::chrono::duration<R3, P3> timeout,
                                            std::function<R()> func)
     {
-        auto end_time = std::chrono::system_clock::now() + timeout;
+        auto end_time = std::chrono::steady_clock::now() + timeout;
         uint32_t retries = 0;
-        while (std::chrono::system_clock::now() < end_time) {
+        while (true) {
             try {
                 return func();
             } catch (const retry_operation& e) {
-                auto now = std::chrono::system_clock::now();
+                auto now = std::chrono::steady_clock::now();
                 if (now > end_time) {
                     break;
                 }
-                auto delay = initial_delay * (jitter() * pow(2, retries));
+                auto delay = initial_delay * (jitter() * pow(2, retries++));
                 if (delay > max_delay) {
                     delay = max_delay;
                 }
@@ -127,12 +127,12 @@ namespace transactions
     template<typename R, typename Rep, typename Period>
     R retry_op_exponential_backoff(std::chrono::duration<Rep, Period> delay, size_t max_retries, std::function<R()> func)
     {
-        for (size_t retries = 0; retries < max_retries; retries++) {
+        for (size_t retries = 0; retries <= max_retries; retries++) {
             try {
                 return func();
             } catch (const retry_operation& e) {
                 // 2^7 = 128, so max delay fixed at 128 * delay
-                std::this_thread::sleep_for(delay * (jitter() * pow(2, fmax(8, retries))));
+                std::this_thread::sleep_for(delay * (jitter() * pow(2, fmin(DEFAULT_RETRY_OP_EXPONENT_CAP, retries))));
             }
         }
         throw retry_operation_retries_exhausted("retry_op hit max retries!");
@@ -147,7 +147,7 @@ namespace transactions
     template<typename R, typename Rep, typename Period>
     R retry_op_constant_delay(std::chrono::duration<Rep, Period> delay, size_t max_retries, std::function<R()> func)
     {
-        for (size_t retries = 0; retries < max_retries; retries++) {
+        for (size_t retries = 0; retries <= max_retries; retries++) {
             try {
                 return func();
             } catch (const retry_operation& e) {

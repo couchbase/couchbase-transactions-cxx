@@ -68,7 +68,7 @@ tx::atr_cleanup_entry::atr_cleanup_entry(const atr_entry& entry,
 }
 
 tx::atr_cleanup_entry::atr_cleanup_entry(attempt_context& ctx)
-  : min_start_time_(std::chrono::system_clock::now())
+  : min_start_time_(std::chrono::steady_clock::now())
   , check_if_expired_(false)
   , atr_entry_(nullptr)
 {
@@ -334,7 +334,7 @@ tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger)
 bool
 tx::atr_cleanup_entry::ready() const
 {
-    return std::chrono::system_clock::now() > min_start_time_;
+    return std::chrono::steady_clock::now() > min_start_time_;
 }
 
 boost::optional<tx::atr_cleanup_entry>

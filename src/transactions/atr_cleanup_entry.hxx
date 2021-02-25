@@ -58,7 +58,7 @@ namespace transactions
         std::string atr_id_;
         std::string attempt_id_;
         std::shared_ptr<couchbase::collection> atr_collection_;
-        std::chrono::time_point<std::chrono::system_clock> min_start_time_;
+        std::chrono::time_point<std::chrono::steady_clock> min_start_time_;
         bool check_if_expired_;
         const transactions_cleanup* cleanup_;
         static const uint32_t safety_margin_ms_;
@@ -108,7 +108,7 @@ namespace transactions
             os << "}";
             return os;
         }
-        void min_start_time(std::chrono::time_point<std::chrono::system_clock> new_time)
+        void min_start_time(std::chrono::time_point<std::chrono::steady_clock> new_time)
         {
             min_start_time_ = new_time;
         }

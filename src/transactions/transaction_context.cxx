@@ -8,7 +8,7 @@ namespace transactions
 {
     transaction_context::transaction_context()
       : transaction_id_(uid_generator::next())
-      , start_time_client_(std::chrono::system_clock::now())
+      , start_time_client_(std::chrono::steady_clock::now())
       , deferred_elapsed_(0)
     {
     }
@@ -21,7 +21,7 @@ namespace transactions
 
     CB_NODISCARD bool transaction_context::has_expired_client_side(const transaction_config& config)
     {
-        const auto& now = std::chrono::system_clock::now();
+        const auto& now = std::chrono::steady_clock::now();
         auto expired_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(now - start_time_client_) + deferred_elapsed_;
         auto expired_millis = std::chrono::duration_cast<std::chrono::milliseconds>(expired_nanos);
         bool is_expired = expired_nanos > config.expiration_time();

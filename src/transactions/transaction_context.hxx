@@ -69,7 +69,7 @@ namespace transactions
 
         void retry_delay(const transaction_config& config);
 
-        CB_NODISCARD std::chrono::time_point<std::chrono::system_clock> start_time_client() const
+        CB_NODISCARD std::chrono::time_point<std::chrono::steady_clock> start_time_client() const
         {
             return start_time_client_;
         }
@@ -101,7 +101,7 @@ namespace transactions
         std::string transaction_id_;
 
         /** The time this overall transaction started */
-        const std::chrono::time_point<std::chrono::system_clock> start_time_client_;
+        const std::chrono::time_point<std::chrono::steady_clock> start_time_client_;
 
         /**
          * Will be non-zero only when resuming a deferred transaction. It records how much time has elapsed in total in the deferred
