@@ -80,8 +80,10 @@ TEST(ExpBackoffWithTimeout, RetryCountInRange)
     // Consider solving exactly if we allow user-supplied jitter fraction.
     // So retries should be less than or equal 0.9+1.8+3.6+7.2+9+9.. = 13.5 + 9+...(9 times)+ 5.5 = 14
     // and greater than or equal 1.1+2.2+4.4+8.8+11+... = 16.5 + 11+11...(7 times)+ 6.5 = 12
-    // the # times it will be called is one higher, so..
-    ASSERT_TRUE(IsBetweenInclusive(state.timings.size(), 13, 15));
+    // the # times it will be called is one higher than this.  Also - since sleep_for can be _longer_
+    // than you ask for, we could be significantly under the 12 above.  Lets just make sure they are not
+    // more frequent than the max
+    ASSERT_LE(state.timings.size(), 15);
 }
 
 TEST(ExpBackoffWithTimeout, RetryTimingReasonable)
@@ -108,12 +110,13 @@ TEST(ExpBackoffWithTimeout, RetryTimingReasonable)
     }
 }
 
-TEST(ExpBackoffWithTimeout, AlwaysRetriesOnce)
+TEST(ExpBackoffWithTimeout, AlwaysRetriesAtLeastOnce)
 {
     retry_state state;
     ASSERT_THROW(retry_op_exponential_backoff_timeout<void>(ten_ms, ten_ms, ten_ms, [&state] { state.function(); }),
                  retry_operation_timeout);
-    ASSERT_EQ(2, state.timings.size());
+    // Usually just retries once, sometimes the jitter means a second retry
+    ASSERT_LE(2, state.timings.size());
 }
 
 TEST(ExpBackoffMaxAttempts, WillStopAtMax)

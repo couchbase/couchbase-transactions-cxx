@@ -71,7 +71,7 @@ TARBALL_NAME=$(cat "${SOURCES_DIR}/tarball-name.txt")
 TARBALL_DIR=$(basename "${TARBALL_NAME}" .tar.gz)
 # inject build number into release, and copy spec file to build area
 BUILD_NUMBER=${BUILD_NUMBER:-1}
-VERSION="1.0.0.beta.2"
+VERSION="1.0.0.rc.1"
 DEB_VERSION="${VERSION}~r${BUILD_NUMBER}"
 TARBALL_NAME_ORIG=${TARBALL_NAME//-${VERSION}.tar.gz/_${DEB_VERSION}.orig.tar.gz}
 
