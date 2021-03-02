@@ -169,8 +169,8 @@ namespace transactions
         couchbase::cluster& cluster_;
         transaction_config config_;
         std::unique_ptr<transactions_cleanup> cleanup_;
-        const int max_attempts_{ 100 };
-        const std::chrono::milliseconds min_retry_delay_{ 10 };
+        const int max_attempts_{ 1000 };
+        const std::chrono::milliseconds min_retry_delay_{ 1 };
     };
 } // namespace transactions
 } // namespace couchbase
