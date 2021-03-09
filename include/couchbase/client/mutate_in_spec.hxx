@@ -20,6 +20,12 @@
 
 #include <couchbase/internal/nlohmann/json.hpp>
 
+/**
+ * @file
+ *
+ * Provides functionality for subdoc mutation operations in Couchbase Transactions Client
+ */
+
 namespace couchbase
 {
 class collection;

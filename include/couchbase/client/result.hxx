@@ -22,8 +22,36 @@
 #include <string>
 #include <vector>
 
+/**
+ * @file
+ * Provides an object encapsulating the results of a kv operation in Couchbase Transactions Client.
+ */
 namespace couchbase
 {
+/**
+ * @brief Result of a subdoc operation.
+ *
+ * See @ref collection.lookup_in and @ref collection.mutate_in
+ */
+struct subdoc_result {
+    boost::optional<nlohmann::json> value;
+    uint32_t status;
+
+    subdoc_result()
+      : status(0)
+    {
+    }
+    subdoc_result(uint32_t s)
+      : status(s)
+    {
+    }
+    subdoc_result(nlohmann::json v, uint32_t s)
+      : value(v)
+      , status(s)
+    {
+    }
+};
+
 /**
  * @brief The result of an operation on a cluster.
  *
@@ -82,32 +110,19 @@ namespace couchbase
  * @endcode
  */
 
-struct subdoc_result {
-    boost::optional<nlohmann::json> value;
-    uint32_t status;
-
-    subdoc_result()
-      : status(0)
-    {
-    }
-    subdoc_result(uint32_t s)
-      : status(s)
-    {
-    }
-    subdoc_result(nlohmann::json v, uint32_t s)
-      : value(v)
-      , status(s)
-    {
-    }
-};
-
 struct result {
+    /** @brief return code for operation */
     uint32_t rc;
+    /** @brief CAS for document, if any */
     uint64_t cas;
+    /** @brief datatype flag for content */
     uint8_t datatype;
     uint32_t flags;
+    /** @brief document key */
     std::string key;
+    /** @brief content of document */
     boost::optional<nlohmann::json> value;
+    /** @brief results of subdoc spec operations */
     std::vector<subdoc_result> values;
     bool is_deleted;
     bool ignore_subdoc_errors;

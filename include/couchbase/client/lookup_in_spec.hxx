@@ -17,6 +17,12 @@
 
 #include <string>
 
+/**
+ * @file
+ *
+ * Provides functionality for subdoc lookup operations in Couchbase Transactions Client
+ */
+
 namespace couchbase
 {
 class collection;

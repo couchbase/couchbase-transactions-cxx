@@ -21,12 +21,15 @@
 #include <chrono>
 #include <couchbase/support.hxx>
 
-/** @file */
+/**
+ * @file
+ * Provides options objects for all the kv operations in Couchbase Transactions Client.
+ */
 namespace couchbase
 {
 
 /**
- * @brief durability_level
+ * @brief KV Write Durability
  *
  * When writing a document (insert, upsert, replace, mutate_in), we may
  * want the opreation to not return until the document is in memory, or
@@ -39,20 +42,26 @@ enum class durability_level {
     persist_to_majority             /**< a mojority of nodes have persisted the document to disk.*/
 };
 
+/**
+ * @brief store semantics for subdoc mutations
+ *
+ * When not specified, the semantics are inferred from the @ref mutate_in_spec in the mutate_in operation.  However,
+ * if needed, it can be specified.
+ */
 enum class subdoc_store_semantics {
     upsert, /**< If document doesn't exist, insert it.  Otherwise, update */
     insert, /**< If document exists, return a LCB_ERR_DOCUMENT_EXISTS */
     replace /**< If document doesn't exist, return LCB_ERR_DOCUMENT_NOT_FOUND */
 };
 
+/**
+ *  @brief base class for all options
+ *
+ *  Contains options common to all operations.
+ */
 template<typename T>
 class common_options
 {
-    /**
-     *  @brief base class for all options
-     *
-     *  Contains options common to all operations.
-     */
   private:
     boost::optional<std::chrono::microseconds> timeout_;
 
@@ -82,12 +91,12 @@ class common_options
     }
 };
 
+/**
+ *  @brief Options common to mutation operations
+ */
 template<typename T>
 class common_mutate_options : public common_options<T>
 {
-    /**
-     *  @brief Options common to mutation operations
-     */
   private:
     boost::optional<uint64_t> cas_;
     boost::optional<durability_level> durability_;
@@ -103,9 +112,11 @@ class common_mutate_options : public common_options<T>
         return cas_;
     }
     /**
-     * @brief Set cas
+     * @brief Set current CAS
      *
-     * @param cas The desired cas for this object.
+     * @param cas the current CAS of the document.  Mutation will fail with a
+     *            result code of LCB_ERR_CAS_MISMATCH when this doesn't match the
+     *            current CAS of the document.  Ignored if 0.
      * @return A reference to this object, so the calls can be chained.
      */
     T& cas(uint64_t cas)
@@ -126,7 +137,7 @@ class common_mutate_options : public common_options<T>
     /**
      * @brief Set durability
      *
-     * @param durability Desired @ref durability_level.
+     * @param level Desired @ref durability_level for the mutation operation.
      * @return Reference to this object, so calls can be chained.
      */
     T& durability(durability_level level)
@@ -136,19 +147,19 @@ class common_mutate_options : public common_options<T>
     }
 };
 
+/**
+ * @brief Options for @ref collection.get()
+ */
 class get_options : public common_options<get_options>
 {
-    /**
-     * @brief Options for @ref collection::get
-     */
   private:
     // TODO: ponder a clearer way to set expiry.  Perhaps a duration _or_ time point?
     boost::optional<uint32_t> expiry_;
 
   public:
     /**
-     *  @brief Get expiry
-     *
+     * @brief Get expiry
+     * @volatile
      * @return expiry set in this object, if any.
      */
     CB_NODISCARD boost::optional<uint32_t> expiry() const
@@ -157,6 +168,7 @@ class get_options : public common_options<get_options>
     }
     /**
      * @brief Set expiry
+     * @volatile
      *
      * This will perform a 'get and touch', updating the exipry and returning the document,
      * when set.  The expiry is a uint32_t representing either the number of seconds from
@@ -174,26 +186,44 @@ class get_options : public common_options<get_options>
     }
 };
 
+/**
+ * @brief Options for @ref collection.exists()
+ */
 class exists_options : public common_options<exists_options>
 {
 };
 
+/**
+ * @brief Options for @ref collection.upsert()
+ */
 class upsert_options : public common_mutate_options<upsert_options>
 {
 };
 
+/**
+ * @brief Options for @ref collection.replace()
+ */
 class replace_options : public common_mutate_options<replace_options>
 {
 };
 
+/**`
+ * @brief Options for @ref collection.remove()
+ */
 class remove_options : public common_mutate_options<remove_options>
 {
 };
 
+/**`
+ * @brief Options for @ref collection.insert()
+ */
 class insert_options : public common_mutate_options<insert_options>
 {
 };
 
+/**`
+ * @brief Options for @ref collection.lookup_in()
+ */
 class lookup_in_options : public common_options<lookup_in_options>
 {
   private:
@@ -203,8 +233,8 @@ class lookup_in_options : public common_options<lookup_in_options>
     /**
      * @brief Get access deleted flag
      *
-     * When true, deleted documents can be read.  Used internally in conjunction
-     * with create_deleted.
+     * When true, recently deleted documents can be read.  Used internally in conjunction
+     * with @ref create_deleted.
      *
      *  @return The access_deleted flag.
      */
@@ -215,7 +245,9 @@ class lookup_in_options : public common_options<lookup_in_options>
     /**
      * @brief Set access_deleted flag
      *
-     * @param access_deleted Desired state for access_deleted.  All operations ignore deleted documents, unless this is set to true.
+     * All operations ignore deleted documents, unless this is set to true.
+     *
+     * @param access_deleted Desired state for @ref access_deleted.
      * @return Reference to this object, so calls can be chained.
      */
     lookup_in_options& access_deleted(boost::tribool access_deleted)
@@ -225,6 +257,9 @@ class lookup_in_options : public common_options<lookup_in_options>
     }
 };
 
+/**`
+ * @brief Options for @ref collection.mutate_in()
+ */
 class mutate_in_options : public common_mutate_options<mutate_in_options>
 {
   private:
@@ -260,7 +295,7 @@ class mutate_in_options : public common_mutate_options<mutate_in_options>
      * @brief Get access deleted flag
      *
      * When true, deleted documents can be read.  Used internally in conjunction
-     * with @ref lookup_in_oprions::create_deleted().
+     * with @ref lookup_in_options.create_deleted().
      *
      *  @return The access_deleted flag.
      */
@@ -269,10 +304,11 @@ class mutate_in_options : public common_mutate_options<mutate_in_options>
         return access_deleted_;
     }
     /**
-     * @brief Set access_deleted flag
+     * @brief Set access_deleted flag.
      *
-     * @param access_deleted Desired state for access_deleted.  All operations ignore deleted documents, unless this is set to true.
-     * @return Reference to this object, so calls can be chained.
+     * All operations ignore deleted documents, unless this is set to true.
+     *
+     * @param access_deleted Desired state for access_deleted.     * @return Reference to this object, so calls can be chained.
      */
     mutate_in_options& access_deleted(boost::tribool access_deleted)
     {
@@ -284,7 +320,7 @@ class mutate_in_options : public common_mutate_options<mutate_in_options>
      *
      * When upsert, the mutation should create a new doc if one doesn't exist, otherwise just mutates existing doc.
      * When insert, the mutation should create a new doc only if it doesn't exist, otherwise returns LCB_ERR_DOCUMENT_EXISTS.
-     *
+     * When replace, the mutation should mutate an existing doc, if the document doesn't exist, the operation will return LCB_ERR_DOCUMENT_NOT_FOUND.
      * @return The store semantics, if set.
      */
     CB_NODISCARD boost::optional<subdoc_store_semantics> store_semantics() const
@@ -296,8 +332,9 @@ class mutate_in_options : public common_mutate_options<mutate_in_options>
      *
      * When upsert, the mutation should create a new doc if one doesn't exist, otherwise just mutates existing doc.
      * When insert, the mutation should create a new doc only if it doesn't exist, otherwise returns LCB_ERR_DOCUMENT_EXISTS.
+     * When replace, the mutation should mutate an existing doc, if the document doesn't exist, the operation will return LCB_ERR_DOCUMENT_NOT_FOUND.
      *
-     * @param store_semantics Desired state for the semantics.  Note this overrides any implied semantics that may
+     * @param _semantics Desired state for the semantics.  Note this overrides any implied semantics that may
      *                        be inferred by the specs (@ref mutate_in_spec::fulldoc_insert, @ref mutate_in_spec::fulldoc_upsert
      *                        for instance).
      * @return Reference to this object, so calls can be chained.

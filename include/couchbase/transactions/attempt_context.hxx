@@ -25,7 +25,12 @@ namespace couchbase
 namespace transactions
 {
     /**
+     * @brief Provides methods to perform transactional operations.
      *
+     * An @ref attempt_context object makes all the transactional kv operations
+     * available.  Note they can throw a @ref transaction_operation_failed
+     * exception, which needs to NOT be caught, or if caught, rethrown, for
+     * transactions to work properly.
      */
     class attempt_context
     {
@@ -36,6 +41,9 @@ namespace transactions
          * @param collection the Couchbase collection the document exists on
          * @param id the document's ID
          * @return an TransactionDocument containing the document
+         *
+         * @throws transaction_operation_failed which either should not be caught by the lambda, or
+         *         rethrown if it is caught.
          */
         virtual transaction_document get(std::shared_ptr<collection> collection, const std::string& id) = 0;
 
@@ -45,6 +53,9 @@ namespace transactions
          * @param collection the Couchbase collection the document exists on
          * @param id the document's ID
          * @return a TransactionDocument containing the document, if it exists.
+         *
+         * @throws transaction_operation_failed which either should not be caught by the lambda, or
+         *         rethrown if it is caught.
          */
         virtual boost::optional<transaction_document> get_optional(std::shared_ptr<collection> collection, const std::string& id) = 0;
 
@@ -63,6 +74,9 @@ namespace transactions
          * @param document the doc to be updated
          * @param content the content to replace the doc with.
          * @return the document, updated with its new CAS value.
+         *
+         * @throws transaction_operation_failed which either should not be caught by the lambda, or
+         *         rethrown if it is caught.
          */
         template<typename Content>
         transaction_document replace(std::shared_ptr<collection> collection, const transaction_document& document, const Content& content)
@@ -83,6 +97,9 @@ namespace transactions
          * @param id the document's unique ID
          * @param content the content to insert
          * @return the doc, updated with its new CAS value and ID, and converted to a TransactionDocument
+         *
+         * @throws transaction_operation_failed which either should not be caught by the lambda, or
+         *         rethrown if it is caught.
          */
         template<typename Content>
         transaction_document insert(std::shared_ptr<collection> collection, const std::string& id, const Content& content)
@@ -100,6 +117,9 @@ namespace transactions
          * back).
          *
          * @param document the document to be removed
+         *
+         * @throws transaction_operation_failed which either should not be caught by the lambda, or
+         *         rethrown if it is caught.
          */
         virtual void remove(std::shared_ptr<couchbase::collection> collection, transaction_document& document) = 0;
 
@@ -109,6 +129,9 @@ namespace transactions
          * After this, no further operations are permitted on this instance, and they will result in an
          * exception that will, if not caught in the transaction logic, cause the transaction to
          * fail.
+         *
+         * @throws transaction_operation_failed which either should not be caught by the lambda, or
+         *         rethrown if it is caught.
          */
         virtual void commit() = 0;
 
@@ -118,14 +141,19 @@ namespace transactions
          * Typically, this is called internally to rollback transaction when errors occur in the lambda.  Though
          * it can be called explicitly from the app logic within the transaction as well, perhaps that is better
          * modeled as a custom exception that you raise instead.
+         *
+         * @throws transaction_operation_failed which either should not be caught by the lambda, or
+         *         rethrown if it is caught.
          */
         virtual void rollback() = 0;
 
       protected:
+        /** @internal */
         virtual transaction_document insert_raw(std::shared_ptr<collection> collection,
                                                 const std::string& id,
                                                 const nlohmann::json& content) = 0;
 
+        /** @internal */
         virtual transaction_document replace_raw(std::shared_ptr<collection> collection,
                                                  const transaction_document& document,
                                                  const nlohmann::json& content) = 0;

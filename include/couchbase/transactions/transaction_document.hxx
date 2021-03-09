@@ -31,6 +31,10 @@ namespace couchbase
 {
 namespace transactions
 {
+    /**
+     * @brief Encapsulates results of an individual transaction operation
+     *
+     */
     class transaction_document
     {
       private:
@@ -44,6 +48,7 @@ namespace transactions
         const boost::optional<document_metadata> metadata_;
 
       public:
+        /** @internal */
         transaction_document(const transaction_document& doc)
           : collection_(doc.collection_)
           , value_(doc.value_)
@@ -54,6 +59,7 @@ namespace transactions
         {
         }
 
+        /** @internal */
         template<typename Content>
         transaction_document(std::string id,
                              Content content,
@@ -70,10 +76,10 @@ namespace transactions
         {
         }
 
+        /** @internal */
         template<typename Content>
         static transaction_document create_from(transaction_document& document, Content content)
         {
-            // TODO: just copy it instead
             transaction_links links(document.links().atr_id(),
                                     document.links().atr_bucket_name(),
                                     document.links().atr_scope_name(),
@@ -92,6 +98,7 @@ namespace transactions
             return transaction_document(document.id(), content, document.cas(), document.collection_ref(), links, document.metadata());
         }
 
+        /** @internal */
         static transaction_document create_from(collection& collection, std::string id, result res)
         {
             boost::optional<std::string> atr_id;
@@ -190,7 +197,7 @@ namespace transactions
             return transaction_document(id, content, res.cas, collection, links, boost::make_optional(md));
         }
 
-        // TODO: make a swap function, use that here and copy constructor
+        /** @internal */
         template<typename Content>
         transaction_document& operator=(const transaction_document& other)
         {
@@ -203,48 +210,120 @@ namespace transactions
             return *this;
         }
 
-        collection& collection_ref()
+        /**
+         * @brief Collection that contains this document.
+         *
+         * @return reference to the collection containing this document.
+         */
+        CB_NODISCARD collection& collection_ref()
         {
             return collection_;
         }
 
+        /**
+         * @brief Content of the document.
+         *
+         * The content of the document is stored as json.  That is represented internally as
+         * a nlohmann::json object.  If the documents have a c++ class that represents them, it
+         * can be returned here by adding a to_json and from_json helper.
+         * @code{.cpp}
+         * namespace my_namespace {
+         *   struct my_doc
+         *   {
+         *     std::string name;
+         *     uint32_t age;
+         *   };
+         *
+         *   void from_json(const nlohmann::json& j, my_doc& d)
+         *   {
+         *      j.at("name").get_to(d.name);
+         *      j.at("age").get_to(d.age);
+         *   }
+         *   void to_json(nlohmann::json& j, const my_doc& d)
+         *   {
+         *      j = nlohmann::json({"name", d.name}, {"age", d.age});
+         *   }
+         * @endcode
+         *
+         * Then, you can do:
+         * @code{.cpp}
+         * ...
+         * txn.run([&](attempt_context& ctx) {
+         *   auto txn_doc = ctx.get("mydocid");
+         *   my_namespace::my_doc& mydoc = td.content<my_doc>();
+         *   ...
+         * });
+         * @endcode
+         *
+         * See @ref examples/game_server, and for more detail https://github.com/nlohmann/json#arbitrary-types-conversions
+         *
+         * @return content of the document.
+         */
         template<typename Content>
         CB_NODISCARD Content content() const
         {
             return value_.get<Content>();
         }
 
+        /**
+         * @brief Get document id.
+         *
+         * @return the id of this document.
+         */
         CB_NODISCARD const std::string& id() const
         {
             return id_;
         }
 
+        /**
+         * @brief Get document CAS.
+         *
+         * @return the CAS for this document.
+         */
         CB_NODISCARD uint64_t cas() const
         {
             return cas_;
         }
 
+        /** @internal */
         CB_NODISCARD transaction_links links() const
         {
             return links_;
         }
 
+        /**
+         * @brief Set content for this document.
+         *
+         * @param content the desired content.  See @ref content() for
+         *        more details.
+         */
         template<typename Content>
         void content(const Content& content)
         {
             value_ = content;
         }
 
+        /**
+         * @brief Set document CAS.
+         *
+         * @param cas desired CAS for document.
+         */
         void cas(uint64_t cas)
         {
             cas_ = cas;
         }
 
+        /**
+         * @brief Get document metadata.
+         *
+         * @return metadata for this document.
+         */
         CB_NODISCARD const boost::optional<document_metadata>& metadata() const
         {
             return metadata_;
         }
 
+        /** @internal */
         template<typename OStream>
         friend OStream& operator<<(OStream& os, const transaction_document document)
         {

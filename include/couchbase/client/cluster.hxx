@@ -25,15 +25,19 @@
 #include <boost/optional.hpp>
 #include <couchbase/client/bucket.hxx>
 #include <couchbase/support.hxx>
-
+/*
+ * @file
+ * Provides cluster-level operations for Couchbase Transactions Client
+ */
 namespace couchbase
 {
 class bucket;
-// forward declare the internal pool class
+
+/** @internal */
 template<typename T>
 class pool;
 
-// and the internal counter struct
+/** @internal */
 struct instance_pool_event_counter;
 
 static const size_t DEFAULT_CLUSTER_MAX_INSTANCES = 4;
@@ -127,7 +131,7 @@ class cluster_options
      *
      * Sets the kv timeout to use for any kv operation within the cluster if it has not
      * been specified in the options for that operation.  The @ref result will indicate
-     * that the operation timed out, @see @result::is_timeout().
+     * that the operation timed out, see @ref result.is_timeout().
      *
      * @param duration The desired duration to use.
      */
@@ -139,14 +143,16 @@ class cluster_options
     }
 
     /**
-     * @internal
+     * @brief Internal structure used for tests.
+     * @volatile
      */
     CB_NODISCARD instance_pool_event_counter* event_counter() const
     {
         return event_counter_;
     }
     /**
-     * @internal
+     * @brief Internal structure used for tests.
+     * @volatile
      */
     cluster_options& event_counter(instance_pool_event_counter* counter)
     {
@@ -155,6 +161,10 @@ class cluster_options
     }
 };
 
+/**
+ * @brief Connects to a couchbase cluster, exposes cluster operations and bucket accessors.
+ *
+ */
 class cluster
 {
   private:
@@ -179,6 +189,7 @@ class cluster
      * @param cluster_address Address of the cluster, say couchbase://1.2.3.4
      * @param user_name User name to use for this connection.
      * @param password Password for this user.
+     * @param opts Options for this cluster.
      */
     explicit cluster(std::string cluster_address,
                      std::string user_name,

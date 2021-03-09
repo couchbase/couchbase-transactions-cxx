@@ -28,6 +28,7 @@ namespace couchbase
 {
 namespace transactions
 {
+    /** @internal */
     class transaction_links
     {
       private:

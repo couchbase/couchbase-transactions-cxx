@@ -24,19 +24,22 @@
 #include <string>
 #include <thread>
 #include <vector>
+/**
+ * @file
+ *
+ * Provides bucket-level operations for Couchbase Transactions Client
+ */
 
 namespace couchbase
 {
 class collection;
 class cluster;
 
-template<typename T>
-class pool;
+/** @internal */
+template<typename T> class pool;
 
 /**
- * Couchbase bucket.
- *
- * Exposes bucket-level operations and collections accessors.
+ * @brief Exposes bucket-level operations and collections accessors.
  */
 class bucket : public std::enable_shared_from_this<bucket>
 {

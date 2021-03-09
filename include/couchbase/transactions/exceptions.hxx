@@ -30,16 +30,6 @@ namespace transactions
      */
     class transaction_context;
 
-    //  only used in ambiguity resolution during atr_commit
-    class retry_atr_commit : public std::runtime_error
-    {
-      public:
-        retry_atr_commit(const std::string& what)
-          : std::runtime_error(what)
-        {
-        }
-    };
-
     enum external_exception {
         UNKNOWN = 0,
         ACTIVE_TRANSACTION_RECORD_ENTRY_NOT_FOUND,

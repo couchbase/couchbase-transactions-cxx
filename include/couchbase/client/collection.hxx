@@ -27,6 +27,11 @@
 #include <thread>
 #include <vector>
 
+/**
+ * @file
+ *
+ * Provides collection-level operations for Couchbase Transactions Client.
+ */
 namespace couchbase
 {
 
@@ -35,6 +40,9 @@ enum class store_operation { upsert, insert, replace };
 result
 store_impl(collection* coll, store_operation op, const std::string& id, const std::string& payload, uint64_t cas, durability_level level);
 
+/**
+ * @brief Exposes collection-level kv operations
+ */
 class collection
 {
     friend class bucket;
@@ -96,7 +104,11 @@ class collection
     result get(const std::string& id, const get_options& opts = get_options());
 
     /**
+     * @brief Test existence of a document
      *
+     * @param id Key of document.
+     * @param opts Options for this command.
+     * @return result The @ref result.value will be true if document exists, false otherwise.
      */
     result exists(const std::string& id, const exists_options& opts = exists_options());
 
@@ -187,7 +199,7 @@ class collection
     /**
      * @brief Mutate some elements of a document.
      *
-     * Mutates some paths within a document.  See @ref mutate_in_specs for the various possibilities and limitations. Useful
+     * Mutates some paths within a document.  See @ref mutate_in_spec for the various possibilities and limitations. Useful
      * avoiding constructing, sending entire document, if all you want to do is modify a small fraction of it.
      *
      * @param id Key of doc to mutate.
@@ -200,7 +212,7 @@ class collection
     /**
      * @brief Lookup some elements of a document.
      *
-     * Lookup some elements in a document.  See @ref lookup_in_specs for the various possibilities and limitations. Useful
+     * Lookup some elements in a document.  See @ref lookup_in_spec for the various possibilities and limitations. Useful
      * when you don't want to fetch and parse entire document.
      *
      * @param id Key of doc to mutate.

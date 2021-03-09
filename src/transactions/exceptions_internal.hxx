@@ -8,6 +8,16 @@ namespace couchbase
 {
 namespace transactions
 {
+    //  only used in ambiguity resolution during atr_commit
+    class retry_atr_commit : public std::runtime_error
+    {
+      public:
+        retry_atr_commit(const std::string& what)
+          : std::runtime_error(what)
+        {
+        }
+    };
+
     class retry_operation : public std::runtime_error
     {
       public:

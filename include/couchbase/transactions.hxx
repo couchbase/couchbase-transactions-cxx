@@ -25,6 +25,10 @@
 #include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transaction_result.hxx>
+/**
+ * @file
+ * Main header file for Couchbase Transactions
+ */
 
 namespace couchbase
 {
@@ -39,8 +43,12 @@ namespace transactions
 
     /**
      * @mainpage
-     * A transaction consists of a lambda containing all the operations you wish to perform. The transactions object
-     * yields a @ref arrempt_context which you use for those operations.  For example:
+     * A transaction consists of a lambda containing all the operations you wish to perform within a transaction.
+     * The @ref transactions.run() call yields an @ref attempt_context which you use for those operations.
+     *
+     * @section txn_overview Overview
+     *
+     * A very simple transaction:
      *
      * @code{.cpp}
      * cluster c("couchbase://127.0.0.1", "Administrator", "password");
@@ -63,12 +71,37 @@ namespace transactions
      * }
      * @endcode
      *
-     * this upserts a document, and inserts another into the default collection in the bucket named "default".  If
-     * unsuccessful, it outputs some information about what the issue was.
+     * This upserts a document, and inserts another into the default collection in the bucket named "default".  If
+     * unsuccessful, an exception will be raised.
      *
-     * For a much mor detailed example, see @ref examples/game_server.cxx
+     * For a much more detailed example, see @ref examples/game_server.cxx
+     *
+     * @section txn_best_practices Best Practices
+     *
+     * Each @ref transactions instances spins up background threads to perform cleanup of metadata
+     * that could be left behind after failed transactions.  For that reason, creating many
+     * @ref transactions objects, especially if they are long-lived, will consume resources.  We recommend
+     * simply creating one @ref transactions object per process, and using that for the life of the process,
+     * when possible.
+     *
+     * The @ref transactions, @ref cluster, @ref bucket, and @ref collection instances are all safe to use
+     * across threads.  The @ref cluster and @ref bucket use libcouchbase internally, and manage a pool of
+     * libcouchbase instances, since those instances are not to be used across threads.  The maximum number
+     * of instances in the pools (for either the @ref cluster or @ref bucket) can be specified at the time
+     * you construct the @ref cluster.  See @ref cluster_options for details.
+     *
+     * Since a @ref transactions instance spins up one thread per bucket for background cleanup tasks, a reasonable
+     * starting point for sizing the @ref cluster_options::max_bucket_instances would be one per bucket, plus
+     * one per thread that uses the @ref cluster (or the @ref transactions object constructed with that @ref cluster).
+     * This could be tuned lower potentially, but this is a the maxmimum one should need.  The pool only
+     * creates a new instance when it needs one, so the actual number created may never hit the max.  When
+     * the maximum is reached, the thread will block until one is available.
      *
      * @example examples/game_server.cxx
+     */
+
+    /** @brief Main class for creating a transaction
+     *
      */
     class transactions
     {

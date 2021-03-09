@@ -26,11 +26,17 @@ namespace couchbase
 namespace transactions
 {
     /**
-     * Stores some $document metadata from when the document is fetched
+     * @brief Stores some $document metadata from when the document is fetched
      */
     class document_metadata
     {
       public:
+        /**
+         *  @internal
+         *  @brief Create document metadata, given results of a kv operation
+         *
+         *  We expect this constructor to become private soon.
+         */
         document_metadata(boost::optional<std::string> cas,
                           boost::optional<std::string> revid,
                           boost::optional<std::uint32_t> exptime,
@@ -42,21 +48,42 @@ namespace transactions
         {
         }
 
+        /**
+         * @brief Get CAS for the document
+         *
+         * @return the CAS of the document, as a string.
+         */
         CB_NODISCARD boost::optional<std::string> cas() const
         {
             return cas_;
         }
 
+        /**
+         * @brief Get revid for the document
+         *
+         * @return the revid of the document, as a string.
+         */
         CB_NODISCARD boost::optional<std::string> revid() const
         {
             return revid_;
         }
 
+        /**
+         * @brief Get the expiry of the document, if set
+         *
+         * @return the expiry of the document, if one was set, and the request
+         *         specified it.
+         */
         CB_NODISCARD boost::optional<std::uint32_t> exptime() const
         {
             return exptime_;
         }
 
+        /**
+         * @brief Get the crc for the document
+         *
+         * @return the crc-32 for the document, as a string
+         */
         CB_NODISCARD boost::optional<std::string> crc32() const
         {
             return crc32_;
