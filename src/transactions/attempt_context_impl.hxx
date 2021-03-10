@@ -77,6 +77,12 @@ namespace transactions
         }
 
         template<typename... Args>
+        void debug(const std::string& fmt, Args... args)
+        {
+            txn_log->debug(attempt_format_string + fmt, this->transaction_id(), this->id(), args...);
+        }
+
+        template<typename... Args>
         void info(const std::string& fmt, Args... args)
         {
             txn_log->info(attempt_format_string + fmt, this->transaction_id(), this->id(), args...);

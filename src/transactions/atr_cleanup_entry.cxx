@@ -324,7 +324,7 @@ tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger)
                                 { mutate_in_spec::upsert(path, nullptr).xattr(), mutate_in_spec::remove(path).xattr() },
                                 wrap_option(mutate_in_options(), cleanup_->config()));
         });
-        logger->info("successfully removed attempt {}", attempt_id_);
+        logger->trace("successfully removed attempt {}", attempt_id_);
     } catch (const client_error& e) {
         logger->error("cleanup couldn't remove attempt {} due to {}", attempt_id_, e.what());
         throw;

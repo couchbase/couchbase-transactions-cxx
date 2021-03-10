@@ -129,7 +129,7 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
         // clean the ATR entry
         std::string atr_id = *it;
         if (!running_.load()) {
-            lost_attempts_cleanup_log->info("cleanup of {} complete", bucket_name);
+            lost_attempts_cleanup_log->debug("cleanup of {} complete", bucket_name);
             return;
         }
         try {
@@ -296,13 +296,13 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
             });
             // just update the cas, and return the details
             details.cas_now_nanos = res.cas;
-            lost_attempts_cleanup_log->info("get_active_clients found {}", details);
+            lost_attempts_cleanup_log->debug("get_active_clients found {}", details);
             return details;
         } catch (const tx::client_error& e) {
             auto ec = e.ec();
             switch (ec) {
                 case FAIL_DOC_NOT_FOUND:
-                    lost_attempts_cleanup_log->info("client record not found, creating new one");
+                    lost_attempts_cleanup_log->debug("client record not found, creating new one");
                     create_client_record(coll);
                     throw retry_operation("Client record didn't exist. Creating and retrying");
                 default:
@@ -332,16 +332,16 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
                                                 mutate_in_spec::remove(FIELD_CLIENTS + "." + uuid).xattr() },
                                               wrap_option(mutate_in_options(), config_));
                       });
-                      lost_attempts_cleanup_log->info("removed {} from {}", uuid, bucket_name);
+                      lost_attempts_cleanup_log->debug("removed {} from {}", uuid, bucket_name);
                   } catch (const tx::client_error& e) {
-                      lost_attempts_cleanup_log->trace("error removing client records {}", e.what());
+                      lost_attempts_cleanup_log->debug("error removing client records {}", e.what());
                       auto ec = e.ec();
                       switch (ec) {
                           case FAIL_DOC_NOT_FOUND:
-                              lost_attempts_cleanup_log->trace("no client record in {}, ignoring", bucket_name);
+                              lost_attempts_cleanup_log->debug("no client record in {}, ignoring", bucket_name);
                               return;
                           case FAIL_PATH_NOT_FOUND:
-                              lost_attempts_cleanup_log->trace("client {} not in client record for {}, ignoring", uuid, bucket_name);
+                              lost_attempts_cleanup_log->debug("client {} not in client record for {}, ignoring", uuid, bucket_name);
                               return;
                           default:
                               throw retry_operation("retry remove until timeout");
@@ -432,11 +432,11 @@ void
 tx::transactions_cleanup::attempts_loop()
 {
     try {
-        attempt_cleanup_log->info("cleanup attempts loop starting...");
+        attempt_cleanup_log->debug("cleanup attempts loop starting...");
         while (interruptable_wait(cleanup_loop_delay_)) {
             while (auto entry = atr_queue_.pop()) {
                 if (!running_.load()) {
-                    attempt_cleanup_log->info("loop stopping - {} entries on queue", atr_queue_.size());
+                    attempt_cleanup_log->debug("loop stopping - {} entries on queue", atr_queue_.size());
                     return;
                 }
                 if (entry) {
@@ -468,7 +468,7 @@ tx::transactions_cleanup::add_attempt(attempt_context& ctx)
             return;
         default:
             if (config_.cleanup_client_attempts()) {
-                attempt_cleanup_log->trace("adding attempt {} to cleanup queue", ctx_impl.id());
+                attempt_cleanup_log->debug("adding attempt {} to cleanup queue", ctx_impl.id());
                 atr_queue_.push(ctx);
             } else {
                 attempt_cleanup_log->trace("not cleaning client attempts, ignoring {}", ctx_impl.id());
