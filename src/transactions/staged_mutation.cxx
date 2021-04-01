@@ -280,7 +280,8 @@ tx::staged_mutation_queue::remove_doc(attempt_context_impl& ctx, staged_mutation
             ctx.check_expiry_during_commit_or_rollback(STAGE_REMOVE_DOC, boost::optional<const std::string>(item.doc().id()));
             ctx.hooks_.before_doc_removed(&ctx, item.doc().id());
             result res;
-            tx::wrap_collection_call(res, [&](result& r) { r = item.doc().collection_ref().remove(item.doc().id()); });
+            tx::wrap_collection_call(
+              res, [&](result& r) { r = item.doc().collection_ref().remove(item.doc().id(), wrap_option(remove_options(), ctx.config_)); });
             ctx.hooks_.after_doc_removed_pre_retry(&ctx, item.doc().id());
         } catch (const client_error& e) {
             error_class ec = e.ec();

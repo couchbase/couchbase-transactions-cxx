@@ -433,6 +433,12 @@ TEST_F(SimpleClientCollectionTests, CanNotMutateInScopeAndCollectionThatDoesNotE
     }
 }
 
+TEST_F(SimpleClientCollectionTests, CanDurableRemove)
+{
+    auto res = _coll->remove(_id, remove_options().durability(durability_level::majority));
+    ASSERT_TRUE(res.is_success());
+}
+
 int
 main(int argc, char* argv[])
 {

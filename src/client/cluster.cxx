@@ -104,7 +104,7 @@ connect(const std::string& cluster_address,
         throw std::runtime_error(std::string("bootstrap failed with error: ") + lcb_strerror_short(rc));
     }
 
-    cb::client_log->trace("cluster connection successful, returning {}", (void*)lcb);
+    cb::client_log->trace("cluster connection successful, using lcb {}, returning {}", lcb_get_version(nullptr), (void*)lcb);
     return lcb;
 }
 
