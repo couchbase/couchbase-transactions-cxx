@@ -996,6 +996,11 @@ namespace transactions
                                 // doc was inserted outside txn elsewhere
                                 throw transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, "document already exists");
                             }
+                            // CBD-3787 - Only a staged insert is ok to overwrite
+                            if (doc.links().op() && *doc.links().op() != "insert") {
+                                throw transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, "doc exists, not a staged insert")
+                                  .cause(DOCUMENT_EXISTS_EXCEPTION);
+                            }
                             check_and_handle_blocking_transactions(doc, forward_compat_stage::WWC_INSERTING_GET);
                             // if the check didn't throw, we can retry staging with cas
                             debug("doc ok to overwrite, retrying with cas {}", doc.cas());

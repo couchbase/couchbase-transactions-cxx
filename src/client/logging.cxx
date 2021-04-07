@@ -4,20 +4,20 @@ namespace couchbase
 {
 
 spdlog::level::level_enum
-cb_to_spdlog_level(log_levels level)
+cb_to_spdlog_level(log_level level)
 {
     switch (level) {
-        case log_levels::TRACE:
+        case log_level::TRACE:
             return spdlog::level::trace;
-        case log_levels::DEBUG:
+        case log_level::DEBUG:
             return spdlog::level::debug;
-        case log_levels::INFO:
+        case log_level::INFO:
             return spdlog::level::info;
-        case log_levels::WARN:
+        case log_level::WARN:
             return spdlog::level::warn;
-        case log_levels::ERROR:
+        case log_level::ERROR:
             return spdlog::level::err;
-        case log_levels::CRITICAL:
+        case log_level::CRITICAL:
             return spdlog::level::critical;
         default:
             return spdlog::level::off;
@@ -25,7 +25,7 @@ cb_to_spdlog_level(log_levels level)
 }
 
 void
-set_client_log_level(log_levels level)
+set_client_log_level(log_level level)
 {
     client_log->set_level(cb_to_spdlog_level(level));
 }

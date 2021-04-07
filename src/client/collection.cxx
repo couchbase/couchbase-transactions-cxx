@@ -221,12 +221,6 @@ couchbase::collection::wrap_call_for_retry(std::chrono::microseconds initial_tim
     while (timeout.count() > 0) {
         auto res = fn(timeout);
         switch (res.rc) {
-            case LCB_ERR_COLLECTION_NOT_FOUND:
-            case LCB_ERR_SCOPE_NOT_FOUND:
-                // turns out lcb does retry internally, but returns the original
-                // error rather than timeout.
-                res.rc = LCB_ERR_TIMEOUT;
-                return res;
             case LCB_ERR_KVENGINE_INVALID_PACKET:
             case LCB_ERR_KVENGINE_UNKNOWN_ERROR:
                 // remove these when CCBC-1300 is fixed

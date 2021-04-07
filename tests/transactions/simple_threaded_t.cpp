@@ -63,7 +63,7 @@ TEST(ThreadedTransactions, CanGetReplace)
 
 TEST(ThreadedTransactions, CanInsertThenGetRemove)
 {
-    set_client_log_level(log_levels::WARN);
+    set_client_log_level(log_level::WARN);
     auto cluster = ClientTestEnvironment::get_cluster();
     transactions::transaction_config cfg;
     cfg.cleanup_client_attempts(false);
