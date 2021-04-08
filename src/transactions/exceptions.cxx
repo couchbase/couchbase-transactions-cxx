@@ -53,6 +53,7 @@ namespace transactions
             case LCB_ERR_VALUE_TOO_LARGE:
                 return FAIL_ATR_FULL;
             case LCB_ERR_UNAMBIGUOUS_TIMEOUT:
+            case LCB_ERR_NETWORK:
             case LCB_ERR_TIMEOUT:
             case LCB_ERR_TEMPORARY_FAILURE:
             case LCB_ERR_DURABLE_WRITE_IN_PROGRESS:

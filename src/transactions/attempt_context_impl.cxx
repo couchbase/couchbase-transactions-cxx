@@ -985,7 +985,7 @@ namespace transactions
                                   doc.id(),
                                   doc.links().is_document_in_transaction(),
                                   get_res.is_deleted);
-                            forward_compat::check(forward_compat_stage::WWC_INSERTING, doc.links().forward_compat());
+                            forward_compat::check(forward_compat_stage::WWC_INSERTING_GET, doc.links().forward_compat());
                             if (!doc.links().is_document_in_transaction() && get_res.is_deleted) {
                                 // it is just a deleted doc, so we are ok.  Lets try again, but with the cas
                                 debug("doc was deleted, retrying with cas {}", doc.cas());
@@ -1001,7 +1001,7 @@ namespace transactions
                                 throw transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, "doc exists, not a staged insert")
                                   .cause(DOCUMENT_EXISTS_EXCEPTION);
                             }
-                            check_and_handle_blocking_transactions(doc, forward_compat_stage::WWC_INSERTING_GET);
+                            check_and_handle_blocking_transactions(doc, forward_compat_stage::WWC_INSERTING);
                             // if the check didn't throw, we can retry staging with cas
                             debug("doc ok to overwrite, retrying with cas {}", doc.cas());
                             cas = doc.cas();
