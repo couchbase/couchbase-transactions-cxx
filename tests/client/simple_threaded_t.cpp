@@ -140,7 +140,7 @@ TEST(ThreadedCollectionTests, CanUseMultipleBuckets)
     // Since the first use of the secBucket could be here, we want
     // to extend the kv_timeout.  This really is only an issue for
     // slow clusters (cbdyncluster in Jenkins, for instance).
-    auto opts = upsert_options().timeout(std::chrono::seconds(5));
+    auto opts = upsert_options().timeout(std::chrono::seconds(10));
     for (int i = 0; i < NUM_THREADS; i++) {
         threads.emplace_back([&]() {
             EXPECT_NO_THROW({
@@ -148,9 +148,15 @@ TEST(ThreadedCollectionTests, CanUseMultipleBuckets)
                     auto new_content = content;
                     new_content["new thing"] = ++counter;
                     auto res = c1->upsert(id, new_content, opts);
-                    ASSERT_TRUE(res.is_success()) << "result was" << res.rc;
                     auto res2 = c2->upsert(id, new_content, opts);
-                    ASSERT_TRUE(res2.is_success()) << "result was" << res2.rc;
+                    // it is ok to timeout - could be we are starving a thread while some others are
+                    // making connections.  Just as long as we eventually succeed, this is fine.
+                    if (res2.is_timeout() || res.is_timeout()) {
+                        --j;
+                        continue;
+                    }
+                    ASSERT_TRUE(res.is_success()) << "default bucket upsert result was: " << res.rc;
+                    ASSERT_TRUE(res2.is_success()) << "secBucket upsert result was: " << res2.rc;
                 }
             });
         });
