@@ -4,7 +4,7 @@ Name: couchbase-transactions
 # for pre-release versions, Release must have "0." prefix,
 # otherwise first number have to be greater than zero
 Version: 1.0.0
-Release: 0.{?dist}
+Release: 0.%{?dist}
 
 Vendor: Couchbase, Inc.
 Packager: Couchbase SDK Team <support@couchbase.com>
