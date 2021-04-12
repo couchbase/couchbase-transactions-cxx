@@ -29,7 +29,7 @@ project(transactions_cxx)
 set(CB_VERSION_MAJOR 1)
 set(CB_VERSION_MINOR 0)
 set(CB_VERSION_PATCH 0)
-set(CB_VERSION_TWEAK "release")
+set(CB_VERSION_TWEAK "")
 
 find_program(GIT_EXECUTABLE NAMES git git.exe)
 macro(RUNGIT outvar)
@@ -43,8 +43,11 @@ if(GIT_EXECUTABLE)
     RUNGIT(CB_VERSION_SHA rev-parse HEAD)
 endif()
 
-set(CB_VERSION_STRING ${CB_VERSION_MAJOR}.${CB_VERSION_MINOR}.${CB_VERSION_PATCH}.${CB_VERSION_TWEAK})
-
+if (CB_VERSION_TWEAK STREQUAL "")
+    set(CB_VERSION_STRING ${CB_VERSION_MAJOR}.${CB_VERSION_MINOR}.${CB_VERSION_PATCH})
+else()
+    set(CB_VERSION_STRING ${CB_VERSION_MAJOR}.${CB_VERSION_MINOR}.${CB_VERSION_PATCH}.${CB_VERSION_TWEAK})
+endif()
 configure_file(${PROJECT_SOURCE_DIR}/include/couchbase/support.hxx.in ${PROJECT_SOURCE_DIR}/include/couchbase/support.hxx)
 
 set(CMAKE_CXX_STANDARD 11)
