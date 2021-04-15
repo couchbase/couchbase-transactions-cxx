@@ -18,7 +18,7 @@
 #include <string>
 
 #include <couchbase/client/collection.hxx>
-#include <couchbase/transactions/transaction_document.hxx>
+#include <couchbase/transactions/transaction_get_result.hxx>
 
 namespace couchbase
 {
@@ -45,7 +45,7 @@ namespace transactions
          * @throws transaction_operation_failed which either should not be caught by the lambda, or
          *         rethrown if it is caught.
          */
-        virtual transaction_document get(std::shared_ptr<collection> collection, const std::string& id) = 0;
+        virtual transaction_get_result get(std::shared_ptr<collection> collection, const std::string& id) = 0;
 
         /**
          * Gets a document from the specified Couchbase collection matching the specified id.
@@ -57,7 +57,7 @@ namespace transactions
          * @throws transaction_operation_failed which either should not be caught by the lambda, or
          *         rethrown if it is caught.
          */
-        virtual boost::optional<transaction_document> get_optional(std::shared_ptr<collection> collection, const std::string& id) = 0;
+        virtual boost::optional<transaction_get_result> get_optional(std::shared_ptr<collection> collection, const std::string& id) = 0;
 
         /**
          * Mutates the specified document with new content, using the document's last TransactionDocument#cas().
@@ -79,7 +79,9 @@ namespace transactions
          *         rethrown if it is caught.
          */
         template<typename Content>
-        transaction_document replace(std::shared_ptr<collection> collection, const transaction_document& document, const Content& content)
+        transaction_get_result replace(std::shared_ptr<collection> collection,
+                                       const transaction_get_result& document,
+                                       const Content& content)
         {
             nlohmann::json json_content = content;
             return replace_raw(collection, document, json_content);
@@ -102,7 +104,7 @@ namespace transactions
          *         rethrown if it is caught.
          */
         template<typename Content>
-        transaction_document insert(std::shared_ptr<collection> collection, const std::string& id, const Content& content)
+        transaction_get_result insert(std::shared_ptr<collection> collection, const std::string& id, const Content& content)
         {
             nlohmann::json json_content = content;
             return insert_raw(collection, id, json_content);
@@ -121,7 +123,7 @@ namespace transactions
          * @throws transaction_operation_failed which either should not be caught by the lambda, or
          *         rethrown if it is caught.
          */
-        virtual void remove(std::shared_ptr<couchbase::collection> collection, transaction_document& document) = 0;
+        virtual void remove(std::shared_ptr<couchbase::collection> collection, transaction_get_result& document) = 0;
 
         /**
          * Commits the transaction.  All staged replaces, inserts and removals will be written.
@@ -149,14 +151,14 @@ namespace transactions
 
       protected:
         /** @internal */
-        virtual transaction_document insert_raw(std::shared_ptr<collection> collection,
-                                                const std::string& id,
-                                                const nlohmann::json& content) = 0;
+        virtual transaction_get_result insert_raw(std::shared_ptr<collection> collection,
+                                                  const std::string& id,
+                                                  const nlohmann::json& content) = 0;
 
         /** @internal */
-        virtual transaction_document replace_raw(std::shared_ptr<collection> collection,
-                                                 const transaction_document& document,
-                                                 const nlohmann::json& content) = 0;
+        virtual transaction_get_result replace_raw(std::shared_ptr<collection> collection,
+                                                   const transaction_get_result& document,
+                                                   const nlohmann::json& content) = 0;
     };
 
 } // namespace transactions

@@ -40,7 +40,7 @@ macro(RUNGIT outvar)
         OUTPUT_STRIP_TRAILING_WHITESPACE)
 endmacro()
 if(GIT_EXECUTABLE)
-    RUNGIT(CB_VERSION_SHA rev-parse HEAD)
+    RUNGIT(CB_VERSION_SHA rev-parse --short HEAD)
 endif()
 
 if (CB_VERSION_TWEAK STREQUAL "")

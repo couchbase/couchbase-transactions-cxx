@@ -29,7 +29,7 @@ tx::transactions::transactions(couchbase::cluster& cluster, const transaction_co
   , config_(config)
   , cleanup_(new transactions_cleanup(cluster_, config_))
 {
-    txn_log->info("couchbase transactions {} creating new transaction object", VERSION_STR);
+    txn_log->info("couchbase transactions {}{} creating new transaction object", VERSION_STR, VERSION_SHA);
 }
 
 tx::transactions::~transactions() = default;

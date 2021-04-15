@@ -26,7 +26,7 @@
 #include <couchbase/client/collection.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/attempt_state.hxx>
-#include <couchbase/transactions/transaction_document.hxx>
+#include <couchbase/transactions/transaction_get_result.hxx>
 
 #include "atr_cleanup_entry.hxx"
 #include "attempt_context_testing_hooks.hxx"
@@ -64,13 +64,13 @@ namespace transactions
         // entry needs access to private members
         friend class atr_cleanup_entry;
 
-        virtual transaction_document insert_raw(std::shared_ptr<collection> collection,
-                                                const std::string& id,
-                                                const nlohmann::json& content);
+        virtual transaction_get_result insert_raw(std::shared_ptr<collection> collection,
+                                                  const std::string& id,
+                                                  const nlohmann::json& content);
 
-        virtual transaction_document replace_raw(std::shared_ptr<collection> collection,
-                                                 const transaction_document& document,
-                                                 const nlohmann::json& content);
+        virtual transaction_get_result replace_raw(std::shared_ptr<collection> collection,
+                                                   const transaction_get_result& document,
+                                                   const nlohmann::json& content);
 
         template<typename V>
         V cache_error(std::function<V()> func)
@@ -114,9 +114,9 @@ namespace transactions
         attempt_context_impl(transactions* parent, transaction_context& transaction_ctx, const transaction_config& config);
         ~attempt_context_impl();
 
-        virtual transaction_document get(std::shared_ptr<collection> collection, const std::string& id);
-        virtual boost::optional<transaction_document> get_optional(std::shared_ptr<collection> collection, const std::string& id);
-        virtual void remove(std::shared_ptr<couchbase::collection> collection, transaction_document& document);
+        virtual transaction_get_result get(std::shared_ptr<collection> collection, const std::string& id);
+        virtual boost::optional<transaction_get_result> get_optional(std::shared_ptr<collection> collection, const std::string& id);
+        virtual void remove(std::shared_ptr<couchbase::collection> collection, transaction_get_result& document);
         virtual void commit();
         virtual void rollback();
 
@@ -180,9 +180,9 @@ namespace transactions
 
         staged_mutation* check_for_own_write(std::shared_ptr<collection> collection, const std::string& id);
 
-        void check_and_handle_blocking_transactions(const transaction_document& doc, forward_compat_stage stage);
+        void check_and_handle_blocking_transactions(const transaction_get_result& doc, forward_compat_stage stage);
 
-        void check_atr_entry_for_blocking_document(const transaction_document& doc);
+        void check_atr_entry_for_blocking_document(const transaction_get_result& doc);
 
         void check_if_done();
 
@@ -198,15 +198,15 @@ namespace transactions
 
         void select_atr_if_needed(std::shared_ptr<collection> collection, const std::string& id);
 
-        boost::optional<transaction_document> do_get(std::shared_ptr<collection> collection, const std::string& id);
+        boost::optional<transaction_get_result> do_get(std::shared_ptr<collection> collection, const std::string& id);
 
-        boost::optional<std::pair<transaction_document, couchbase::result>> get_doc(std::shared_ptr<couchbase::collection> collection,
-                                                                                    const std::string& id);
+        boost::optional<std::pair<transaction_get_result, couchbase::result>> get_doc(std::shared_ptr<couchbase::collection> collection,
+                                                                                      const std::string& id);
 
-        transaction_document create_staged_insert(std::shared_ptr<collection> collection,
-                                                  const std::string& id,
-                                                  const nlohmann::json& content,
-                                                  uint64_t& cas);
+        transaction_get_result create_staged_insert(std::shared_ptr<collection> collection,
+                                                    const std::string& id,
+                                                    const nlohmann::json& content,
+                                                    uint64_t& cas);
     };
 } // namespace transactions
 } // namespace couchbase

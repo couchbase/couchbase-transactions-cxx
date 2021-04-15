@@ -154,7 +154,7 @@ void
 tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
                                   std::vector<tx::doc_record> docs,
                                   bool require_crc_to_match,
-                                  const std::function<void(std::shared_ptr<spdlog::logger>, transaction_document&, bool)>& call)
+                                  const std::function<void(std::shared_ptr<spdlog::logger>, transaction_get_result&, bool)>& call)
 {
     for (auto& dr : docs) {
         auto collection = cleanup_->cluster().bucket(dr.bucket_name())->collection(dr.collection_name());
@@ -181,7 +181,7 @@ tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
                 logger->trace("cannot create a transaction document from {}, ignoring", res);
                 continue;
             }
-            transaction_document doc = transaction_document::create_from(*collection, dr.id(), res);
+            transaction_get_result doc = transaction_get_result::create_from(*collection, dr.id(), res);
             // now lets decide if we call the function or not
             if (!(doc.links().has_staged_content() || doc.links().is_document_being_removed()) || !doc.links().has_staged_write()) {
                 logger->trace("document {} has no staged content - assuming it was "
@@ -221,7 +221,7 @@ void
 tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<tx::doc_record>> docs)
 {
     if (docs) {
-        do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, tx::transaction_document& doc, bool is_deleted) {
+        do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, tx::transaction_get_result& doc, bool is_deleted) {
             if (doc.links().has_staged_content()) {
                 nlohmann::json content = doc.links().staged_content<nlohmann::json>();
                 cleanup_->config().cleanup_hooks().before_commit_doc(doc.id());
@@ -249,7 +249,7 @@ void
 tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<tx::doc_record>> docs)
 {
     if (docs) {
-        do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, transaction_document& doc, bool is_deleted) {
+        do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, transaction_get_result& doc, bool is_deleted) {
             cleanup_->config().cleanup_hooks().before_remove_doc(doc.id());
             couchbase::result res;
             tx::wrap_collection_call(res, [&](result& r) {
@@ -272,7 +272,7 @@ tx::atr_cleanup_entry::remove_docs_staged_for_removal(std::shared_ptr<spdlog::lo
                                                       boost::optional<std::vector<tx::doc_record>> docs)
 {
     if (docs) {
-        do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, transaction_document& doc, bool) {
+        do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, transaction_get_result& doc, bool) {
             couchbase::result res;
             tx::wrap_collection_call(res, [&](result& r) {
                 if (doc.links().is_document_being_removed()) {
@@ -293,7 +293,7 @@ void
 tx::atr_cleanup_entry::remove_txn_links(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<tx::doc_record>> docs)
 {
     if (docs) {
-        do_per_doc(logger, *docs, false, [&](std::shared_ptr<spdlog::logger> logger, transaction_document& doc, bool) {
+        do_per_doc(logger, *docs, false, [&](std::shared_ptr<spdlog::logger> logger, transaction_get_result& doc, bool) {
             couchbase::result res;
             tx::wrap_collection_call(res, [&](result& r) {
                 cleanup_->config().cleanup_hooks().before_remove_links(doc.id());

@@ -35,7 +35,7 @@ namespace transactions
      * @brief Encapsulates results of an individual transaction operation
      *
      */
-    class transaction_document
+    class transaction_get_result
     {
       private:
         collection& collection_;
@@ -49,7 +49,7 @@ namespace transactions
 
       public:
         /** @internal */
-        transaction_document(const transaction_document& doc)
+        transaction_get_result(const transaction_get_result& doc)
           : collection_(doc.collection_)
           , value_(doc.value_)
           , id_(doc.id_)
@@ -61,12 +61,12 @@ namespace transactions
 
         /** @internal */
         template<typename Content>
-        transaction_document(std::string id,
-                             Content content,
-                             uint64_t cas,
-                             collection& collection,
-                             transaction_links links,
-                             boost::optional<document_metadata> metadata)
+        transaction_get_result(std::string id,
+                               Content content,
+                               uint64_t cas,
+                               collection& collection,
+                               transaction_links links,
+                               boost::optional<document_metadata> metadata)
           : id_(std::move(id))
           , cas_(cas)
           , collection_(collection)
@@ -78,7 +78,7 @@ namespace transactions
 
         /** @internal */
         template<typename Content>
-        static transaction_document create_from(transaction_document& document, Content content)
+        static transaction_get_result create_from(transaction_get_result& document, Content content)
         {
             transaction_links links(document.links().atr_id(),
                                     document.links().atr_bucket_name(),
@@ -95,11 +95,11 @@ namespace transactions
                                     document.links().forward_compat(),
                                     document.links().is_deleted());
 
-            return transaction_document(document.id(), content, document.cas(), document.collection_ref(), links, document.metadata());
+            return transaction_get_result(document.id(), content, document.cas(), document.collection_ref(), links, document.metadata());
         }
 
         /** @internal */
-        static transaction_document create_from(collection& collection, std::string id, result res)
+        static transaction_get_result create_from(collection& collection, std::string id, result res)
         {
             boost::optional<std::string> atr_id;
             boost::optional<std::string> transaction_id;
@@ -194,12 +194,12 @@ namespace transactions
                                     forward_compat,
                                     res.is_deleted);
             document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc, crc32_from_doc);
-            return transaction_document(id, content, res.cas, collection, links, boost::make_optional(md));
+            return transaction_get_result(id, content, res.cas, collection, links, boost::make_optional(md));
         }
 
         /** @internal */
         template<typename Content>
-        transaction_document& operator=(const transaction_document& other)
+        transaction_get_result& operator=(const transaction_get_result& other)
         {
             if (this != &other) {
                 this->collection_ = other.collection_;
@@ -325,9 +325,9 @@ namespace transactions
 
         /** @internal */
         template<typename OStream>
-        friend OStream& operator<<(OStream& os, const transaction_document document)
+        friend OStream& operator<<(OStream& os, const transaction_get_result document)
         {
-            os << "transaction_document{id: " << document.id_ << ", cas: " << document.cas_
+            os << "transaction_get_result{id: " << document.id_ << ", cas: " << document.cas_
                << ", bucket: " << document.collection_.bucket_name() << ", coll: " << document.collection_.name()
                << ", links_: " << document.links_ << "}";
             return os;

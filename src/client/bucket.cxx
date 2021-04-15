@@ -116,6 +116,7 @@ cb::bucket::bucket(std::unique_ptr<pool<lcb_st*>>& instance_pool, const std::str
     if (instance_pool_->size() == 0) {
         instance_pool_->release(instance_pool_->get());
     }
+    client_log->info("opened bucket {}, max_instances={}", name, instance_pool_->max_size());
 }
 
 std::chrono::microseconds

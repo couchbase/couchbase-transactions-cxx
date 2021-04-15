@@ -50,10 +50,11 @@ class bucket : public std::enable_shared_from_this<bucket>
     std::unique_ptr<pool<lcb_st*>> instance_pool_;
     const std::string name_;
     std::vector<std::shared_ptr<class collection> > collections_;
-    bucket(std::unique_ptr<pool<lcb_st*>>& instance_pool, const std::string& name, std::chrono::microseconds kv_timeout);
     std::shared_ptr<class collection> find_or_create_collection(const std::string& name);
     std::mutex mutex_;
     std::chrono::microseconds kv_timeout_;
+
+    bucket(std::unique_ptr<pool<lcb_st*>>& instance_pool, const std::string& name, std::chrono::microseconds kv_timeout);
 
     static const std::string default_name;
 

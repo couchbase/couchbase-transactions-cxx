@@ -20,12 +20,12 @@
 #include <boost/optional/optional.hpp>
 #include <chrono>
 #include <couchbase/client/collection.hxx>
-#include <couchbase/transactions/transaction_document.hxx>
+#include <couchbase/transactions/transaction_get_result.hxx>
 #include <memory>
+#include <mutex>
 #include <queue>
 #include <string>
 #include <thread>
-#include <mutex>
 
 #include "logging.hxx"
 
@@ -79,7 +79,7 @@ namespace transactions
         void do_per_doc(std::shared_ptr<spdlog::logger> logger,
                         std::vector<doc_record> docs,
                         bool require_crc_to_match,
-                        const std::function<void(std::shared_ptr<spdlog::logger>, transaction_document&, bool)>& call);
+                        const std::function<void(std::shared_ptr<spdlog::logger>, transaction_get_result&, bool)>& call);
 
       public:
         explicit atr_cleanup_entry(attempt_context& ctx);

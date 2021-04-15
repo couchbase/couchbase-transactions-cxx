@@ -56,7 +56,7 @@ namespace transactions
     attempt_context_impl::~attempt_context_impl() = default;
 
     // not a member of attempt_context_impl, as forward_compat is internal.
-    void attempt_context_impl::check_and_handle_blocking_transactions(const transaction_document& doc, forward_compat_stage stage)
+    void attempt_context_impl::check_and_handle_blocking_transactions(const transaction_get_result& doc, forward_compat_stage stage)
     {
         // The main reason to require doc to be fetched inside the transaction is so we can detect this on the client side
         if (doc.links().has_staged_write()) {
@@ -79,9 +79,9 @@ namespace transactions
         }
     }
 
-    transaction_document attempt_context_impl::get(std::shared_ptr<couchbase::collection> collection, const std::string& id)
+    transaction_get_result attempt_context_impl::get(std::shared_ptr<couchbase::collection> collection, const std::string& id)
     {
-        return cache_error<transaction_document>([&]() {
+        return cache_error<transaction_get_result>([&]() {
             auto result = get_optional(collection, id);
             if (result) {
                 trace("get returning {}", *result);
@@ -92,10 +92,10 @@ namespace transactions
         });
     }
 
-    boost::optional<transaction_document> attempt_context_impl::get_optional(std::shared_ptr<couchbase::collection> collection,
-                                                                             const std::string& id)
+    boost::optional<transaction_get_result> attempt_context_impl::get_optional(std::shared_ptr<couchbase::collection> collection,
+                                                                               const std::string& id)
     {
-        return cache_error<boost::optional<transaction_document>>([&]() {
+        return cache_error<boost::optional<transaction_get_result>>([&]() {
             auto retval = do_get(collection, id);
             hooks_.after_get_complete(this, id);
             if (retval) {
@@ -105,12 +105,12 @@ namespace transactions
         });
     }
 
-    transaction_document attempt_context_impl::replace_raw(std::shared_ptr<couchbase::collection> collection,
-                                                           const transaction_document& document,
-                                                           const nlohmann::json& content)
+    transaction_get_result attempt_context_impl::replace_raw(std::shared_ptr<couchbase::collection> collection,
+                                                             const transaction_get_result& document,
+                                                             const nlohmann::json& content)
     {
-        return retry_op_exp<transaction_document>([&]() -> transaction_document {
-            return cache_error<transaction_document>([&]() {
+        return retry_op_exp<transaction_get_result>([&]() -> transaction_get_result {
+            return cache_error<transaction_get_result>([&]() {
                 try {
                     trace("replacing {} with {}", document, content.dump());
                     check_if_done();
@@ -158,7 +158,7 @@ namespace transactions
                           wrap_option(mutate_in_options(), config_).cas(document.cas()).access_deleted(document.links().is_deleted()));
                     });
                     hooks_.after_staged_replace_complete(this, document.id());
-                    transaction_document out = document;
+                    transaction_get_result out = document;
                     out.cas(res.cas);
                     trace("replace staged content, result {}", res);
                     staged_mutation* existing_replace = staged_mutations_->find_replace(collection, document.id());
@@ -200,43 +200,43 @@ namespace transactions
         });
     }
 
-    transaction_document attempt_context_impl::insert_raw(std::shared_ptr<couchbase::collection> collection,
-                                                          const std::string& id,
-                                                          const nlohmann::json& content)
+    transaction_get_result attempt_context_impl::insert_raw(std::shared_ptr<couchbase::collection> collection,
+                                                            const std::string& id,
+                                                            const nlohmann::json& content)
     {
-            return cache_error<transaction_document>([&]() {
-                try {
-                    check_if_done();
-                    if (check_for_own_write(collection, id)) {
-                        throw transaction_operation_failed(FAIL_OTHER,
-                                                           "cannot insert a document that has already been mutated in this transaction");
-                    }
-                    check_expiry_pre_commit(STAGE_INSERT, id);
-                    select_atr_if_needed(collection, id);
-                    set_atr_pending_if_first_mutation(collection);
-                    uint64_t cas = 0;
-                    return retry_op<transaction_document>(
-                      [&]() -> transaction_document { return create_staged_insert(collection, id, content, cas); });
-                } catch (const client_error& e) {
-                    error_class ec = e.ec();
-                    if (expiry_overtime_mode_) {
-                        throw transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired();
-                    }
-                    switch (ec) {
-                        case FAIL_EXPIRY:
-                            expiry_overtime_mode_ = true;
-                            throw transaction_operation_failed(ec, "attempt timed-out").expired();
-                        case FAIL_TRANSIENT:
-                            throw transaction_operation_failed(ec, "transient error in insert").retry();
-                        case FAIL_OTHER:
-                            throw transaction_operation_failed(ec, e.what());
-                        case FAIL_HARD:
-                            throw transaction_operation_failed(ec, e.what()).no_rollback();
-                        default:
-                            throw transaction_operation_failed(FAIL_OTHER, e.what()).retry();
-                    }
+        return cache_error<transaction_get_result>([&]() {
+            try {
+                check_if_done();
+                if (check_for_own_write(collection, id)) {
+                    throw transaction_operation_failed(FAIL_OTHER,
+                                                       "cannot insert a document that has already been mutated in this transaction");
                 }
-            });
+                check_expiry_pre_commit(STAGE_INSERT, id);
+                select_atr_if_needed(collection, id);
+                set_atr_pending_if_first_mutation(collection);
+                uint64_t cas = 0;
+                return retry_op<transaction_get_result>(
+                  [&]() -> transaction_get_result { return create_staged_insert(collection, id, content, cas); });
+            } catch (const client_error& e) {
+                error_class ec = e.ec();
+                if (expiry_overtime_mode_) {
+                    throw transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired();
+                }
+                switch (ec) {
+                    case FAIL_EXPIRY:
+                        expiry_overtime_mode_ = true;
+                        throw transaction_operation_failed(ec, "attempt timed-out").expired();
+                    case FAIL_TRANSIENT:
+                        throw transaction_operation_failed(ec, "transient error in insert").retry();
+                    case FAIL_OTHER:
+                        throw transaction_operation_failed(ec, e.what());
+                    case FAIL_HARD:
+                        throw transaction_operation_failed(ec, e.what()).no_rollback();
+                    default:
+                        throw transaction_operation_failed(FAIL_OTHER, e.what()).retry();
+                }
+            }
+        });
     }
 
     void attempt_context_impl::select_atr_if_needed(std::shared_ptr<couchbase::collection> collection, const std::string& id)
@@ -258,7 +258,7 @@ namespace transactions
         }
     }
 
-    void attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_document& doc)
+    void attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_get_result& doc)
     {
         auto collection = parent_->cluster_ref().bucket(doc.links().atr_bucket_name().value())->default_collection();
         try {
@@ -306,7 +306,7 @@ namespace transactions
         }
     }
 
-    void attempt_context_impl::remove(std::shared_ptr<collection> collection, transaction_document& document)
+    void attempt_context_impl::remove(std::shared_ptr<collection> collection, transaction_get_result& document)
     {
         return cache_error<void>([&]() {
             try {
@@ -781,7 +781,7 @@ namespace transactions
         }
     }
 
-    boost::optional<transaction_document> attempt_context_impl::do_get(std::shared_ptr<collection> collection, const std::string& id)
+    boost::optional<transaction_get_result> attempt_context_impl::do_get(std::shared_ptr<collection> collection, const std::string& id)
     {
         try {
             check_if_done();
@@ -790,7 +790,7 @@ namespace transactions
             staged_mutation* own_write = check_for_own_write(collection, id);
             if (own_write) {
                 debug("found own-write of mutated doc {}", id);
-                return transaction_document::create_from(own_write->doc(), own_write->content<const nlohmann::json&>());
+                return transaction_get_result::create_from(own_write->doc(), own_write->content<const nlohmann::json&>());
             }
             staged_mutation* own_remove = staged_mutations_->find_remove(collection, id);
             if (own_remove) {
@@ -855,7 +855,7 @@ namespace transactions
                     if (ignore_doc) {
                         return {};
                     } else {
-                        return transaction_document::create_from(doc, content);
+                        return transaction_get_result::create_from(doc, content);
                     }
                 } else {
                     // failed to get the ATR
@@ -893,7 +893,7 @@ namespace transactions
         }
     }
 
-    boost::optional<std::pair<transaction_document, couchbase::result>> attempt_context_impl::get_doc(
+    boost::optional<std::pair<transaction_get_result, couchbase::result>> attempt_context_impl::get_doc(
       std::shared_ptr<couchbase::collection> collection,
       const std::string& id)
     {
@@ -916,22 +916,22 @@ namespace transactions
                                             lookup_in_spec::fulldoc_get() },
                                           lookup_in_options().access_deleted(true));
             });
-            return std::pair<transaction_document, result>(transaction_document::create_from(*collection, id, res), res);
+            return std::pair<transaction_get_result, result>(transaction_get_result::create_from(*collection, id, res), res);
         } catch (const client_error& e) {
             if (e.ec() == FAIL_DOC_NOT_FOUND) {
                 return boost::none;
             }
             if (e.ec() == FAIL_PATH_NOT_FOUND) {
-                return std::pair<transaction_document, result>(transaction_document::create_from(*collection, id, *e.res()), *e.res());
+                return std::pair<transaction_get_result, result>(transaction_get_result::create_from(*collection, id, *e.res()), *e.res());
             }
             throw;
         }
     }
 
-    transaction_document attempt_context_impl::create_staged_insert(std::shared_ptr<collection> collection,
-                                                                    const std::string& id,
-                                                                    const nlohmann::json& content,
-                                                                    uint64_t& cas)
+    transaction_get_result attempt_context_impl::create_staged_insert(std::shared_ptr<collection> collection,
+                                                                      const std::string& id,
+                                                                      const nlohmann::json& content,
+                                                                      uint64_t& cas)
     {
         try {
             error_if_expired_and_not_in_overtime(STAGE_CREATE_STAGED_INSERT, id);
@@ -971,7 +971,7 @@ namespace transactions
                                     std::string("insert"),
                                     boost::none,
                                     true);
-            transaction_document out(id, content, res.cas, *collection, links, boost::none);
+            transaction_get_result out(id, content, res.cas, *collection, links, boost::none);
             staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::INSERT));
             return out;
         } catch (const client_error& e) {

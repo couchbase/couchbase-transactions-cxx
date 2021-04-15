@@ -94,7 +94,7 @@ namespace transactions
 
         CB_NODISCARD transaction_result get_transaction_result() const
         {
-            return transaction_result{ transaction_id(), atr_id(), atr_collection(), current_attempt().state == attempt_state::COMPLETED };
+            return transaction_result{ transaction_id(), current_attempt().state == attempt_state::COMPLETED };
         }
 
       private:

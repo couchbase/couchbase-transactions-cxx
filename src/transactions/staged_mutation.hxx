@@ -22,7 +22,7 @@
 
 #include "attempt_context_impl.hxx"
 #include <couchbase/client/mutate_in_spec.hxx>
-#include <couchbase/transactions/transaction_document.hxx>
+#include <couchbase/transactions/transaction_get_result.hxx>
 
 namespace couchbase
 {
@@ -33,20 +33,20 @@ namespace transactions
     class staged_mutation
     {
       private:
-        transaction_document doc_;
+        transaction_get_result doc_;
         staged_mutation_type type_;
         nlohmann::json content_;
 
       public:
         template<typename Content>
-        staged_mutation(transaction_document& doc, Content content, staged_mutation_type type)
+        staged_mutation(transaction_get_result& doc, Content content, staged_mutation_type type)
           : doc_(std::move(doc))
           , content_(std::move(content))
           , type_(type)
         {
         }
 
-        transaction_document& doc()
+        transaction_get_result& doc()
         {
             return doc_;
         }
