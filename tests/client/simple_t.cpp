@@ -415,7 +415,7 @@ TEST_F(SimpleClientCollectionTests, CanNotGetInCollectionThatDoesNotExist)
         auto cluster = ClientTestEnvironment::get_cluster();
         auto bad_coll = cluster->bucket("default")->collection("idonotexist");
         auto r = bad_coll->get(_id);
-        ASSERT_TRUE(r.is_timeout() || r.rc == LCB_ERR_NETWORK);
+        ASSERT_TRUE(r.is_timeout());
     }
 }
 
@@ -425,7 +425,7 @@ TEST_F(SimpleClientCollectionTests, CanNotMutateInCollectionThatDoesNotExist)
         auto cluster = ClientTestEnvironment::get_cluster();
         auto bad_coll = cluster->bucket("default")->collection("idonotexist");
         auto r = bad_coll->upsert(_id, content);
-        ASSERT_TRUE(r.is_timeout() || r.rc == LCB_ERR_NETWORK);
+        ASSERT_TRUE(r.is_timeout());
     }
 }
 
@@ -435,7 +435,7 @@ TEST_F(SimpleClientCollectionTests, CanNotMutateInScopeThatDoesNotExist)
         auto cluster = ClientTestEnvironment::get_cluster();
         auto bad_coll = cluster->bucket("default")->collection("idonotexist.");
         auto r = bad_coll->upsert(_id, content);
-        ASSERT_TRUE(r.is_timeout() || r.rc == LCB_ERR_NETWORK);
+        ASSERT_TRUE(r.is_timeout());
     }
 }
 
@@ -445,7 +445,7 @@ TEST_F(SimpleClientCollectionTests, CanNotMutateInScopeAndCollectionThatDoesNotE
         auto cluster = ClientTestEnvironment::get_cluster();
         auto bad_coll = cluster->bucket("default")->collection("idonotexist.neitherdoi");
         auto r = bad_coll->upsert(_id, content);
-        ASSERT_TRUE(r.is_timeout() || r.rc == LCB_ERR_NETWORK);
+        ASSERT_TRUE(r.is_timeout());
     }
 }
 
