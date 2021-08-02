@@ -106,6 +106,8 @@ static const std::string FIELD_EXPIRES = "expires_ms";
 static const std::string FIELD_OVERRIDE = "override";
 static const std::string FIELD_OVERRIDE_EXPIRES = "expires";
 static const std::string FIELD_OVERRIDE_ENABLED = "enabled";
+static const std::string FIELD_NUM_ATRS = "num_atrs";
+
 #define SAFETY_MARGIN_EXPIRY_MS 2000
 
 template<class R, class P>
@@ -303,6 +305,8 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
                                                    config_.cleanup_window().count() / 2 + SAFETY_MARGIN_EXPIRY_MS)
                               .xattr()
                               .create_path());
+            specs.push_back(
+              mutate_in_spec::upsert(FIELD_CLIENTS + "." + uuid + "." + FIELD_NUM_ATRS, atr_ids::all().size()).xattr().create_path());
             for (auto idx = 0; idx < std::min(details.expired_client_ids.size(), (size_t)13); idx++) {
                 specs.push_back(mutate_in_spec::remove(FIELD_CLIENTS + "." + details.expired_client_ids[idx]).xattr());
             }
