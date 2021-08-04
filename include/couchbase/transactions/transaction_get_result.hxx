@@ -39,7 +39,7 @@ namespace transactions
     {
       private:
         collection& collection_;
-        nlohmann::json value_;
+        std::string value_;
         std::string id_;
         uint64_t cas_;
         transaction_links links_;
@@ -86,7 +86,7 @@ namespace transactions
                                     document.links().atr_collection_name(),
                                     document.links().staged_transaction_id(),
                                     document.links().staged_attempt_id(),
-                                    document.links().staged_content<Content>(),
+                                    document.links().staged_content(),
                                     document.links().cas_pre_txn(),
                                     document.links().revid_pre_txn(),
                                     document.links().exptime_pre_txn(),
@@ -104,7 +104,7 @@ namespace transactions
             boost::optional<std::string> atr_id;
             boost::optional<std::string> transaction_id;
             boost::optional<std::string> attempt_id;
-            boost::optional<nlohmann::json> staged_content;
+            boost::optional<std::string> staged_content;
             boost::optional<std::string> atr_bucket_name;
             boost::optional<std::string> atr_scope_name;
             boost::optional<std::string> atr_collection_name;
@@ -123,60 +123,58 @@ namespace transactions
             boost::optional<std::string> crc32_from_doc;
 
             boost::optional<std::string> op;
-            nlohmann::json content;
+            std::string content;
 
-            if (res.values[0].value) {
-                atr_id = res.values[0].value->get<std::string>();
+            if (res.values[0].has_value()) {
+                atr_id = res.values[0].content_as<std::string>();
             }
-            if (res.values[1].value) {
-                transaction_id = res.values[1].value->get<std::string>();
+            if (res.values[1].has_value()) {
+                transaction_id = res.values[1].content_as<std::string>();
             }
-            if (res.values[2].value) {
-                attempt_id = res.values[2].value->get<std::string>();
+            if (res.values[2].has_value()) {
+                attempt_id = res.values[2].content_as<std::string>();
             }
-            if (res.values[3].value) {
-                staged_content = res.values[3].value->get<nlohmann::json>();
+            if (res.values[3].has_value()) {
+                staged_content = res.values[3].content_as<std::string>();
             }
-            if (res.values[4].value) {
-                atr_bucket_name = res.values[4].value->get<std::string>();
+            if (res.values[4].has_value()) {
+                atr_bucket_name = res.values[4].content_as<std::string>();
             }
-            if (res.values[5].value) {
-                std::string name = res.values[5].value->get<std::string>();
+            if (res.values[5].has_value()) {
+                auto name = res.values[5].content_as<std::string>();
                 std::vector<std::string> splits;
                 boost::split(splits, name, [](char c) { return c == '.'; });
                 atr_scope_name = splits[0];
                 atr_collection_name = splits[1];
             }
-            if (res.values[6].value) {
-                nlohmann::json restore = *res.values[6].value;
+            if (res.values[6].has_value()) {
+                auto restore = res.values[6].content_as<nlohmann::json>();
                 cas_pre_txn = restore["CAS"].get<std::string>();
                 // only present in 6.5+
                 revid_pre_txn = restore["revid"].get<std::string>();
                 exptime_pre_txn = restore["exptime"].get<uint32_t>();
             }
-            if (res.values[7].value) {
-                op = res.values[7].value->get<std::string>();
+            if (res.values[7].has_value()) {
+                op = res.values[7].content_as<std::string>();
             }
-            if (res.values[8].value) {
-                nlohmann::json doc = *res.values[8].value;
+            if (res.values[8].has_value()) {
+                auto doc = res.values[8].content_as<nlohmann::json>();
                 cas_from_doc = doc["CAS"].get<std::string>();
                 // only present in 6.5+
                 revid_from_doc = doc["revid"].get<std::string>();
                 exptime_from_doc = doc["exptime"].get<uint32_t>();
                 crc32_from_doc = doc["value_crc32c"].get<std::string>();
             }
-            if (res.values[9].value) {
-                crc32_of_staging = res.values[9].value.get();
+            if (res.values[9].has_value()) {
+                crc32_of_staging = res.values[9].content_as<std::string>();
             }
-            if (res.values[10].value) {
-                forward_compat = res.values[10].value.get();
+            if (res.values[10].has_value()) {
+                forward_compat = res.values[10].content_as<nlohmann::json>();
             } else {
                 forward_compat = nlohmann::json::object();
             }
-            if (res.values[11].value) {
-                content = res.values[11].value.get();
-            } else {
-                content = nlohmann::json::object();
+            if (res.values[11].has_value()) {
+                content = res.values[11].content_as<nlohmann::json>().dump();
             }
 
             transaction_links links(atr_id,
@@ -260,9 +258,14 @@ namespace transactions
          * @return content of the document.
          */
         template<typename Content>
-        CB_NODISCARD Content content() const
+        CB_NODISCARD Content content()
         {
-            return value_.get<Content>();
+            return default_json_serializer::deserialize<Content>(value_);
+        }
+
+        void content(const std::string& content)
+        {
+            value_ = content;
         }
 
         /**
@@ -289,18 +292,6 @@ namespace transactions
         CB_NODISCARD transaction_links links() const
         {
             return links_;
-        }
-
-        /**
-         * @brief Set content for this document.
-         *
-         * @param content the desired content.  See @ref content() for
-         *        more details.
-         */
-        template<typename Content>
-        void content(const Content& content)
-        {
-            value_ = content;
         }
 
         /**

@@ -241,7 +241,7 @@ tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation
             ctx.hooks_.before_doc_committed(&ctx, item.doc().id());
 
             // move staged content into doc
-            ctx.trace("commit doc id {}, content {}, cas {}", item.doc().id(), item.content<nlohmann::json>().dump(), item.doc().cas());
+            ctx.trace("commit doc id {}, content {}, cas {}", item.doc().id(), item.content(), item.doc().cas());
             result res;
             if (item.type() == staged_mutation_type::INSERT && !cas_zero_mode) {
                 tx::wrap_collection_call(
@@ -252,7 +252,7 @@ tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation
                                                               {
                                                                 mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
                                                                 mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
-                                                                mutate_in_spec::fulldoc_upsert(item.content<nlohmann::json>()),
+                                                                mutate_in_spec::fulldoc_upsert(item.content()),
                                                               },
                                                               wrap_option(mutate_in_options(), ctx.config_)
                                                                 .cas(cas_zero_mode ? 0 : item.doc().cas())

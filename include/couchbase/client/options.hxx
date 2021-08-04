@@ -64,7 +64,6 @@ class common_options
 {
   private:
     boost::optional<std::chrono::microseconds> timeout_;
-
   public:
     /**
      *  @brief get timeout

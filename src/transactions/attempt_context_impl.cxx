@@ -107,12 +107,12 @@ namespace transactions
 
     transaction_get_result attempt_context_impl::replace_raw(std::shared_ptr<couchbase::collection> collection,
                                                              const transaction_get_result& document,
-                                                             const nlohmann::json& content)
+                                                             const std::string& content)
     {
         return retry_op_exp<transaction_get_result>([&]() -> transaction_get_result {
             return cache_error<transaction_get_result>([&]() {
                 try {
-                    trace("replacing {} with {}", document, content.dump());
+                    trace("replacing {} with {}", document, content);
                     check_if_done();
                     check_expiry_pre_commit(STAGE_REPLACE, document.id());
                     select_atr_if_needed(collection, document.id());
@@ -202,7 +202,7 @@ namespace transactions
 
     transaction_get_result attempt_context_impl::insert_raw(std::shared_ptr<couchbase::collection> collection,
                                                             const std::string& id,
-                                                            const nlohmann::json& content)
+                                                            const std::string& content)
     {
         return cache_error<transaction_get_result>([&]() {
             try {
@@ -430,7 +430,7 @@ namespace transactions
             std::vector<lookup_in_spec> specs({ lookup_in_spec::get(prefix + ATR_FIELD_STATUS).xattr() });
             result res;
             wrap_collection_call(res, [&](result& r) { r = atr_collection_->lookup_in(atr_id_.value(), specs); });
-            auto atr_status = attempt_state_value(res.values[0].value->get<std::string>());
+            auto atr_status = attempt_state_value(res.values[0].content_as<std::string>());
             switch (atr_status) {
                 case attempt_state::COMPLETED:
                     return;
@@ -790,7 +790,7 @@ namespace transactions
             staged_mutation* own_write = check_for_own_write(collection, id);
             if (own_write) {
                 debug("found own-write of mutated doc {}", id);
-                return transaction_get_result::create_from(own_write->doc(), own_write->content<const nlohmann::json&>());
+                return transaction_get_result::create_from(own_write->doc(), own_write->content());
             }
             staged_mutation* own_remove = staged_mutations_->find_remove(collection, id);
             if (own_remove) {
@@ -820,12 +820,12 @@ namespace transactions
                         }
                     }
                     bool ignore_doc = false;
-                    auto content = doc.content<nlohmann::json>();
+                    auto content = doc.content<std::string>();
                     if (entry) {
                         if (doc.links().staged_attempt_id() && entry->attempt_id() == this->id()) {
                             // Attempt is reading its own writes
                             // This is here as backup, it should be returned from the in-memory cache instead
-                            content = doc.links().staged_content<nlohmann::json>();
+                            content = doc.links().staged_content();
                         } else {
                             forward_compat::check(forward_compat_stage::GETS_READING_ATR, entry->forward_compat());
                             switch (entry->state()) {
@@ -833,7 +833,7 @@ namespace transactions
                                     if (doc.links().is_document_being_removed()) {
                                         ignore_doc = true;
                                     } else {
-                                        content = doc.links().staged_content<nlohmann::json>();
+                                        content = doc.links().staged_content();
                                     }
                                     break;
                                 default:
@@ -930,7 +930,7 @@ namespace transactions
 
     transaction_get_result attempt_context_impl::create_staged_insert(std::shared_ptr<collection> collection,
                                                                       const std::string& id,
-                                                                      const nlohmann::json& content,
+                                                                      const std::string& content,
                                                                       uint64_t& cas)
     {
         try {
@@ -963,7 +963,7 @@ namespace transactions
                                     collection->name(),
                                     overall_.transaction_id(),
                                     this->id(),
-                                    nlohmann::json(content),
+                                    content,
                                     boost::none,
                                     boost::none,
                                     boost::none,

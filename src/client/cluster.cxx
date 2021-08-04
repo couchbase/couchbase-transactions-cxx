@@ -209,7 +209,7 @@ http_callback(lcb_INSTANCE*, int, const lcb_RESPHTTP* resp)
         const char* data = nullptr;
         size_t ndata = 0;
         lcb_resphttp_body(resp, &data, &ndata);
-        res->value = nlohmann::json::parse(data, data + ndata);
+        res->raw_value.assign(data, ndata);
     }
 }
 }
@@ -233,8 +233,9 @@ cb::cluster::buckets()
             throw std::runtime_error(std::string("failed to retrieve list of buckets: ") + res.strerror());
         }
         std::list<std::string> names;
-        if (res.value) {
-            for (const auto& it : *res.value) {
+        if (!res.raw_value.empty()) {
+            auto values = res.content_as<nlohmann::json>();
+            for (const auto& it : values) {
                 names.push_back(it["name"].get<std::string>());
             }
         }

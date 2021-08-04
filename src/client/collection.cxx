@@ -59,7 +59,7 @@ get_callback(lcb_INSTANCE* lcb, int, const lcb_RESPGET* resp)
         lcb_respget_key(resp, &data, &ndata);
         res->key = std::move(std::string(data, ndata));
         lcb_respget_value(resp, &data, &ndata);
-        res->value.emplace(nlohmann::json::parse(data, data + ndata));
+        res->raw_value.assign(data, ndata);
     }
     cb::client_log->trace("{}: get_callback returning {}", (void*)lcb, *res);
 }
@@ -73,12 +73,12 @@ exists_callback(lcb_INSTANCE* lcb, int, const lcb_RESPEXISTS* resp)
     if (res->rc == LCB_SUCCESS) {
         if (lcb_respexists_is_found(resp)) {
             lcb_respexists_cas(resp, &res->cas);
-            res->value.emplace(true);
+            res->raw_value.assign("true");
         } else {
-            res->value.emplace(false);
+            res->raw_value.assign("false");
         }
     } else {
-        res->value.emplace(false);
+        res->raw_value.assign("false");
     }
     cb::client_log->trace("{}: exists_callback returning {}", (void*)lcb, *res);
 }
@@ -118,7 +118,7 @@ subdoc_callback(lcb_INSTANCE* instance, int, const lcb_RESPSUBDOC* resp)
         lcb_respsubdoc_result_value(resp, idx, &data, &ndata);
         auto itr = res->values.begin() + idx;
         if (data) {
-            res->values.emplace(itr, nlohmann::json::parse(data, data + ndata), status);
+            res->values.emplace(itr, std::string(data, ndata), status);
         } else {
             res->values.emplace(itr, status);
         }

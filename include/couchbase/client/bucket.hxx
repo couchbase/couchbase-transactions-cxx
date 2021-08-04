@@ -17,7 +17,6 @@
 #pragma once
 
 #include <couchbase/support.hxx>
-
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -33,6 +32,7 @@
 namespace couchbase
 {
 class collection;
+
 class cluster;
 
 /** @internal */

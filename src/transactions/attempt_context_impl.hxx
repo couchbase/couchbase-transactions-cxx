@@ -66,11 +66,11 @@ namespace transactions
 
         virtual transaction_get_result insert_raw(std::shared_ptr<collection> collection,
                                                   const std::string& id,
-                                                  const nlohmann::json& content);
+                                                  const std::string& content);
 
         virtual transaction_get_result replace_raw(std::shared_ptr<collection> collection,
                                                    const transaction_get_result& document,
-                                                   const nlohmann::json& content);
+                                                   const std::string& content);
 
         template<typename V>
         V cache_error(std::function<V()> func)
@@ -205,7 +205,7 @@ namespace transactions
 
         transaction_get_result create_staged_insert(std::shared_ptr<collection> collection,
                                                     const std::string& id,
-                                                    const nlohmann::json& content,
+                                                    const std::string& content,
                                                     uint64_t& cas);
     };
 } // namespace transactions

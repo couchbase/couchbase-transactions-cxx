@@ -83,8 +83,7 @@ namespace transactions
                                        const transaction_get_result& document,
                                        const Content& content)
         {
-            nlohmann::json json_content = content;
-            return replace_raw(collection, document, json_content);
+            return replace_raw(collection, document, couchbase::default_json_serializer::serialize(content));
         }
         /**
          * Inserts a new document into the specified Couchbase collection.
@@ -106,8 +105,7 @@ namespace transactions
         template<typename Content>
         transaction_get_result insert(std::shared_ptr<collection> collection, const std::string& id, const Content& content)
         {
-            nlohmann::json json_content = content;
-            return insert_raw(collection, id, json_content);
+            return insert_raw(collection, id, couchbase::default_json_serializer::serialize(content));
         }
         /**
          * Removes the specified document, using the document's last TransactionDocument#cas
@@ -153,12 +151,12 @@ namespace transactions
         /** @internal */
         virtual transaction_get_result insert_raw(std::shared_ptr<collection> collection,
                                                   const std::string& id,
-                                                  const nlohmann::json& content) = 0;
+                                                  const std::string& content) = 0;
 
         /** @internal */
         virtual transaction_get_result replace_raw(std::shared_ptr<collection> collection,
                                                    const transaction_get_result& document,
-                                                   const nlohmann::json& content) = 0;
+                                                   const std::string& content) = 0;
     };
 
 } // namespace transactions

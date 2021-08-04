@@ -107,13 +107,13 @@ TEST(ThreadedClusterTests, CanOpenBucketAndUse)
         threads.emplace_back([&]() {
             EXPECT_NO_THROW({
                 auto coll = c->bucket("secBucket")->default_collection();
-                if (!coll->exists(id).value->get<bool>()) {
+                if (!coll->exists(id).content_as<nlohmann::json>().get<bool>()) {
                     if (coll->insert(id, content).is_success()) {
                         return;
                     }
                 }
                 auto get_res = coll->get(id);
-                auto new_content = get_res.value->get<nlohmann::json>();
+                auto new_content = get_res.content_as<nlohmann::json>();
                 new_content["another num"] = ++counter;
                 auto upsert_res = coll->upsert(id, content);
                 ASSERT_TRUE(upsert_res.is_success());
@@ -171,9 +171,9 @@ TEST(ThreadedCollectionTests, CanUseMultipleBuckets)
     // threads are racing, and so the final value isn't the same as the counter's value.
     // So, GE instead of EQ for that check.
     auto r = c1->get(id);
-    ASSERT_GE(counter.load(), r.value->get<nlohmann::json>()["new thing"].get<uint64_t>());
+    ASSERT_GE(counter.load(), r.content_as<nlohmann::json>()["new thing"].get<uint64_t>());
     auto r2 = c2->get(id);
-    ASSERT_GE(counter.load(), r2.value->get<nlohmann::json>()["new thing"].get<uint64_t>());
+    ASSERT_GE(counter.load(), r2.content_as<nlohmann::json>()["new thing"].get<uint64_t>());
 }
 TEST(ThreadedCollectionTests, CanGetAndUpsert)
 {
@@ -192,7 +192,7 @@ TEST(ThreadedCollectionTests, CanGetAndUpsert)
             EXPECT_NO_THROW({
                 for (int j = 0; j < NUM_ITERATIONS; j++) {
                     auto res = coll->get(id);
-                    auto val = res.value->get<nlohmann::json>();
+                    auto val = res.content_as<nlohmann::json>();
                     val["another_num"] = ++counter;
                     auto res2 = coll->upsert(id, val);
                 }
@@ -208,7 +208,7 @@ TEST(ThreadedCollectionTests, CanGetAndUpsert)
     // threads are racing, and so the final value isn't the same as the counter's value.
     // So, LE instead of EQ for that check.
     ASSERT_EQ(NUM_ITERATIONS * NUM_THREADS, counter.load());
-    auto val = coll->get(id).value->get<nlohmann::json>();
+    auto val = coll->get(id).content_as<nlohmann::json>();
     ASSERT_LE(val["another_num"].get<uint64_t>(), counter.load());
     no_lost_instances(*ClientTestEnvironment::get_cluster());
     all_instances_created(coll->get_bucket());

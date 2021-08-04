@@ -25,6 +25,7 @@
 #include <boost/optional.hpp>
 #include <couchbase/client/bucket.hxx>
 #include <couchbase/support.hxx>
+
 /*
  * @file
  * Provides cluster-level operations for Couchbase Transactions Client

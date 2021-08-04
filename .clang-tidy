@@ -12,6 +12,7 @@ Checks: |-
   readability-*,
   boost-*,
   cppcoreguidelines-*,
+  -llvmlibc-*
   -readability-magic-numbers,
   -cppcoreguidelines-avoid-magic-numbers,
   -fuchsia-*

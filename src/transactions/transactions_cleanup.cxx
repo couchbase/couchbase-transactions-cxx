@@ -167,7 +167,7 @@ tx::transactions_cleanup::handle_atr_cleanup(std::shared_ptr<couchbase::collecti
 {
     atr_cleanup_stats stats;
     auto res = coll->exists(atr_id);
-    if (res.value->get<bool>()) {
+    if (res.content_as<nlohmann::json>().get<bool>()) {
         auto atr = active_transaction_record::get_atr(coll, atr_id);
         if (atr) {
             // ok, loop through the attempts and clean them all.  The entry will
@@ -238,12 +238,12 @@ tx::transactions_cleanup::get_active_clients(std::shared_ptr<couchbase::collecti
                                     { lookup_in_spec::get(FIELD_RECORDS).xattr(), lookup_in_spec::get("$vbucket").xattr() });
             });
             std::vector<std::string> active_client_uids;
-            auto hlc = res.values[1].value->get<nlohmann::json>();
+            auto hlc = res.values[1].content_as<nlohmann::json>();
             auto now_ms = now_ns_from_vbucket(hlc) / 1000000;
             details.override_enabled = false;
             details.override_expires = 0;
             if (res.values[0].status == 0) {
-                auto records = res.values[0].value->get<nlohmann::json>();
+                auto records = res.values[0].content_as<nlohmann::json>();
                 for (auto& r : records.items()) {
                     if (r.key() == FIELD_OVERRIDE) {
                         auto overrides = r.value().get<nlohmann::json>();

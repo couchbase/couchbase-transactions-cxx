@@ -168,9 +168,16 @@ class mutate_in_spec
       , flags_(0)
     {
     }
+
+    mutate_in_spec(mutate_in_spec_type type, const std::string& value)
+      : type_(type)
+      , value_(value)
+      , flags_(0)
+    {
+    }
+
     mutate_in_spec(mutate_in_spec_type type, const nlohmann::json& value)
       : type_(type)
-      , path_("")
       , value_(value.dump())
       , flags_(0)
     {

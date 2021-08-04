@@ -15,11 +15,11 @@
  */
 
 #include <chrono>
-#include <cstdio>
 #include <memory>
 
 #include "../../src/client/cluster.cxx" // to get the private instance_pool_event_counter
 #include "client_env.h"
+#include "helpers.hxx"
 #include <couchbase/client/cluster.hxx>
 #include <couchbase/client/collection.hxx>
 #include <gtest/gtest.h>
@@ -47,7 +47,7 @@ upsert_random_doc(std::shared_ptr<couchbase::collection>& coll, std::string& id)
     ASSERT_FALSE(result.is_value_too_large());
     ASSERT_TRUE(result.strerror().find("LCB_SUCCESS") != std::string::npos);
     ASSERT_EQ(result.key, id);
-    ASSERT_FALSE(result.value);
+    ASSERT_FALSE(result.has_value());
 }
 
 TEST(SimpleClientClusterTests, ClusterConnect)
@@ -249,7 +249,7 @@ TEST_F(SimpleClientCollectionTests, CanExists)
 {
     auto res = _coll->exists(_id);
     ASSERT_TRUE(res.is_success());
-    ASSERT_TRUE(res.value->get<bool>());
+    ASSERT_TRUE(res.content_as<bool>());
     ASSERT_TRUE(res.cas > 0);
 }
 
@@ -257,7 +257,7 @@ TEST_F(SimpleClientCollectionTests, ExistsWhenNotExists)
 {
     auto id = ClientTestEnvironment::get_uuid();
     auto res = _coll->exists(id);
-    ASSERT_FALSE(res.value->get<bool>());
+    ASSERT_FALSE(res.content_as<bool>());
 }
 
 TEST_F(SimpleClientCollectionTests, ExistsWhenDeleted)
@@ -265,13 +265,13 @@ TEST_F(SimpleClientCollectionTests, ExistsWhenDeleted)
     auto r0 = _coll->remove(_id);
     ASSERT_TRUE(r0.is_success());
     auto r1 = _coll->exists(_id);
-    ASSERT_FALSE(r1.value->get<bool>());
+    ASSERT_FALSE(r1.content_as<bool>());
 }
 
 TEST_F(SimpleClientCollectionTests, CanInsert)
 {
     auto id = ClientTestEnvironment::get_uuid();
-    auto content = nlohmann::json::parse("{\"some\":\"thing\"}");
+    auto c = nlohmann::json::parse("{\"some\":\"thing\"}");
     auto result = _coll->insert(id, content);
     ASSERT_TRUE(result.is_success());
     ASSERT_EQ(result.rc, 0);
@@ -279,7 +279,7 @@ TEST_F(SimpleClientCollectionTests, CanInsert)
     ASSERT_FALSE(result.is_value_too_large());
     ASSERT_TRUE(result.strerror().find("LCB_SUCCESS") != std::string::npos);
     ASSERT_EQ(result.key, id);
-    ASSERT_FALSE(result.value);
+    ASSERT_FALSE(result.has_value());
     ASSERT_FALSE(result.is_deleted);
 }
 
@@ -287,6 +287,15 @@ TEST_F(SimpleClientCollectionTests, CanUpsert)
 {
     std::string id;
     upsert_random_doc(_coll, id);
+}
+
+TEST_F(SimpleClientCollectionTests, CanUpsertRawString)
+{
+    auto id = ClientTestEnvironment::get_uuid();
+    std::string c = "\"{\"some\":\"object\", \"parsed\":\"externally\"}\"";
+    auto res = _coll->upsert(id, c);
+    ASSERT_TRUE(res.is_success());
+    ASSERT_EQ(c, _coll->get(id).content_as<std::string>());
 }
 
 TEST_F(SimpleClientCollectionTests, CanGet)
@@ -300,9 +309,30 @@ TEST_F(SimpleClientCollectionTests, CanGet)
     ASSERT_NE(get_res.cas, 0);
     ASSERT_EQ(get_res.key, _id);
     ASSERT_EQ(get_res.rc, 0);
-    ASSERT_TRUE(get_res.value);
-    ASSERT_EQ(get_res.value.get(), content);
+    ASSERT_TRUE(get_res.has_value());
+    ASSERT_EQ(get_res.content_as<nlohmann::json>(), content);
     ASSERT_FALSE(get_res.is_deleted);
+}
+
+TEST_F(SimpleClientCollectionTests, CanGetIntoObject)
+{
+    SimpleObject o{ "foo", 100 };
+    auto id = ClientTestEnvironment::get_uuid();
+    auto res = _coll->upsert(id, o);
+    ASSERT_TRUE(res.is_success());
+    ASSERT_EQ(o, _coll->get(id).content_as<SimpleObject>());
+}
+
+TEST_F(SimpleClientCollectionTests, ContentAsCanGetObjectAsStringOrNLohmannJson)
+{
+    SimpleObject o{ "foo", 100 };
+    nlohmann::json j = o;
+    auto id = ClientTestEnvironment::get_uuid();
+    ASSERT_TRUE(_coll->upsert(id, o).is_success());
+    auto res = _coll->get(id);
+    auto s = res.content_as<std::string>();
+    ASSERT_EQ(j, nlohmann::json::parse(res.content_as<std::string>()));
+    ASSERT_EQ(j, res.content_as<nlohmann::json>());
 }
 
 TEST_F(SimpleClientCollectionTests, CanGetDocNotFound)
@@ -342,7 +372,7 @@ TEST_F(SimpleClientCollectionTests, CanReplace)
     res = _coll->get(_id);
     ASSERT_TRUE(res.is_success());
     ASSERT_NE(res.cas, cas);
-    ASSERT_EQ(res.value->get<nlohmann::json>(), new_content);
+    ASSERT_EQ(res.content_as<nlohmann::json>(), new_content);
     ASSERT_FALSE(res.is_deleted);
 }
 
@@ -356,7 +386,7 @@ TEST_F(SimpleClientCollectionTests, CanReplaceFailCASMismatch)
     res = _coll->get(_id);
     ASSERT_TRUE(res.is_success());
     ASSERT_EQ(res.cas, cas);
-    ASSERT_EQ(res.value->get<nlohmann::json>(), content);
+    ASSERT_EQ(res.content_as<nlohmann::json>(), content);
     ASSERT_FALSE(res.is_deleted);
 }
 
@@ -368,11 +398,11 @@ TEST_F(SimpleClientCollectionTests, CanLookupIn)
     ASSERT_FALSE(res.is_not_found());
     ASSERT_FALSE(res.is_value_too_large());
     ASSERT_EQ(res.key, _id);
-    ASSERT_FALSE(res.value);
+    ASSERT_FALSE(res.has_value());
     ASSERT_FALSE(res.values.empty());
-    ASSERT_EQ(res.values[0].value->get<std::string>(), std::string("thing"));
+    ASSERT_EQ(res.values[0].content_as<std::string>(), std::string("thing"));
     ASSERT_EQ(res.values[0].status, LCB_SUCCESS);
-    ASSERT_EQ(res.values[1].value->get<nlohmann::json>(), ::content);
+    ASSERT_EQ(res.values[1].content_as<nlohmann::json>(), ::content);
     ASSERT_EQ(res.values[1].status, LCB_SUCCESS);
     ASSERT_FALSE(res.is_deleted);
 }
@@ -386,8 +416,8 @@ TEST_F(SimpleClientCollectionTests, CanMutateIn)
     ASSERT_TRUE(res.is_success());
     res = _coll->get(_id);
     ASSERT_TRUE(res.is_success());
-    ASSERT_TRUE(res.value);
-    ASSERT_EQ(res.value->get<nlohmann::json>(), nlohmann::json::parse("{\"some\":\"other thing\", \"another\":\"field\"}"));
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.content_as<nlohmann::json>(), nlohmann::json::parse("{\"some\":\"other thing\", \"another\":\"field\"}"));
     ASSERT_FALSE(res.is_deleted);
 }
 

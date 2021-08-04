@@ -42,7 +42,7 @@ upsert_random_doc(std::shared_ptr<couchbase::collection>& coll, std::string& id)
     ASSERT_FALSE(result.is_value_too_large());
     ASSERT_TRUE(result.strerror().find("LCB_SUCCESS") != std::string::npos);
     ASSERT_EQ(result.key, id);
-    ASSERT_FALSE(result.value);
+    ASSERT_TRUE(result.raw_value.empty());
 }
 
 TEST(MutateInTests, CanUpsert)
@@ -54,7 +54,7 @@ TEST(MutateInTests, CanUpsert)
     auto r1 = coll->mutate_in(id, { mutate_in_spec::upsert("a", "more strings") });
     ASSERT_EQ(LCB_SUCCESS, r1.rc);
     auto r2 = coll->get(id);
-    ASSERT_EQ(r2.value->get<nlohmann::json>(), nlohmann::json::parse("{\"a\":\"more strings\", \"b\":\"other string\"}"));
+    ASSERT_EQ(r2.content_as<nlohmann::json>(), nlohmann::json::parse("{\"a\":\"more strings\", \"b\":\"other string\"}"));
 }
 
 TEST(MutateInTests, CanUpsertXAttr)
@@ -63,11 +63,11 @@ TEST(MutateInTests, CanUpsertXAttr)
     auto coll = c->bucket("default")->default_collection();
     auto id = ClientTestEnvironment::get_uuid();
     upsert_random_doc(coll, id);
-    auto r1 = coll->mutate_in(id, { mutate_in_spec::upsert("aaa", "more strings").xattr() });
+    auto r1 = coll->mutate_in(id, { mutate_in_spec::upsert("aaa", std::string("more strings")).xattr() });
     ASSERT_EQ(LCB_SUCCESS, r1.rc);
     auto r2 = coll->lookup_in(id, { lookup_in_spec::get("aaa").xattr(), lookup_in_spec::fulldoc_get() });
-    ASSERT_EQ(r2.values[0].value->get<std::string>(), std::string("more strings"));
-    ASSERT_EQ(r2.values[1].value->get<nlohmann::json>(), content);
+    ASSERT_EQ(r2.values[0].content_as<std::string>(), std::string("more strings"));
+    ASSERT_EQ(r2.values[1].content_as<nlohmann::json>(), content);
 }
 
 TEST(MutateInTests, CanInsert)
@@ -79,7 +79,7 @@ TEST(MutateInTests, CanInsert)
     auto r1 = coll->mutate_in(id, { mutate_in_spec::insert("c", "more strings") });
     ASSERT_EQ(LCB_SUCCESS, r1.rc);
     auto r2 = coll->get(id);
-    ASSERT_EQ(r2.value->get<nlohmann::json>(), nlohmann::json::parse("{\"a\":\"string\", \"b\":\"other string\",\"c\":\"more strings\"}"));
+    ASSERT_EQ(r2.content_as<nlohmann::json>(), nlohmann::json::parse("{\"a\":\"string\", \"b\":\"other string\",\"c\":\"more strings\"}"));
 }
 
 TEST(MutateInTests, CanInsertXAttr)
@@ -91,8 +91,8 @@ TEST(MutateInTests, CanInsertXAttr)
     auto r1 = coll->mutate_in(id, { mutate_in_spec::insert("aaa", "more strings").xattr() });
     ASSERT_EQ(LCB_SUCCESS, r1.rc);
     auto r2 = coll->lookup_in(id, { lookup_in_spec::get("aaa").xattr(), lookup_in_spec::fulldoc_get() });
-    ASSERT_EQ(r2.values[0].value->get<std::string>(), std::string("more strings"));
-    ASSERT_EQ(r2.values[1].value->get<nlohmann::json>(), content);
+    ASSERT_EQ(r2.values[0].content_as<std::string>(), std::string("more strings"));
+    ASSERT_EQ(r2.values[1].content_as<nlohmann::json>(), content);
 }
 
 TEST(MutateInTests, CanRemove)
@@ -105,7 +105,7 @@ TEST(MutateInTests, CanRemove)
     ASSERT_EQ(LCB_SUCCESS, r1.rc);
     auto r2 = coll->get(id);
     ASSERT_EQ(LCB_SUCCESS, r2.rc);
-    ASSERT_EQ(r2.value->get<nlohmann::json>(), nlohmann::json::parse("{\"b\":\"other string\"}"));
+    ASSERT_EQ(r2.content_as<nlohmann::json>(), nlohmann::json::parse("{\"b\":\"other string\"}"));
 }
 
 TEST(MutateInTests, CanRemoveXAttr)
@@ -117,15 +117,15 @@ TEST(MutateInTests, CanRemoveXAttr)
     auto r0 = coll->mutate_in(id, { mutate_in_spec::upsert("aaa", "more strings").xattr() });
     ASSERT_EQ(LCB_SUCCESS, r0.rc);
     auto r1 = coll->lookup_in(id, { lookup_in_spec::get("aaa").xattr(), lookup_in_spec::fulldoc_get() });
-    ASSERT_EQ(r1.values[0].value->get<std::string>(), std::string("more strings"));
-    ASSERT_EQ(r1.values[1].value->get<nlohmann::json>(), content);
+    ASSERT_EQ(r1.values[0].content_as<std::string>(), std::string("more strings"));
+    ASSERT_EQ(r1.values[1].content_as<nlohmann::json>(), content);
     auto r2 = coll->mutate_in(id, { mutate_in_spec::remove("aaa").xattr() });
     ASSERT_EQ(LCB_SUCCESS, r2.rc);
     auto r3 = coll->lookup_in(id, { lookup_in_spec::get("aaa").xattr(), lookup_in_spec::fulldoc_get() });
     ASSERT_EQ(LCB_SUCCESS, r3.rc);
-    ASSERT_FALSE(r3.values[0].value);
+    ASSERT_FALSE(r3.values[0].has_value());
     ASSERT_EQ(r3.values[0].status, LCB_ERR_SUBDOC_PATH_NOT_FOUND);
-    ASSERT_EQ(r3.values[1].value->get<nlohmann::json>(), content);
+    ASSERT_EQ(r3.values[1].content_as<nlohmann::json>(), content);
 }
 
 TEST(MutateInTests, CanFullDocUpsert)
@@ -139,7 +139,21 @@ TEST(MutateInTests, CanFullDocUpsert)
     ASSERT_EQ(LCB_SUCCESS, r1.rc);
     auto r2 = coll->get(id);
     ASSERT_EQ(LCB_SUCCESS, r2.rc);
-    ASSERT_EQ(r2.value->get<nlohmann::json>(), new_content);
+    ASSERT_EQ(r2.content_as<nlohmann::json>(), new_content);
+}
+
+TEST(MutateInTests, CanFullDocUpsertFromRawString)
+{
+    auto c = ClientTestEnvironment::get_cluster();
+    auto coll = c->bucket("default")->default_collection();
+    auto id = ClientTestEnvironment::get_uuid();
+    upsert_random_doc(coll, id);
+    auto new_content = nlohmann::json::parse("{\"I\":\"am completely different\"}").dump();
+    auto r1 = coll->mutate_in(id, { mutate_in_spec::fulldoc_upsert(new_content) });
+    ASSERT_EQ(LCB_SUCCESS, r1.rc);
+    auto r2 = coll->get(id);
+    ASSERT_EQ(LCB_SUCCESS, r2.rc);
+    ASSERT_EQ(r2.content_as<std::string>(), new_content);
 }
 
 TEST(MutateInTests, CanFullDocInsert)
@@ -155,7 +169,7 @@ TEST(MutateInTests, CanFullDocInsert)
     ASSERT_EQ(LCB_SUCCESS, r1.rc);
     auto r2 = coll->get(id);
     ASSERT_EQ(LCB_SUCCESS, r2.rc);
-    ASSERT_EQ(r2.value->get<nlohmann::json>(), new_content);
+    ASSERT_EQ(r2.content_as<nlohmann::json>(), new_content);
 }
 
 TEST(MutateInTests, CanMutateIfCorrectCas)
@@ -172,7 +186,7 @@ TEST(MutateInTests, CanMutateIfCorrectCas)
     ASSERT_TRUE(r1.cas != cas);
     auto r2 = coll->lookup_in(id, { lookup_in_spec::get("a").xattr() });
     ASSERT_TRUE(r1.is_success());
-    ASSERT_EQ(std::string("string"), r2.values[0].value->get<std::string>());
+    ASSERT_EQ(std::string("string"), r2.values[0].content_as<std::string>());
 }
 
 TEST(MutateInTests, CanNotMutateIfIncorrectCas)
@@ -198,7 +212,7 @@ TEST(MutateInTests, CanMutateMultipleSpecsWithPathsXattr)
     ASSERT_EQ(LCB_SUCCESS, r0.rc);
     auto r1 = coll->lookup_in(id, { lookup_in_spec::get("a").xattr(), lookup_in_spec::get("a.x").xattr() });
     ASSERT_EQ(LCB_SUCCESS, r1.rc);
-    ASSERT_EQ(r1.values[0].value->get<nlohmann::json>(), nlohmann::json::parse("{\"x\":\"x\",\"y\":\"y\",\"z\":\"z\"}"));
+    ASSERT_EQ(r1.values[0].content_as<nlohmann::json>(), nlohmann::json::parse("{\"x\":\"x\",\"y\":\"y\",\"z\":\"z\"}"));
 }
 
 TEST(MutateInTests, CanCreateAsDeleted)
@@ -236,7 +250,7 @@ TEST(MutateInTests, CanAccessDeleted)
     ASSERT_TRUE(r1.is_success());
     auto r2 = coll->lookup_in(id, { lookup_in_spec::get("a.zz").xattr() }, lookup_in_options().access_deleted(true));
     ASSERT_TRUE(r2.is_success());
-    ASSERT_EQ(r2.values[0].value->get<std::string>(), std::string("zz"));
+    ASSERT_EQ(r2.values[0].content_as<std::string>(), std::string("zz"));
 }
 
 TEST(MutateInTests, CanMutateCreateAsDeletedWithCas)
@@ -260,7 +274,7 @@ TEST(MutateInTests, CanMutateCreateAsDeletedWithCas)
       id, { mutate_in_spec::upsert("a.zz", "zz").xattr() }, mutate_in_options().cas(r0.cas).access_deleted(true).create_as_deleted(true));
     ASSERT_TRUE(r2.is_success());
     auto r3 = coll->lookup_in(id, { lookup_in_spec::get("a.zz").xattr() }, lookup_in_options().access_deleted(true));
-    ASSERT_EQ("zz", r3.values[0].value->get<std::string>());
+    ASSERT_EQ("zz", r3.values[0].content_as<std::string>());
     ASSERT_TRUE(r3.cas != 0);
     ASSERT_TRUE(r3.cas != r0.cas);
 }
@@ -313,7 +327,7 @@ TEST(MutateInTests, AccessDeleteOkWhenNotDeleted)
     ASSERT_TRUE(r0.is_success());
     auto r1 = coll->lookup_in(id, { lookup_in_spec::get("a").xattr() });
     ASSERT_TRUE(r1.is_success());
-    ASSERT_EQ(r1.values[0].value->get<nlohmann::json>(), nlohmann::json::parse("{\"x\":\"x\",\"y\":\"y\",\"z\":\"z\"}"));
+    ASSERT_EQ(r1.values[0].content_as<nlohmann::json>(), nlohmann::json::parse("{\"x\":\"x\",\"y\":\"y\",\"z\":\"z\"}"));
 }
 
 TEST(MutateInTests, CanSetStoreSemanticsUpsert)
@@ -474,6 +488,6 @@ TEST(LookupInTests, CanAccessDeleted)
 
     auto r1 = coll->lookup_in(id, { lookup_in_spec::get("a").xattr() }, lookup_in_options().access_deleted(true));
     ASSERT_EQ(LCB_SUCCESS, r1.rc);
-    ASSERT_EQ(r1.values[0].value->get<nlohmann::json>(), nlohmann::json::parse("{\"x\":\"x\",\"y\":\"y\",\"z\":\"z\"}"));
+    ASSERT_EQ(r1.values[0].content_as<nlohmann::json>(), nlohmann::json::parse("{\"x\":\"x\",\"y\":\"y\",\"z\":\"z\"}"));
     ASSERT_TRUE(r1.is_deleted);
 }

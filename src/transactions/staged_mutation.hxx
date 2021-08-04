@@ -35,7 +35,7 @@ namespace transactions
       private:
         transaction_get_result doc_;
         staged_mutation_type type_;
-        nlohmann::json content_;
+        std::string content_;
 
       public:
         template<typename Content>
@@ -61,14 +61,12 @@ namespace transactions
             type_ = type;
         }
 
-        template<typename Content>
-        const Content& content() const
+        const std::string& content() const
         {
             return content_;
         }
 
-        template<typename Content>
-        void content(Content& content)
+        void content(const std::string& content)
         {
             content_ = content;
         }

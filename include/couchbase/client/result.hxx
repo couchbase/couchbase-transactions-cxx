@@ -17,6 +17,7 @@
 #pragma once
 
 #include <boost/optional.hpp>
+#include <couchbase/client/transcoder.hxx>
 #include <couchbase/internal/nlohmann/json.hpp>
 #include <couchbase/support.hxx>
 #include <string>
@@ -28,27 +29,52 @@
  */
 namespace couchbase
 {
+struct result_base {
+    std::string raw_value;
+
+    result_base() = default;
+
+    result_base(const std::string& res)
+      : raw_value(res)
+    {
+    }
+
+    bool has_value()
+    {
+        return !raw_value.empty();
+    }
+};
+
 /**
  * @brief Result of a subdoc operation.
  *
  * See @ref collection.lookup_in and @ref collection.mutate_in
  */
-struct subdoc_result {
-    boost::optional<nlohmann::json> value;
+struct subdoc_result : result_base {
     uint32_t status;
 
     subdoc_result()
-      : status(0)
+      : result_base()
+      , status(0)
     {
     }
     subdoc_result(uint32_t s)
       : status(s)
     {
     }
-    subdoc_result(nlohmann::json v, uint32_t s)
-      : value(v)
+    subdoc_result(const std::string& v, uint32_t s)
+      : result_base(v)
       , status(s)
     {
+    }
+
+    template<typename T>
+    T content_as()
+    {
+        // this will always be a json string.  To not have extraneous
+        // "" when asked to return as a string, we parse it first.
+        // NOTE: lets do better.
+        return nlohmann::json::parse(raw_value).get<T>();
     }
 };
 
@@ -110,7 +136,7 @@ struct subdoc_result {
  * @endcode
  */
 
-struct result {
+struct result : result_base {
     /** @brief return code for operation */
     uint32_t rc;
     /** @brief CAS for document, if any */
@@ -120,15 +146,14 @@ struct result {
     uint32_t flags;
     /** @brief document key */
     std::string key;
-    /** @brief content of document */
-    boost::optional<nlohmann::json> value;
     /** @brief results of subdoc spec operations */
     std::vector<subdoc_result> values;
     bool is_deleted;
     bool ignore_subdoc_errors;
 
     result()
-      : rc(0)
+      : result_base()
+      , rc(0)
       , cas(0)
       , datatype(0)
       , flags(0)
@@ -160,20 +185,23 @@ struct result {
         os << "cas:" << res.cas << ",";
         os << "is_deleted:" << res.is_deleted << ",";
         os << "datatype:" << res.datatype << ",";
-        os << "flags:" << res.flags;
-        if (res.value) {
-            os << ",value:";
-            os << res.value->dump();
-        }
+        os << "flags:" << res.flags << ",";
+        os << "raw_value" << res.raw_value;
         if (!res.values.empty()) {
             os << ",values:[";
             for (auto& v : res.values) {
-                os << "{" << (v.value ? v.value->dump() : "") << "," << v.status << "},";
+                os << "{" << v.raw_value << "," << v.status << "},";
             }
             os << "]";
         }
         os << "}";
         return os;
+    }
+
+    template<typename T>
+    T content_as()
+    {
+        return default_json_serializer::deserialize<T>(raw_value);
     }
 };
 } // namespace couchbase

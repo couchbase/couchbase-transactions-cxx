@@ -223,7 +223,7 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, boost
     if (docs) {
         do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, tx::transaction_get_result& doc, bool is_deleted) {
             if (doc.links().has_staged_content()) {
-                nlohmann::json content = doc.links().staged_content<nlohmann::json>();
+                nlohmann::json content = doc.links().staged_content();
                 cleanup_->config().cleanup_hooks().before_commit_doc(doc.id());
                 couchbase::result res;
                 tx::wrap_collection_call(res, [&](result& r) {

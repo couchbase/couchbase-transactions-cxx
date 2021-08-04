@@ -72,7 +72,7 @@ namespace transactions
                                                                            result& res,
                                                                            nlohmann::json& attempts)
     {
-        auto vbucket = res.values[1].value->get<nlohmann::json>();
+        auto vbucket = res.values[1].content_as<nlohmann::json>();
         auto now_ns = now_ns_from_vbucket(vbucket);
         std::vector<atr_entry> entries;
         entries.reserve(attempts.size());
@@ -108,7 +108,7 @@ namespace transactions
         if (res.rc == LCB_ERR_DOCUMENT_NOT_FOUND) {
             return {};
         } else if (res.rc == LCB_SUCCESS) {
-            nlohmann::json attempts = *res.values[0].value;
+            nlohmann::json attempts = res.values[0].content_as<nlohmann::json>();
             return map_to_atr(collection, atr_id, res, attempts);
         } else {
             throw client_error(res);

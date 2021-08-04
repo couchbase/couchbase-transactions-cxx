@@ -70,7 +70,7 @@ TEST(ThreadedTransactions, CanGetReplace)
             t.join();
         }
     }
-    auto final_content = coll->get(id).value->get<nlohmann::json>();
+    auto final_content = coll->get(id).content_as<nlohmann::json>();
     ASSERT_EQ(final_content["another one"].get<uint64_t>(), counter.load());
     // we increment counter each time through the lambda - chances are high there
     // will be retries, so this will be at least threads*iterations, probably more.

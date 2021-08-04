@@ -52,6 +52,7 @@ class collection
     std::string name_;
     std::weak_ptr<bucket> bucket_;
     std::chrono::microseconds kv_timeout_;
+
     static const std::string DEFAULT;
 
     friend result store_impl(collection* coll,
@@ -70,15 +71,14 @@ class collection
                  durability_level level,
                  std::chrono::microseconds timeout)
     {
-        nlohmann::json j = value;
-        std::string payload = j.dump();
-        return store_impl(this, operation, id, payload, cas, level, timeout);
+        return store_impl(this, operation, id, couchbase::default_json_serializer::serialize(value), cas, level, timeout);
     }
 
     std::unique_ptr<pool<lcb_st*>>& instance_pool()
     {
         return bucket_.lock()->instance_pool_;
     }
+
     result wrap_call_for_retry(std::chrono::microseconds timeout, std::function<result(std::chrono::microseconds)> fn);
 
     collection(std::shared_ptr<bucket> bucket, std::string scope, std::string name, std::chrono::microseconds kv_timeout);
@@ -102,7 +102,6 @@ class collection
      * @return result The result of the operation.  See @ref result.
      */
     result get(const std::string& id, const get_options& opts = get_options());
-
     /**
      * @brief Test existence of a document
      *

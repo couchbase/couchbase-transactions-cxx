@@ -39,7 +39,7 @@ namespace transactions
         // id of the transaction that has staged content
         boost::optional<std::string> staged_transaction_id_;
         boost::optional<std::string> staged_attempt_id_;
-        boost::optional<nlohmann::json> staged_content_;
+        boost::optional<std::string> staged_content_;
 
         // for {BACKUP_FIELDS}
         boost::optional<std::string> cas_pre_txn_;
@@ -58,7 +58,7 @@ namespace transactions
                           boost::optional<std::string> atr_collection_name,
                           boost::optional<std::string> staged_transaction_id,
                           boost::optional<std::string> staged_attempt_id,
-                          boost::optional<nlohmann::json> staged_content,
+                          boost::optional<std::string> staged_content,
                           boost::optional<std::string> cas_pre_txn,
                           boost::optional<std::string> revid_pre_txn,
                           boost::optional<uint32_t> exptime_pre_txn,
@@ -159,10 +159,9 @@ namespace transactions
             return crc32_of_staging_;
         }
 
-        template<typename Content>
-        CB_NODISCARD Content staged_content() const
+        CB_NODISCARD std::string staged_content() const
         {
-            return staged_content_ ? staged_content_->get<Content>() : Content();
+            return staged_content_ ? *staged_content_ : "";
         }
 
         CB_NODISCARD boost::optional<nlohmann::json> forward_compat() const

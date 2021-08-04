@@ -15,6 +15,7 @@
  */
 
 #include <couchbase/client/result.hxx>
+#include <couchbase/client/transcoder.hxx>
 #include <libcouchbase/couchbase.h>
 #include <sstream>
 
