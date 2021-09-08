@@ -22,7 +22,7 @@
 #include <utility>
 #include <vector>
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include <couchbase/support.hxx>
 #include <couchbase/transactions/attempt_state.hxx>
@@ -41,16 +41,16 @@ namespace transactions
                   std::string atr_id,
                   std::string attempt_id,
                   attempt_state state,
-                  boost::optional<std::uint64_t> timestamp_start_ms,
-                  boost::optional<std::uint64_t> timestamp_commit_ms,
-                  boost::optional<std::uint64_t> timestamp_complete_ms,
-                  boost::optional<std::uint64_t> timestamp_rollback_ms,
-                  boost::optional<std::uint64_t> timestamp_rolled_back_ms,
-                  boost::optional<std::uint32_t> expires_after_ms,
-                  boost::optional<std::vector<doc_record>> inserted_ids,
-                  boost::optional<std::vector<doc_record>> replaced_ids,
-                  boost::optional<std::vector<doc_record>> removed_ids,
-                  boost::optional<nlohmann::json> forward_compat,
+                  std::optional<std::uint64_t> timestamp_start_ms,
+                  std::optional<std::uint64_t> timestamp_commit_ms,
+                  std::optional<std::uint64_t> timestamp_complete_ms,
+                  std::optional<std::uint64_t> timestamp_rollback_ms,
+                  std::optional<std::uint64_t> timestamp_rolled_back_ms,
+                  std::optional<std::uint32_t> expires_after_ms,
+                  std::optional<std::vector<doc_record>> inserted_ids,
+                  std::optional<std::vector<doc_record>> replaced_ids,
+                  std::optional<std::vector<doc_record>> removed_ids,
+                  std::optional<nlohmann::json> forward_compat,
                   std::uint64_t cas)
           : atr_bucket_(std::move(atr_bucket))
           , atr_id_(std::move(atr_id))
@@ -82,7 +82,7 @@ namespace transactions
 
         CB_NODISCARD std::uint32_t age_ms() const
         {
-            return (cas_ / 1000000) - timestamp_start_ms_.value_or(0);
+            return static_cast<uint32_t>((cas_ / 1000000) - timestamp_start_ms_.value_or(0));
         }
 
         CB_NODISCARD const std::string& atr_id() const
@@ -95,23 +95,23 @@ namespace transactions
             return attempt_id_;
         }
 
-        CB_NODISCARD boost::optional<std::uint64_t> timestamp_start_ms() const
+        CB_NODISCARD std::optional<std::uint64_t> timestamp_start_ms() const
         {
             return timestamp_start_ms_;
         }
-        CB_NODISCARD boost::optional<std::uint64_t> timestamp_commit_ms() const
+        CB_NODISCARD std::optional<std::uint64_t> timestamp_commit_ms() const
         {
             return timestamp_commit_ms_;
         }
-        CB_NODISCARD boost::optional<std::uint64_t> timestamp_complete_ms() const
+        CB_NODISCARD std::optional<std::uint64_t> timestamp_complete_ms() const
         {
             return timestamp_complete_ms_;
         }
-        CB_NODISCARD boost::optional<std::uint64_t> timestamp_rollback_ms() const
+        CB_NODISCARD std::optional<std::uint64_t> timestamp_rollback_ms() const
         {
             return timestamp_rollback_ms_;
         }
-        CB_NODISCARD boost::optional<std::uint64_t> timestamp_rolled_back_ms() const
+        CB_NODISCARD std::optional<std::uint64_t> timestamp_rolled_back_ms() const
         {
             return timestamp_rolled_back_ms_;
         }
@@ -124,27 +124,27 @@ namespace transactions
             return cas_;
         }
 
-        CB_NODISCARD boost::optional<std::vector<doc_record>> inserted_ids() const
+        CB_NODISCARD std::optional<std::vector<doc_record>> inserted_ids() const
         {
             return inserted_ids_;
         }
 
-        CB_NODISCARD boost::optional<std::vector<doc_record>> replaced_ids() const
+        CB_NODISCARD std::optional<std::vector<doc_record>> replaced_ids() const
         {
             return replaced_ids_;
         }
 
-        CB_NODISCARD boost::optional<std::vector<doc_record>> removed_ids() const
+        CB_NODISCARD std::optional<std::vector<doc_record>> removed_ids() const
         {
             return removed_ids_;
         }
 
-        CB_NODISCARD boost::optional<nlohmann::json> forward_compat() const
+        CB_NODISCARD std::optional<nlohmann::json> forward_compat() const
         {
             return forward_compat_;
         }
 
-        CB_NODISCARD boost::optional<std::uint32_t> expires_after_ms() const
+        CB_NODISCARD std::optional<std::uint32_t> expires_after_ms() const
         {
             return expires_after_ms_;
         }
@@ -159,16 +159,16 @@ namespace transactions
         const std::string atr_id_;
         const std::string attempt_id_;
         const attempt_state state_ = attempt_state::NOT_STARTED;
-        const boost::optional<std::uint64_t> timestamp_start_ms_;
-        const boost::optional<std::uint64_t> timestamp_commit_ms_;
-        const boost::optional<std::uint64_t> timestamp_complete_ms_;
-        const boost::optional<std::uint64_t> timestamp_rollback_ms_;
-        const boost::optional<std::uint64_t> timestamp_rolled_back_ms_;
-        const boost::optional<std::uint32_t> expires_after_ms_;
-        const boost::optional<std::vector<doc_record>> inserted_ids_;
-        const boost::optional<std::vector<doc_record>> replaced_ids_;
-        const boost::optional<std::vector<doc_record>> removed_ids_;
-        const boost::optional<nlohmann::json> forward_compat_;
+        const std::optional<std::uint64_t> timestamp_start_ms_;
+        const std::optional<std::uint64_t> timestamp_commit_ms_;
+        const std::optional<std::uint64_t> timestamp_complete_ms_;
+        const std::optional<std::uint64_t> timestamp_rollback_ms_;
+        const std::optional<std::uint64_t> timestamp_rolled_back_ms_;
+        const std::optional<std::uint32_t> expires_after_ms_;
+        const std::optional<std::vector<doc_record>> inserted_ids_;
+        const std::optional<std::vector<doc_record>> replaced_ids_;
+        const std::optional<std::vector<doc_record>> removed_ids_;
+        const std::optional<nlohmann::json> forward_compat_;
         const std::uint64_t cas_{};
     };
 } // namespace transactions

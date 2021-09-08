@@ -17,12 +17,11 @@
 #pragma once
 
 #include "atr_entry.hxx"
-#include <boost/optional/optional.hpp>
 #include <chrono>
-#include <couchbase/client/collection.hxx>
 #include <couchbase/transactions/transaction_get_result.hxx>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <string>
 #include <thread>
@@ -55,9 +54,8 @@ namespace transactions
         friend class transactions_cleanup_attempt;
 
       private:
-        std::string atr_id_;
+        couchbase::document_id atr_id_;
         std::string attempt_id_;
-        std::shared_ptr<couchbase::collection> atr_collection_;
         std::chrono::time_point<std::chrono::steady_clock> min_start_time_;
         bool check_if_expired_;
         const transactions_cleanup* cleanup_;
@@ -72,10 +70,10 @@ namespace transactions
         void check_atr_and_cleanup(std::shared_ptr<spdlog::logger> logger, transactions_cleanup_attempt* result);
         void cleanup_docs(std::shared_ptr<spdlog::logger> logger);
         void cleanup_entry(std::shared_ptr<spdlog::logger> logger);
-        void commit_docs(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<doc_record>> docs);
-        void remove_docs(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<doc_record>> docs);
-        void remove_docs_staged_for_removal(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<doc_record>> docs);
-        void remove_txn_links(std::shared_ptr<spdlog::logger> logger, boost::optional<std::vector<doc_record>> docs);
+        void commit_docs(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<doc_record>> docs);
+        void remove_docs(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<doc_record>> docs);
+        void remove_docs_staged_for_removal(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<doc_record>> docs);
+        void remove_txn_links(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<doc_record>> docs);
         void do_per_doc(std::shared_ptr<spdlog::logger> logger,
                         std::vector<doc_record> docs,
                         bool require_crc_to_match,
@@ -84,13 +82,12 @@ namespace transactions
       public:
         explicit atr_cleanup_entry(attempt_context& ctx);
         explicit atr_cleanup_entry(const atr_entry& entry,
-                                   std::shared_ptr<couchbase::collection> atr_coll,
+                                   const couchbase::document_id& atr_coll,
                                    const transactions_cleanup& cleanup,
                                    bool check_if_expired = true);
 
-        explicit atr_cleanup_entry(const std::string& atr_id,
+        explicit atr_cleanup_entry(const couchbase::document_id& atr_id,
                                    const std::string& attempt_id,
-                                   std::shared_ptr<couchbase::collection> atr_collection,
                                    const transactions_cleanup& cleanup);
 
         void clean(std::shared_ptr<spdlog::logger> logger, transactions_cleanup_attempt* result = nullptr);
@@ -100,9 +97,8 @@ namespace transactions
         friend OStream& operator<<(OStream& os, const atr_cleanup_entry& e)
         {
             os << "atr_cleanup_entry{";
-            os << "atr_id:" << e.atr_id_ << ",";
+            os << "atr_id:" << e.atr_id_.key() << ",";
             os << "attempt_id:" << e.attempt_id_ << ",";
-            os << "atr_collection:" << e.atr_collection_->name() << ",";
             os << "check_if_expired:" << e.check_if_expired_;
             os << "min_start_time:" << std::chrono::duration_cast<std::chrono::milliseconds>(e.min_start_time_.time_since_epoch()).count();
             os << "}";
@@ -123,10 +119,10 @@ namespace transactions
 
       public:
         // pop, but only if the front entry's min_start_time_ is before now
-        boost::optional<atr_cleanup_entry> pop(bool check_time = true);
+        std::optional<atr_cleanup_entry> pop(bool check_time = true);
         void push(attempt_context& ctx);
         void push(const atr_cleanup_entry& entry);
-        int size() const;
+        size_t size() const;
     };
 
 } // namespace transactions

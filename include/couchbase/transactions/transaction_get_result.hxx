@@ -16,15 +16,11 @@
 
 #pragma once
 
-#include <ostream>
-
-#include <boost/algorithm/string/split.hpp>
-
 #include <couchbase/internal/nlohmann/json.hpp>
-
-#include <couchbase/client/collection.hxx>
 #include <couchbase/transactions/document_metadata.hxx>
+#include <couchbase/transactions/result.hxx>
 #include <couchbase/transactions/transaction_links.hxx>
+#include <ostream>
 #include <utility>
 
 namespace couchbase
@@ -38,41 +34,37 @@ namespace transactions
     class transaction_get_result
     {
       private:
-        collection& collection_;
         std::string value_;
-        std::string id_;
+        couchbase::document_id id_;
         uint64_t cas_;
         transaction_links links_;
 
         /** This is needed for provide {BACKUP-FIELDS}.  It is only needed from the get to the staged mutation, hence Optional. */
-        const boost::optional<document_metadata> metadata_;
+        const std::optional<document_metadata> metadata_;
 
       public:
         /** @internal */
         transaction_get_result(const transaction_get_result& doc)
-          : collection_(doc.collection_)
-          , value_(doc.value_)
+          : value_(doc.value_)
           , id_(doc.id_)
+          , cas_(doc.cas_)
           , links_(doc.links_)
           , metadata_(doc.metadata_)
-          , cas_(doc.cas_)
         {
         }
 
         /** @internal */
         template<typename Content>
-        transaction_get_result(std::string id,
+        transaction_get_result(const couchbase::document_id& id,
                                Content content,
                                uint64_t cas,
-                               collection& collection,
                                transaction_links links,
-                               boost::optional<document_metadata> metadata)
-          : id_(std::move(id))
+                               std::optional<document_metadata> metadata)
+          : value_(std::move(content))
+          , id_(std::move(id))
           , cas_(cas)
-          , collection_(collection)
           , links_(std::move(links))
           , metadata_(std::move(metadata))
-          , value_(std::move(content))
         {
         }
 
@@ -95,34 +87,34 @@ namespace transactions
                                     document.links().forward_compat(),
                                     document.links().is_deleted());
 
-            return transaction_get_result(document.id(), content, document.cas(), document.collection_ref(), links, document.metadata());
+            return { document.id(), content, document.cas(), links, document.metadata() };
         }
 
         /** @internal */
-        static transaction_get_result create_from(collection& collection, std::string id, result res)
+        static transaction_get_result create_from(const couchbase::document_id& id, result res)
         {
-            boost::optional<std::string> atr_id;
-            boost::optional<std::string> transaction_id;
-            boost::optional<std::string> attempt_id;
-            boost::optional<std::string> staged_content;
-            boost::optional<std::string> atr_bucket_name;
-            boost::optional<std::string> atr_scope_name;
-            boost::optional<std::string> atr_collection_name;
-            boost::optional<nlohmann::json> forward_compat;
+            std::optional<std::string> atr_id;
+            std::optional<std::string> transaction_id;
+            std::optional<std::string> attempt_id;
+            std::optional<std::string> staged_content;
+            std::optional<std::string> atr_bucket_name;
+            std::optional<std::string> atr_scope_name;
+            std::optional<std::string> atr_collection_name;
+            std::optional<nlohmann::json> forward_compat;
 
             // read from xattrs.txn.restore
-            boost::optional<std::string> cas_pre_txn;
-            boost::optional<std::string> revid_pre_txn;
-            boost::optional<uint32_t> exptime_pre_txn;
-            boost::optional<std::string> crc32_of_staging;
+            std::optional<std::string> cas_pre_txn;
+            std::optional<std::string> revid_pre_txn;
+            std::optional<uint32_t> exptime_pre_txn;
+            std::optional<std::string> crc32_of_staging;
 
             // read from $document
-            boost::optional<std::string> cas_from_doc;
-            boost::optional<std::string> revid_from_doc;
-            boost::optional<uint32_t> exptime_from_doc;
-            boost::optional<std::string> crc32_from_doc;
+            std::optional<std::string> cas_from_doc;
+            std::optional<std::string> revid_from_doc;
+            std::optional<uint32_t> exptime_from_doc;
+            std::optional<std::string> crc32_from_doc;
 
-            boost::optional<std::string> op;
+            std::optional<std::string> op;
             std::string content;
 
             if (res.values[0].has_value()) {
@@ -135,15 +127,17 @@ namespace transactions
                 attempt_id = res.values[2].content_as<std::string>();
             }
             if (res.values[3].has_value()) {
-                staged_content = res.values[3].content_as<std::string>();
+                staged_content = res.values[3].content_as<nlohmann::json>().dump();
             }
             if (res.values[4].has_value()) {
                 atr_bucket_name = res.values[4].content_as<std::string>();
             }
             if (res.values[5].has_value()) {
                 auto name = res.values[5].content_as<std::string>();
-                std::vector<std::string> splits;
-                boost::split(splits, name, [](char c) { return c == '.'; });
+                auto splits = split_string(name, '.');
+                if (splits.size() < 2) {
+                    throw std::runtime_error("couldn't parse atr collection");
+                }
                 atr_scope_name = splits[0];
                 atr_collection_name = splits[1];
             }
@@ -192,7 +186,7 @@ namespace transactions
                                     forward_compat,
                                     res.is_deleted);
             document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc, crc32_from_doc);
-            return transaction_get_result(id, content, res.cas, collection, links, boost::make_optional(md));
+            return { id, content, res.cas, links, std::make_optional(md) };
         }
 
         /** @internal */
@@ -200,22 +194,11 @@ namespace transactions
         transaction_get_result& operator=(const transaction_get_result& other)
         {
             if (this != &other) {
-                this->collection_ = other.collection_;
                 this->value_ = other.value_;
                 this->id_ = other.id_;
                 this->links_ = other.links_;
             }
             return *this;
-        }
-
-        /**
-         * @brief Collection that contains this document.
-         *
-         * @return reference to the collection containing this document.
-         */
-        CB_NODISCARD collection& collection_ref()
-        {
-            return collection_;
         }
 
         /**
@@ -258,7 +241,7 @@ namespace transactions
          * @return content of the document.
          */
         template<typename Content>
-        CB_NODISCARD Content content()
+        CB_NODISCARD Content content() const
         {
             return default_json_serializer::deserialize<Content>(value_);
         }
@@ -273,7 +256,7 @@ namespace transactions
          *
          * @return the id of this document.
          */
-        CB_NODISCARD const std::string& id() const
+        CB_NODISCARD const couchbase::document_id& id() const
         {
             return id_;
         }
@@ -309,18 +292,18 @@ namespace transactions
          *
          * @return metadata for this document.
          */
-        CB_NODISCARD const boost::optional<document_metadata>& metadata() const
+        CB_NODISCARD const std::optional<document_metadata>& metadata() const
         {
             return metadata_;
         }
+
 
         /** @internal */
         template<typename OStream>
         friend OStream& operator<<(OStream& os, const transaction_get_result document)
         {
-            os << "transaction_get_result{id: " << document.id_ << ", cas: " << document.cas_
-               << ", bucket: " << document.collection_.bucket_name() << ", coll: " << document.collection_.name()
-               << ", links_: " << document.links_ << "}";
+            os << "transaction_get_result{id: " << document.id_.key() << ", cas: " << document.cas_ << ", links_: " << document.links_
+               << "}";
             return os;
         }
     };

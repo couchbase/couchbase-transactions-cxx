@@ -15,9 +15,10 @@
  */
 #pragma once
 
+#include <optional>
 #include <string>
 
-#include <couchbase/client/collection.hxx>
+#include <couchbase/cluster.hxx>
 #include <couchbase/transactions/transaction_get_result.hxx>
 
 namespace couchbase
@@ -35,29 +36,32 @@ namespace transactions
     class attempt_context
     {
       public:
+        virtual ~attempt_context() = default;
         /**
          * Gets a document from the specified Couchbase collection matching the specified id.
          *
-         * @param collection the Couchbase collection the document exists on
+         * @param bucket name of the bucket to use
+         * @param collection the collection the document exists in (specified as <scope_name>.<collection_name>
          * @param id the document's ID
          * @return an TransactionDocument containing the document
          *
          * @throws transaction_operation_failed which either should not be caught by the lambda, or
          *         rethrown if it is caught.
          */
-        virtual transaction_get_result get(std::shared_ptr<collection> collection, const std::string& id) = 0;
+        virtual transaction_get_result get(const couchbase::document_id& id) = 0;
 
         /**
          * Gets a document from the specified Couchbase collection matching the specified id.
          *
-         * @param collection the Couchbase collection the document exists on
+         * @param bucket name of the bucket to use
+         * @param collection the collection the document exists in (specified as <scope_name>.<collection_name>
          * @param id the document's ID
          * @return a TransactionDocument containing the document, if it exists.
          *
          * @throws transaction_operation_failed which either should not be caught by the lambda, or
          *         rethrown if it is caught.
          */
-        virtual boost::optional<transaction_get_result> get_optional(std::shared_ptr<collection> collection, const std::string& id) = 0;
+        virtual std::optional<transaction_get_result> get_optional(const couchbase::document_id& id) = 0;
 
         /**
          * Mutates the specified document with new content, using the document's last TransactionDocument#cas().
@@ -70,7 +74,6 @@ namespace transactions
          * back).
          *
          * If the mutation fails, the transaction will automatically rollback this attempt, then retry.
-         *
          * @param document the doc to be updated
          * @param content the content to replace the doc with.
          * @return the document, updated with its new CAS value.
@@ -79,11 +82,9 @@ namespace transactions
          *         rethrown if it is caught.
          */
         template<typename Content>
-        transaction_get_result replace(std::shared_ptr<collection> collection,
-                                       const transaction_get_result& document,
-                                       const Content& content)
+        transaction_get_result replace(const transaction_get_result& document, const Content& content)
         {
-            return replace_raw(collection, document, couchbase::default_json_serializer::serialize(content));
+            return replace_raw(document, default_json_serializer::serialize(content));
         }
         /**
          * Inserts a new document into the specified Couchbase collection.
@@ -103,9 +104,9 @@ namespace transactions
          *         rethrown if it is caught.
          */
         template<typename Content>
-        transaction_get_result insert(std::shared_ptr<collection> collection, const std::string& id, const Content& content)
+        transaction_get_result insert(const couchbase::document_id& id, const Content& content)
         {
-            return insert_raw(collection, id, couchbase::default_json_serializer::serialize(content));
+            return insert_raw(id, default_json_serializer::serialize(content));
         }
         /**
          * Removes the specified document, using the document's last TransactionDocument#cas
@@ -121,7 +122,7 @@ namespace transactions
          * @throws transaction_operation_failed which either should not be caught by the lambda, or
          *         rethrown if it is caught.
          */
-        virtual void remove(std::shared_ptr<couchbase::collection> collection, transaction_get_result& document) = 0;
+        virtual void remove(transaction_get_result& document) = 0;
 
         /**
          * Commits the transaction.  All staged replaces, inserts and removals will be written.
@@ -149,14 +150,10 @@ namespace transactions
 
       protected:
         /** @internal */
-        virtual transaction_get_result insert_raw(std::shared_ptr<collection> collection,
-                                                  const std::string& id,
-                                                  const std::string& content) = 0;
+        virtual transaction_get_result insert_raw(const couchbase::document_id& id, const std::string& content) = 0;
 
         /** @internal */
-        virtual transaction_get_result replace_raw(std::shared_ptr<collection> collection,
-                                                   const transaction_get_result& document,
-                                                   const std::string& content) = 0;
+        virtual transaction_get_result replace_raw(const transaction_get_result& document, const std::string& content) = 0;
     };
 
 } // namespace transactions

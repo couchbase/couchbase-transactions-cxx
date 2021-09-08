@@ -16,56 +16,126 @@
 #pragma once
 #include "exceptions_internal.hxx"
 #include <chrono>
-#include <couchbase/client/options.hxx>
-#include <couchbase/client/result.hxx>
+#include <couchbase/errors.hxx>
+#include <couchbase/operations.hxx>
+#include <couchbase/transactions/result.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <functional>
+#include <future>
 #include <limits>
 #include <random>
+#include <string>
 #include <thread>
 
 namespace couchbase
 {
 namespace transactions
 {
+    /**
+     * @brief Useful macros
+     *
+     * When mutating a document, if you need to store the cas of the document, the sequence number, or a crc of it,
+     * you can use these macros and the server does it for you when it stores the mutation.  The server calculates
+     * these after all the mutations in the operation.
+     */
+    namespace mutate_in_macro
+    {
+        /** @brief this expands to be the current document CAS (after the mutation) */
+        static const std::string CAS = "\"${Mutation.CAS}\"";
+        /** @brief this macro expands to the current sequence number (rev) of the document (after the mutation)*/
+        static const std::string SEQ_NO = "\"${Mutation.seqno}\"";
+        /** @brief this macro expands to a CRC32C of the document (after the mutation)*/
+        static const std::string VALUE_CRC_32C = "\"${Mutation.value_crc32c}\"";
+    }; // namespace mutate_in_macro
+
     // returns the parsed server time from the result of a lookup_in_spec::get("$vbucket").xattr() call
-    static uint64_t now_ns_from_vbucket(const nlohmann::json& vbucket)
+    static inline uint64_t now_ns_from_vbucket(const nlohmann::json& vbucket)
     {
         std::string now_str = vbucket["HLC"]["now"];
         return stoull(now_str, nullptr, 10) * 1000000000;
     }
 
-    static couchbase::durability_level durability(durability_level level)
+    static inline std::string jsonify(const nlohmann::json& obj)
+    {
+        return obj.dump();
+    }
+
+    static inline std::string collection_spec_from_id(const couchbase::document_id& id)
+    {
+        std::string retval = id.scope();
+        return retval.append(".").append(id.collection());
+    }
+
+    static inline bool document_ids_equal(const couchbase::document_id& id1, const couchbase::document_id& id2)
+    {
+        return id1.key() == id2.key() && id1.bucket() == id2.bucket() && id1.scope() == id2.scope() && id1.collection() == id2.collection();
+    }
+
+    template<typename OStream>
+    OStream& operator<<(OStream& os, const couchbase::document_id& id)
+    {
+        os << "document_id{bucket: " << id.bucket() << ", scope: " << id.scope() << ", collection: " << id.collection()
+           << ", key: " << id.key() << "}";
+        return os;
+    }
+
+    static inline protocol::durability_level durability(durability_level level)
     {
         switch (level) {
             case durability_level::NONE:
-                return couchbase::durability_level::none;
+                return protocol::durability_level::none;
             case durability_level::MAJORITY:
-                return couchbase::durability_level::majority;
+                return protocol::durability_level::majority;
             case durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE:
-                return couchbase::durability_level::majority_and_persist_to_active;
+                return protocol::durability_level::majority_and_persist_to_active;
             case durability_level::PERSIST_TO_MAJORITY:
-                return couchbase::durability_level::persist_to_majority;
+                return protocol::durability_level::persist_to_majority;
             default:
                 // mimic java here
-                return couchbase::durability_level::majority;
+                return protocol::durability_level::majority;
         }
     }
 
     template<typename T>
-    T& wrap_option(T&& opt, const transaction_config& config)
+    T& wrap_request(T&& req, const transaction_config& config)
     {
         if (config.kv_timeout()) {
-            opt.timeout(*config.kv_timeout());
+            req.timeout = config.kv_timeout().value();
         }
-        auto durable_opt = dynamic_cast<common_mutate_options<T>*>(&opt);
-        if (nullptr != durable_opt) {
-            opt.durability(durability(config.durability_level()));
-        }
-        return opt;
+        return req;
     }
 
-    static void wrap_collection_call(result& res, std::function<void(result&)> call)
+    template<typename T>
+    T& wrap_durable_request(T&& req, const transaction_config& config)
+    {
+        wrap_request(req, config);
+        req.durability_level = durability(config.durability_level());
+        return req;
+    }
+
+    static inline result wrap_operation_future(std::future<result>& fut, bool ignore_subdoc_errors = true)
+    {
+        auto res = fut.get();
+        if (!res.is_success()) {
+            throw client_error(res);
+        }
+        // we should raise here, as we are doing a non-subdoc request and can't specify
+        // access_deleted.  TODO: consider changing client to return document_not_found
+        if (res.is_deleted && res.values.empty()) {
+            res.ec = couchbase::error::key_value_errc::document_not_found;
+            throw client_error(res);
+        }
+        if (!res.values.empty() && !ignore_subdoc_errors) {
+            for (auto v : res.values) {
+                if (v.status != subdoc_result::status_type::success) {
+                    throw client_error(res);
+                }
+            }
+        }
+        return res;
+    }
+
+    static inline void wrap_collection_call(result& res, std::function<void(result&)> call)
     {
         call(res);
         if (!res.is_success()) {
@@ -73,7 +143,7 @@ namespace transactions
         }
         if (!res.values.empty() && !res.ignore_subdoc_errors) {
             for (auto v : res.values) {
-                if (v.status != 0) {
+                if (v.status != subdoc_result::status_type::success) {
                     throw client_error(res);
                 }
             }
@@ -85,7 +155,7 @@ namespace transactions
     static const size_t DEFAULT_RETRY_OP_MAX_RETRIES = 100;
     static const double RETRY_OP_JITTER = 0.1; // means +/- 10% for jitter.
     static const size_t DEFAULT_RETRY_OP_EXPONENT_CAP = 8;
-    static double jitter()
+    static inline double jitter()
     {
         static std::random_device rd;
         static std::mt19937 gen(rd());

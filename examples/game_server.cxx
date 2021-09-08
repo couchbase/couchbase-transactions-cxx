@@ -14,12 +14,14 @@
  *   limitations under the License.
  */
 
+#include <functional>
 #include <iostream>
 #include <random>
 #include <string>
 
-#include <couchbase/client/cluster.hxx>
+#include <couchbase/cluster.hxx>
 #include <couchbase/transactions.hxx>
+#include <spdlog/spdlog.h>
 
 using namespace std;
 using namespace couchbase;
@@ -115,12 +117,10 @@ class GameServer
 {
   private:
     transactions::transactions& transactions_;
-    std::shared_ptr<collection> collection_;
 
   public:
-    GameServer(transactions::transactions& transactions, std::shared_ptr<collection> collection)
+    GameServer(transactions::transactions& transactions)
       : transactions_(transactions)
-      , collection_(collection)
     {
     }
 
@@ -129,23 +129,31 @@ class GameServer
         return experience / 100;
     }
 
-    void player_hits_monster(const string& action_id_, int damage_, const string& player_id, const string& monster_id)
+    void player_hits_monster(const string&,
+                             int damage_,
+                             const couchbase::document_id& player_id,
+                             const couchbase::document_id& monster_id,
+                             atomic<bool>& exists)
     {
         transactions_.run([&](transactions::attempt_context& ctx) {
-            auto monster = ctx.get(collection_, monster_id);
-            const Monster& monster_body = monster.content<Monster>();
+            auto monster = ctx.get_optional(monster_id);
+            if (!monster) {
+                exists = false;
+                return;
+            }
+            const Monster& monster_body = monster->content<Monster>();
 
             int monster_hitpoints = monster_body.hitpoints;
             int monster_new_hitpoints = monster_hitpoints - damage_;
 
-            cout << "Monster " << monster_id << " had " << monster_hitpoints << " hitpoints, took " << damage_ << " damage, now has "
+            cout << "Monster " << monster_id.key() << " had " << monster_hitpoints << " hitpoints, took " << damage_ << " damage, now has "
                  << monster_new_hitpoints << " hitpoints" << endl;
 
-            auto player = ctx.get(collection_, player_id);
+            auto player = ctx.get(player_id);
 
             if (monster_new_hitpoints <= 0) {
                 // Monster is killed. The remove is just for demoing, and a more realistic examples would set a "dead" flag or similar.
-                ctx.remove(collection_, monster);
+                ctx.remove(*monster);
 
                 const Player& player_body = player.content<Player>();
 
@@ -155,63 +163,124 @@ class GameServer
                 int player_new_experience = player_experience + experience_for_killing_monster;
                 int player_new_level = calculate_level_for_experience(player_new_experience);
 
-                cout << "Monster " << monster_id << " was killed. Player " << player_id << " gains " << experience_for_killing_monster
-                     << " experience, now has level " << player_new_level << endl;
+                cout << "Monster " << monster_id.key() << " was killed. Player " << player_id.key() << " gains "
+                     << experience_for_killing_monster << " experience, now has level " << player_new_level << endl;
 
                 Player player_new_body = player_body;
                 player_new_body.experience = player_new_experience;
                 player_new_body.level = player_new_level;
-                ctx.replace(collection_, player, player_new_body);
+                ctx.replace(player, player_new_body);
             } else {
-                cout << "Monster " << monster_id << " is damaged but alive" << endl;
+                cout << "Monster " << monster_id.key() << " is damaged but alive" << endl;
 
                 Monster monster_new_body = monster_body;
                 monster_new_body.hitpoints = monster_new_hitpoints;
-                ctx.replace(collection_, monster, monster_new_body);
+                ctx.replace(*monster, monster_new_body);
             }
-            cout << "About to commit transaction" << endl;
         });
     }
 };
 
 int
-main(int argc, const char* argv[])
+main(int, const char*[])
 {
-    string cluster_address = "couchbase://127.0.0.1";
-    string user_name = "Administrator";
-    string password = "password";
+    const int NUM_THREADS = 5;
+    couchbase::logger::set_log_levels(spdlog::level::trace);
+    atomic<bool> monster_exists = true;
     string bucket_name = "default";
+    couchbase::cluster_credentials auth{};
+    asio::io_context io;
+    couchbase::cluster cluster(io);
+    auto io_thread = std::thread([&io]() { io.run(); });
 
-    cluster cluster(cluster_address, user_name, password);
+    std::uniform_int_distribution<int> hit_distribution(1, 6);
+    std::mt19937 random_number_engine; // pseudorandom number generator
+    auto rand = std::bind(hit_distribution, random_number_engine);
 
-    auto bucket = cluster.bucket(bucket_name);
-    auto collection = bucket->default_collection();
+    auto connstr = couchbase::utils::parse_connection_string("couchbase://127.0.0.1");
+    auth.username = "Administrator";
+    auth.password = "password";
+    // now let's connect to the cluster.
+    // first, open it.
+    {
+        auto barrier = std::make_shared<std::promise<std::error_code>>();
+        auto f = barrier->get_future();
+        cluster.open(couchbase::origin(auth, connstr), [barrier](std::error_code ec) mutable { barrier->set_value(ec); });
+        auto rc = f.get();
+        if (rc) {
+            cout << "ERROR opening cluster: " << rc.message() << endl;
+            exit(-1);
+        }
+    }
+    // now, open the `default` bucket
+    {
+        auto barrier = std::make_shared<std::promise<std::error_code>>();
+        auto f = barrier->get_future();
+        cluster.open_bucket(bucket_name, [barrier](std::error_code ec) mutable { barrier->set_value(ec); });
+        auto rc = f.get();
+        if (rc) {
+            cout << "ERROR opening bucket `" << bucket_name << "`: " << rc.message() << endl;
+            exit(-1);
+        }
+    }
 
-    string player_id = "player_data";
+    couchbase::document_id player_id = { "default", "_default", "_default", "player_data" };
     Player player_data{ 14248, 23832, "player", 141, true, "Jane", make_uuid() };
 
-    string monster_id = "a_grue";
-    Monster monster_data{ 91, 400000, 0.19239324085462631, "monster", "Grue", make_uuid() };
+    couchbase::document_id monster_id = { "default", "_default", "_default", "a_grue" };
+    Monster monster_data{ 91, 4000, 0.19239324085462631, "monster", "Grue", make_uuid() };
 
-    collection->upsert(player_id, player_data);
-    cout << "Upserted sample player document: " << player_id << endl;
-
-    collection->upsert(monster_id, monster_data);
-    cout << "Upserted sample monster document: " << monster_id << endl;
-
+    // upsert a player document
+    {
+        couchbase::operations::upsert_request req{ player_id };
+        nlohmann::json j;
+        to_json(j, player_data);
+        req.value = j.dump();
+        auto barrier = std::make_shared<std::promise<couchbase::operations::upsert_response>>();
+        cluster.execute(req, [barrier](couchbase::operations::upsert_response resp) mutable { barrier->set_value(resp); });
+        auto f = barrier->get_future();
+        auto resp = f.get();
+        cout << "Upserted sample player document: " << player_id.key() << "with cas:" << resp.cas.value << endl;
+    }
+    // upsert a monster document
+    {
+        couchbase::operations::upsert_request req{ monster_id };
+        nlohmann::json j;
+        to_json(j, monster_data);
+        req.value = j.dump();
+        auto barrier = std::make_shared<std::promise<couchbase::operations::upsert_response>>();
+        auto f = barrier->get_future();
+        cluster.execute(req, [barrier](couchbase::operations::upsert_response resp) mutable { barrier->set_value(resp); });
+        auto resp = f.get();
+        cout << "Upserted sample monster document: " << monster_id.key() << endl;
+    }
     transactions::transaction_config configuration;
     configuration.durability_level(transactions::durability_level::MAJORITY);
+    configuration.cleanup_client_attempts(false);
+    configuration.cleanup_lost_attempts(false);
     transactions::transactions transactions(cluster, configuration);
-    GameServer game_server(transactions, collection);
-    bool monster_exists = true;
-    while (monster_exists) {
-        cout << "Monster exists -- lets hit it!" << endl;
-        game_server.player_hits_monster(make_uuid(), rand() % 80, player_id, monster_id);
-        auto result = collection->get(monster_id);
-        monster_exists = result.is_success();
+    GameServer game_server(transactions);
+    std::vector<std::thread> threads;
+    for (int i = 0; i < NUM_THREADS; i++) {
+        threads.emplace_back([&, i]() {
+            while (monster_exists.load()) {
+                cout << "[thread " << i << "]Monster exists -- lets hit it!" << endl;
+                game_server.player_hits_monster(make_uuid(), rand() % 80, player_id, monster_id, monster_exists);
+            }
+        });
     }
-    cout << "Monster killed" << endl;
+    for (auto& t : threads) {
+        if (t.joinable()) {
+            t.join();
+        }
+    }
 
     transactions.close();
 
+    // close the cluster...
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
+    cluster.close([barrier]() { barrier->set_value(); });
+    f.get();
+    io_thread.join();
 }

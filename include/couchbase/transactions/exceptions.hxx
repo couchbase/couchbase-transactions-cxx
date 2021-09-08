@@ -16,9 +16,8 @@
 
 #pragma once
 
-#include <boost/optional.hpp>
-#include <couchbase/client/result.hxx>
 #include <couchbase/transactions/transaction_result.hxx>
+#include <optional>
 
 #include <stdexcept>
 

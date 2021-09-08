@@ -18,7 +18,7 @@
 #include <functional>
 #include <string>
 
-#include <boost/optional.hpp>
+#include <optional>
 
 namespace couchbase
 {
@@ -37,12 +37,12 @@ namespace transactions
             return 0;
         }
 
-        boost::optional<const std::string> noop_3(attempt_context*)
+        std::optional<const std::string> noop_3(attempt_context*)
         {
             return {};
         }
 
-        bool noop_4(attempt_context*, const std::string&, boost::optional<const std::string>)
+        bool noop_4(attempt_context*, const std::string&, std::optional<const std::string>)
         {
             return false;
         }
@@ -111,9 +111,9 @@ namespace transactions
         std::function<int(attempt_context*)> after_atr_aborted = noop_1;
         std::function<int(attempt_context*)> after_atr_rolled_back = noop_1;
 
-        std::function<boost::optional<const std::string>(attempt_context*)> random_atr_id_for_vbucket = noop_3;
+        std::function<std::optional<const std::string>(attempt_context*)> random_atr_id_for_vbucket = noop_3;
 
-        std::function<bool(attempt_context*, const std::string&, boost::optional<const std::string>)> has_expired_client_side = noop_4;
+        std::function<bool(attempt_context*, const std::string&, std::optional<const std::string>)> has_expired_client_side = noop_4;
     };
 } // namespace transactions
 } // namespace couchbase

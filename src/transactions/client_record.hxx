@@ -15,9 +15,6 @@
  */
 #pragma once
 
-#include <couchbase/client/cluster.hxx>
-#include <couchbase/transactions/transaction_config.hxx>
-
 #include <string>
 #include <vector>
 

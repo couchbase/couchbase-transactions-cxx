@@ -16,9 +16,8 @@
 
 #include <thread>
 
-#include "../client/client_env.h"
-#include <couchbase/client/cluster.hxx>
-#include <couchbase/client/collection.hxx>
+#include "transactions_env.h"
+#include <couchbase/errors.hxx>
 #include <couchbase/transactions.hxx>
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
@@ -29,20 +28,19 @@ static nlohmann::json content = nlohmann::json::parse("{\"some number\": 0}");
 
 TEST(ThreadedTransactions, CanGetReplace)
 {
-    auto cluster = ClientTestEnvironment::get_cluster();
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
     transactions::transaction_config cfg;
     cfg.cleanup_client_attempts(false);
     cfg.cleanup_lost_attempts(false);
-    transactions::transactions txn(*cluster, cfg);
+    cfg.expiration_time(std::chrono::seconds(10));
+    transactions::transactions txn(cluster, cfg);
     std::vector<std::thread> threads;
 
     // upsert initial doc
-    auto coll = cluster->bucket("default")->default_collection();
-    auto id = ClientTestEnvironment::get_uuid();
-    ASSERT_TRUE(coll->upsert(id, content).is_success());
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, content.dump()));
 
-    // More threads than we have bucket instances
-    int num_threads = 2 * coll->get_bucket()->max_instances();
+    int num_threads = 10;
     int num_iterations = 10;
 
     // use counter to be sure all txns were successful
@@ -50,17 +48,24 @@ TEST(ThreadedTransactions, CanGetReplace)
     for (int i = 0; i < num_threads; i++) {
         threads.emplace_back([&]() {
             EXPECT_NO_THROW({
-                for (int j = 0; j < num_iterations; j++) {
-                    try {
+                try {
+                    bool done = false;
+                    while (!done) {
                         txn.run([&](transactions::attempt_context& ctx) {
-                            auto doc = ctx.get(coll, id);
+                            auto doc = ctx.get(id);
                             auto content = doc.content<nlohmann::json>();
-                            content["another one"] = ++counter;
-                            ctx.replace(coll, doc, content);
+                            auto count = content["some number"].get<uint64_t>();
+                            done = (count >= 100);
+                            if (!done) {
+                                content["some number"] = count + 1;
+                                // keep track of # of attempts
+                                counter++;
+                                ctx.replace(doc, content);
+                            }
                         });
-                    } catch (const transactions::transaction_exception& e) {
-                        // don't do anything, just don't want to raise out of the thread.
                     }
+                } catch (const transactions::transaction_exception& e) {
+                    std::cout << "exception!";
                 }
             });
         });
@@ -70,38 +75,37 @@ TEST(ThreadedTransactions, CanGetReplace)
             t.join();
         }
     }
-    auto final_content = coll->get(id).content_as<nlohmann::json>();
-    ASSERT_EQ(final_content["another one"].get<uint64_t>(), counter.load());
+    auto final_content = TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>();
+    ASSERT_EQ(final_content["some number"].get<uint64_t>(), 100);
     // we increment counter each time through the lambda - chances are high there
-    // will be retries, so this will be at least threads*iterations, probably more.
-    ASSERT_GE(counter.load(), num_threads * num_iterations);
+    // will be retries, so this will be at least 100
+    ASSERT_GE(counter.load(), 100);
 }
 
 TEST(ThreadedTransactions, CanInsertThenGetRemove)
 {
-    set_client_log_level(log_level::WARN);
-    auto cluster = ClientTestEnvironment::get_cluster();
+    auto& c = TransactionsTestEnvironment::get_cluster();
     transactions::transaction_config cfg;
     cfg.cleanup_client_attempts(false);
     cfg.cleanup_lost_attempts(false);
-    transactions::transactions txn(*cluster, cfg);
+    cfg.expiration_time(std::chrono::seconds(10));
+    transactions::transactions txn(c, cfg);
     std::vector<std::thread> threads;
-    auto coll = cluster->bucket("default")->default_collection();
 
     // More threads than we have bucket instances
-    int num_threads = 2 * coll->get_bucket()->max_instances();
+    int num_threads = 10;
     int num_iterations = 10;
 
     // use counter to be sure all txns were successful
     std::atomic<uint64_t> counter{ 0 };
     std::atomic<uint64_t> expired{ 0 };
-    std::string id_prefix = ClientTestEnvironment::get_uuid();
+    std::string id_prefix = couchbase::transactions::uid_generator::next();
 
     // threadsafe if only stuff on stack
-    std::function<std::string(int)> get_id = [id_prefix](int i) -> std::string {
+    std::function<couchbase::document_id(int)> get_id = [id_prefix](int i) -> couchbase::document_id {
         std::stringstream stream;
         stream << id_prefix << "_" << i;
-        return stream.str();
+        return TransactionsTestEnvironment::get_document_id(stream.str());
     };
 
     for (int i = 0; i < num_threads; i++) {
@@ -110,10 +114,10 @@ TEST(ThreadedTransactions, CanInsertThenGetRemove)
                 auto id = get_id(i);
                 for (int j = 0; j < num_iterations; j++) {
                     try {
-                        coll->insert(id, content);
+                        ASSERT_TRUE(TransactionsTestEnvironment::insert_doc(id, content.dump()));
                         txn.run([&](transactions::attempt_context& ctx) {
-                            auto doc = ctx.get(coll, id);
-                            ctx.remove(coll, doc);
+                            auto doc = ctx.get(id);
+                            ctx.remove(doc);
                             ++counter;
                         });
                     } catch (transactions::transaction_expired& e) {
@@ -131,8 +135,11 @@ TEST(ThreadedTransactions, CanInsertThenGetRemove)
     }
     // we are not contending for same doc in this one, so counter should be exact.
     ASSERT_EQ(counter.load() + expired.load(), num_threads * num_iterations);
-    // TODO: verify those docs are not there.
     for (int i = 0; i < num_threads; i++) {
-        ASSERT_TRUE(coll->get(get_id(i)).is_not_found());
+        couchbase::operations::get_request req{ get_id(i) };
+        auto barrier = std::make_shared<std::promise<std::error_code>>();
+        auto f = barrier->get_future();
+        c.execute(req, [barrier](couchbase::operations::get_response resp) mutable { barrier->set_value(resp.ctx.ec); });
+        ASSERT_TRUE(f.get() == couchbase::error::key_value_errc::document_not_found);
     }
 }

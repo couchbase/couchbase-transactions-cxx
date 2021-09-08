@@ -108,7 +108,7 @@ TEST(ExpBackoffWithTimeout, RetryTimingReasonable)
     ASSERT_THROW(retry_op_exponential_backoff_timeout<void>(one_ms, ten_ms, hundred_ms, [&state] { state.function(); }),
                  retry_operation_timeout);
     // expect 0,1,2,4,8,10... +/-10% with last one being the remainder
-    int count = 0;
+    size_t count = 0;
     auto last = state.timings.size() - 1;
     for (auto& t : state.timing_differences()) {
         if (count == 0) {
@@ -156,7 +156,7 @@ TEST(ExpBackoffWithMaxAttempts, RetryTimingReasonable)
     retry_state state;
     ASSERT_THROW(retry_op_exponential_backoff<void>(one_ms, 10, [&state] { state.function(); }), retry_operation_retries_exhausted);
     // expect 0,1,2,4,8,16,32,64,128,128..... +/-10% with last one being the remainder
-    int count = 0;
+    size_t count = 0;
     auto last = state.timings.size() - 1;
     for (auto& t : state.timing_differences()) {
         if (count == 0) {

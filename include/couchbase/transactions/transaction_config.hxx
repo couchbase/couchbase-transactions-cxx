@@ -15,21 +15,21 @@
  */
 #pragma once
 
-#include <boost/optional.hpp>
 #include <chrono>
 #include <couchbase/support.hxx>
 #include <couchbase/transactions/durability_level.hxx>
 #include <memory>
+#include <optional>
 
 namespace couchbase
 {
 namespace transactions
 {
     /** @internal */
-    class attempt_context_testing_hooks;
+    struct attempt_context_testing_hooks;
 
     /** @internal */
-    class cleanup_testing_hooks;
+    struct cleanup_testing_hooks;
     /**
      * @brief Configuration parameters for transactions.
      */
@@ -113,7 +113,7 @@ namespace transactions
          *
          * @return The default kv operation timeout.
          */
-        CB_NODISCARD boost::optional<std::chrono::milliseconds> kv_timeout() const
+        CB_NODISCARD std::optional<std::chrono::milliseconds> kv_timeout() const
         {
             return kv_timeout_;
         }
@@ -206,7 +206,7 @@ namespace transactions
         couchbase::transactions::durability_level level_;
         std::chrono::milliseconds cleanup_window_;
         std::chrono::nanoseconds expiration_time_;
-        boost::optional<std::chrono::milliseconds> kv_timeout_;
+        std::optional<std::chrono::milliseconds> kv_timeout_;
         bool cleanup_lost_attempts_;
         bool cleanup_client_attempts_;
         std::unique_ptr<attempt_context_testing_hooks> attempt_context_hooks_;

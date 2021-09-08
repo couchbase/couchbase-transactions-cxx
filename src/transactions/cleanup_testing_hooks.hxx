@@ -24,7 +24,7 @@ namespace transactions
 {
     namespace
     {
-        int noop1(const std::string& id)
+        int noop1(const std::string&)
         {
             return 1;
         }

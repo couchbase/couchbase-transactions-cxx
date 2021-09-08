@@ -50,29 +50,17 @@
     #define CB_NODISCARD
 #endif
 
-struct lcb_st;
-template<typename OStream>
-OStream& operator<<(OStream& os, const lcb_st* lcb)
+#include <string>
+#include <sstream>
+#include <vector>
+
+static inline std::vector<std::string> split_string(const std::string& str, char delimiter)
 {
-    os << "lcb: " << (void*)lcb;
-    return os;
+    std::vector<std::string> elements;
+    std::stringstream stream(str);
+    std::string element;
+    while(std::getline(stream, element, delimiter)) {
+        elements.push_back(element);
+    }
+    return elements;
 }
-
-namespace couchbase {
-/**
- * @brief logging levels
- */
-enum class log_level {TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL, OFF};
-
-/**
- * @brief set log level for client
- */
-void set_client_log_level(log_level level);
-
-namespace transactions {
-    /**
-     * @brief set log level for transactions
-     */
-    void set_transactions_log_level(log_level level);
-    } // transactions
-} // couchbase

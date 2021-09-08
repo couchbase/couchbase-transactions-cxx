@@ -19,6 +19,8 @@
 #include <string>
 
 #include "transaction_fields.hxx"
+#include "utils.hxx"
+#include <couchbase/document_id.hxx>
 #include <couchbase/internal/nlohmann/json.hpp>
 #include <couchbase/support.hxx>
 
@@ -29,26 +31,28 @@ namespace transactions
     struct doc_record {
       public:
         doc_record(std::string bucket_name, std::string scope_name, std::string collection_name, std::string id)
-          : bucket_name_(std::move(bucket_name))
-          , scope_name_(std::move(scope_name))
-          , collection_name_(std::move(collection_name))
-          , id_(std::move(id))
+          : id_(std::move(bucket_name), std::move(scope_name), std::move(collection_name), (std::move(id)))
         {
         }
 
         CB_NODISCARD const std::string& bucket_name() const
         {
-            return bucket_name_;
+            return id_.bucket();
         }
 
         CB_NODISCARD const std::string& id() const
         {
-            return id_;
+            return id_.key();
         }
 
         CB_NODISCARD const std::string collection_name() const
         {
-            return collection_name_;
+            return id_.collection();
+        }
+
+        CB_NODISCARD const couchbase::document_id& document_id() const
+        {
+            return id_;
         }
 
         static doc_record create_from(nlohmann::json& obj)
@@ -64,19 +68,13 @@ namespace transactions
         friend OStream& operator<<(OStream& os, const doc_record& dr)
         {
             os << "doc_record{";
-            os << "bucket_name:" << dr.bucket_name_ << ",";
-            os << "collection_name:" << dr.collection_name_ << ",";
-            os << "scope_name:" << dr.scope_name_ << ",";
             os << "id:" << dr.id_ << ",";
             os << "}";
             return os;
         }
 
       private:
-        std::string bucket_name_;
-        std::string scope_name_;
-        std::string collection_name_;
-        std::string id_;
+        couchbase::document_id id_;
     };
 } // namespace transactions
 } // namespace couchbase

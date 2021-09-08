@@ -23,7 +23,6 @@
 #include <thread>
 #include <utility>
 
-#include <couchbase/client/collection.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/attempt_state.hxx>
 #include <couchbase/transactions/transaction_get_result.hxx>
@@ -53,8 +52,7 @@ namespace transactions
         transaction_context& overall_;
         const transaction_config& config_;
         transactions* parent_;
-        boost::optional<std::string> atr_id_;
-        std::shared_ptr<collection> atr_collection_;
+        std::optional<couchbase::document_id> atr_id_;
         bool is_done_;
         std::unique_ptr<staged_mutation_queue> staged_mutations_;
         attempt_context_testing_hooks hooks_;
@@ -64,13 +62,9 @@ namespace transactions
         // entry needs access to private members
         friend class atr_cleanup_entry;
 
-        virtual transaction_get_result insert_raw(std::shared_ptr<collection> collection,
-                                                  const std::string& id,
-                                                  const std::string& content);
+        virtual transaction_get_result insert_raw(const couchbase::document_id& id, const std::string& content);
 
-        virtual transaction_get_result replace_raw(std::shared_ptr<collection> collection,
-                                                   const transaction_get_result& document,
-                                                   const std::string& content);
+        virtual transaction_get_result replace_raw(const transaction_get_result& document, const std::string& content);
 
         template<typename V>
         V cache_error(std::function<V()> func)
@@ -110,13 +104,15 @@ namespace transactions
             txn_log->error(attempt_format_string + fmt, this->transaction_id(), this->id(), args...);
         }
 
+        cluster& cluster_ref();
+
       public:
         attempt_context_impl(transactions* parent, transaction_context& transaction_ctx, const transaction_config& config);
         ~attempt_context_impl();
 
-        virtual transaction_get_result get(std::shared_ptr<collection> collection, const std::string& id);
-        virtual boost::optional<transaction_get_result> get_optional(std::shared_ptr<collection> collection, const std::string& id);
-        virtual void remove(std::shared_ptr<couchbase::collection> collection, transaction_get_result& document);
+        virtual transaction_get_result get(const couchbase::document_id& id);
+        virtual std::optional<transaction_get_result> get_optional(const couchbase::document_id& id);
+        virtual void remove(transaction_get_result& document);
         virtual void commit();
         virtual void rollback();
 
@@ -135,12 +131,12 @@ namespace transactions
             return overall_.current_attempt().id;
         }
 
-        CB_NODISCARD const attempt_state state()
+        CB_NODISCARD attempt_state state()
         {
             return overall_.current_attempt().state;
         }
 
-        void state(couchbase::transactions::attempt_state s)
+        void state(attempt_state s)
         {
             overall_.current_attempt().state = s;
         }
@@ -165,20 +161,20 @@ namespace transactions
             overall_.atr_collection(coll);
         }
 
-        bool has_expired_client_side(std::string place, boost::optional<const std::string> doc_id);
+        bool has_expired_client_side(std::string place, std::optional<const std::string> doc_id);
 
       private:
         bool expiry_overtime_mode_{ false };
 
-        void check_expiry_pre_commit(std::string stage, boost::optional<const std::string> doc_id);
+        void check_expiry_pre_commit(std::string stage, std::optional<const std::string> doc_id);
 
-        void check_expiry_during_commit_or_rollback(const std::string& stage, boost::optional<const std::string> doc_id);
+        void check_expiry_during_commit_or_rollback(const std::string& stage, std::optional<const std::string> doc_id);
 
-        void set_atr_pending_if_first_mutation(std::shared_ptr<collection> collection);
+        void set_atr_pending_if_first_mutation(const couchbase::document_id& collection);
 
-        void error_if_expired_and_not_in_overtime(const std::string& stage, boost::optional<const std::string> doc_id);
+        void error_if_expired_and_not_in_overtime(const std::string& stage, std::optional<const std::string> doc_id);
 
-        staged_mutation* check_for_own_write(std::shared_ptr<collection> collection, const std::string& id);
+        staged_mutation* check_for_own_write(const couchbase::document_id& id);
 
         void check_and_handle_blocking_transactions(const transaction_get_result& doc, forward_compat_stage stage);
 
@@ -196,17 +192,15 @@ namespace transactions
 
         void atr_rollback_complete();
 
-        void select_atr_if_needed(std::shared_ptr<collection> collection, const std::string& id);
+        void select_atr_if_needed(const couchbase::document_id& id);
 
-        boost::optional<transaction_get_result> do_get(std::shared_ptr<collection> collection, const std::string& id);
+        std::optional<transaction_get_result> do_get(const couchbase::document_id& id);
 
-        boost::optional<std::pair<transaction_get_result, couchbase::result>> get_doc(std::shared_ptr<couchbase::collection> collection,
-                                                                                      const std::string& id);
+        std::optional<std::pair<transaction_get_result, result>> get_doc(const couchbase::document_id& id);
 
-        transaction_get_result create_staged_insert(std::shared_ptr<collection> collection,
-                                                    const std::string& id,
-                                                    const std::string& content,
-                                                    uint64_t& cas);
+        couchbase::operations::mutate_in_request create_staging_request(const transaction_get_result& document, const std::string type);
+
+        transaction_get_result create_staged_insert(const couchbase::document_id& id, const std::string& content, uint64_t& cas);
     };
 } // namespace transactions
 } // namespace couchbase

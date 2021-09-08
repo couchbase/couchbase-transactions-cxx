@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "attempt_context_impl.hxx"
-#include <couchbase/client/mutate_in_spec.hxx>
+#include "utils.hxx"
 #include <couchbase/transactions/transaction_get_result.hxx>
 
 namespace couchbase
@@ -41,8 +41,8 @@ namespace transactions
         template<typename Content>
         staged_mutation(transaction_get_result& doc, Content content, staged_mutation_type type)
           : doc_(std::move(doc))
-          , content_(std::move(content))
           , type_(type)
+          , content_(std::move(content))
         {
         }
 
@@ -88,14 +88,14 @@ namespace transactions
       public:
         bool empty();
         void add(const staged_mutation& mutation);
-        void extract_to(const std::string& prefix, std::vector<couchbase::mutate_in_spec>& specs);
+        void extract_to(const std::string& prefix, couchbase::operations::mutate_in_request& req);
         void commit(attempt_context_impl& ctx);
         void rollback(attempt_context_impl& ctx);
         void iterate(std::function<void(staged_mutation&)>);
 
-        staged_mutation* find_replace(std::shared_ptr<collection> collection, const std::string& id);
-        staged_mutation* find_insert(std::shared_ptr<collection> collection, const std::string& id);
-        staged_mutation* find_remove(std::shared_ptr<collection> collection, const std::string& id);
+        staged_mutation* find_replace(const couchbase::document_id& id);
+        staged_mutation* find_insert(const couchbase::document_id& id);
+        staged_mutation* find_remove(const couchbase::document_id& id);
     };
 } // namespace transactions
 } // namespace couchbase

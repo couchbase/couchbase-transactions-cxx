@@ -14,11 +14,17 @@
  *   limitations under the License.
  */
 
-#include <libcouchbase/couchbase.h>
-
 #include "active_transaction_record.hxx"
 #include "exceptions_internal.hxx"
 #include "utils.hxx"
+#include <couchbase/cluster.hxx>
+#include <couchbase/errors.hxx>
+#include <couchbase/operations.hxx>
+#include <optional>
+
+#include <future>
+#include <memory>
+#include <vector>
 
 namespace couchbase
 {
@@ -54,7 +60,7 @@ namespace transactions
         return ret / 1000000;
     }
 
-    inline boost::optional<std::vector<doc_record>> active_transaction_record::process_document_ids(nlohmann::json& entry, std::string key)
+    inline std::optional<std::vector<doc_record>> active_transaction_record::process_document_ids(nlohmann::json& entry, std::string key)
     {
         if (entry.count(key) == 0) {
             return {};
@@ -67,8 +73,7 @@ namespace transactions
         return std::move(records);
     }
 
-    inline active_transaction_record active_transaction_record::map_to_atr(std::shared_ptr<collection> collection,
-                                                                           const std::string& atr_id,
+    inline active_transaction_record active_transaction_record::map_to_atr(const couchbase::document_id& atr_id,
                                                                            result& res,
                                                                            nlohmann::json& attempts)
     {
@@ -79,8 +84,8 @@ namespace transactions
         for (auto& element : attempts.items()) {
             auto& val = element.value();
             entries.emplace_back(
-              collection->bucket_name(),
-              atr_id,
+              atr_id.bucket(),
+              atr_id.key(),
               element.key(),
               attempt_state_value(val[ATR_FIELD_STATUS].get<std::string>()),
               parse_mutation_cas(val.value(ATR_FIELD_START_TIMESTAMP, "")),
@@ -88,31 +93,42 @@ namespace transactions
               parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_COMPLETE, "")),
               parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_START, "")),
               parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "")),
-              val.count(ATR_FIELD_EXPIRES_AFTER_MSECS) ? boost::make_optional(val[ATR_FIELD_EXPIRES_AFTER_MSECS].get<std::uint32_t>())
-                                                       : boost::optional<std::uint32_t>(),
+              val.count(ATR_FIELD_EXPIRES_AFTER_MSECS) ? std::make_optional(val[ATR_FIELD_EXPIRES_AFTER_MSECS].get<std::uint32_t>())
+                                                       : std::optional<std::uint32_t>(),
               process_document_ids(val, ATR_FIELD_DOCS_INSERTED),
               process_document_ids(val, ATR_FIELD_DOCS_REPLACED),
               process_document_ids(val, ATR_FIELD_DOCS_REMOVED),
-              val.contains(ATR_FIELD_FORWARD_COMPAT) ? boost::make_optional(val[ATR_FIELD_FORWARD_COMPAT].get<nlohmann::json>())
-                                                     : boost::none,
+              val.contains(ATR_FIELD_FORWARD_COMPAT) ? std::make_optional(val[ATR_FIELD_FORWARD_COMPAT].get<nlohmann::json>())
+                                                     : std::nullopt,
               now_ns);
         }
-        return active_transaction_record(atr_id, collection, res.cas, std::move(entries));
+        return active_transaction_record(atr_id, res.cas, std::move(entries));
     }
 
-    boost::optional<active_transaction_record> active_transaction_record::get_atr(std::shared_ptr<collection> collection,
-                                                                                  const std::string& atr_id)
+    // TODO: we should get the kv_timeout and put it in the request (pass in the transaction_config)
+    std::optional<active_transaction_record> active_transaction_record::get_atr(cluster& cluster, const couchbase::document_id& atr_id)
     {
-        result res =
-          collection->lookup_in(atr_id, { lookup_in_spec::get(ATR_FIELD_ATTEMPTS).xattr(), lookup_in_spec::get("$vbucket").xattr() });
-        if (res.rc == LCB_ERR_DOCUMENT_NOT_FOUND) {
+        couchbase::operations::lookup_in_request req{ atr_id };
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_FIELD_ATTEMPTS);
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, "$vbucket");
+        // let's do a blocking lookup_in...
+        auto barrier = std::make_shared<std::promise<result>>();
+        auto f = barrier->get_future();
+        cluster.execute(req, [barrier](couchbase::operations::lookup_in_response resp) mutable {
+            barrier->set_value(result::create_from_subdoc_response<>(resp));
+        });
+        auto res = f.get();
+        if (res.ec == couchbase::error::key_value_errc::document_not_found) {
+            // that's ok, just return an empty one.
             return {};
-        } else if (res.rc == LCB_SUCCESS) {
-            nlohmann::json attempts = res.values[0].content_as<nlohmann::json>();
-            return map_to_atr(collection, atr_id, res, attempts);
-        } else {
-            throw client_error(res);
         }
+        if (!res.ec) {
+            // success
+            auto attempts = res.values[0].content_as<nlohmann::json>();
+            return map_to_atr(atr_id, res, attempts);
+        }
+        // otherwise, raise an error.
+        throw client_error(res);
     }
 
 } // namespace transactions

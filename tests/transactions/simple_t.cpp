@@ -14,10 +14,9 @@
  *   limitations under the License.
  */
 
-#include "../client/client_env.h"
-#include "../client/helpers.hxx"
-#include <couchbase/client/cluster.hxx>
-#include <couchbase/client/collection.hxx>
+#include "helpers.hxx"
+#include "transactions_env.h"
+#include <couchbase/errors.hxx>
 #include <couchbase/transactions.hxx>
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
@@ -29,18 +28,17 @@ auto content = nlohmann::json::parse("{\"some\": \"thing\"}");
 
 TEST(SimpleTransactions, ArbitraryRuntimeError)
 {
-    auto cluster = ClientTestEnvironment::get_cluster();
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
     transaction_config cfg;
     cfg.cleanup_client_attempts(false);
     cfg.cleanup_lost_attempts(false);
-    ::couchbase::transactions::transactions txn(*cluster, cfg);
-    auto coll = cluster->bucket("default")->default_collection();
-    auto id = ClientTestEnvironment::get_uuid();
+    couchbase::transactions::transactions txn(cluster, cfg);
+    auto id = TransactionsTestEnvironment::get_document_id();
     EXPECT_THROW(
       {
           try {
               txn.run([&](attempt_context& ctx) {
-                  ctx.insert(coll, id, content);
+                  ctx.insert(id, content);
                   throw std::runtime_error("Yo");
               });
           } catch (const transaction_failed& e) {
@@ -54,18 +52,17 @@ TEST(SimpleTransactions, ArbitraryRuntimeError)
 
 TEST(SimpleTransactions, ArbitraryException)
 {
-    auto cluster = ClientTestEnvironment::get_cluster();
+    auto& c = TransactionsTestEnvironment::get_cluster();
     transaction_config cfg;
     cfg.cleanup_client_attempts(false);
     cfg.cleanup_lost_attempts(false);
-    ::couchbase::transactions::transactions txn(*cluster, cfg);
-    auto coll = cluster->bucket("default")->default_collection();
-    auto id = ClientTestEnvironment::get_uuid();
+    ::couchbase::transactions::transactions txn(c, cfg);
+    auto id = TransactionsTestEnvironment::get_document_id();
     EXPECT_THROW(
       {
           try {
               txn.run([&](attempt_context& ctx) {
-                  ctx.insert(coll, id, content);
+                  ctx.insert(id, content);
                   throw 3;
               });
           } catch (const transaction_failed& e) {
@@ -79,88 +76,172 @@ TEST(SimpleTransactions, ArbitraryException)
 
 TEST(SimpleTransactions, CanGetReplace)
 {
-    auto cluster = ClientTestEnvironment::get_cluster();
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
     nlohmann::json c = nlohmann::json::parse("{\"some number\": 0}");
     transaction_config cfg;
     cfg.cleanup_client_attempts(false);
     cfg.cleanup_lost_attempts(false);
-    couchbase::transactions::transactions txn(*cluster, cfg);
+    couchbase::transactions::transactions txn(cluster, cfg);
 
     // upsert initial doc
-    auto coll = cluster->bucket("default")->default_collection();
-    auto id = ClientTestEnvironment::get_uuid();
-    ASSERT_TRUE(coll->upsert(id, c).is_success());
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
     txn.run([&](attempt_context& ctx) {
-        auto doc = ctx.get(coll, id);
+        auto doc = ctx.get(id);
         auto content = doc.content<nlohmann::json>();
         content["another one"] = 1;
-        ctx.replace(coll, doc, content);
+        ctx.replace(doc, content);
     });
     // now add to the original content, and compare
     c["another one"] = 1;
-    ASSERT_EQ(c, coll->get(id).content_as<nlohmann::json>());
+    ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
 }
 
 TEST(SimpleTransactions, CanGetReplaceRawStrings)
 {
-    auto cluster = ClientTestEnvironment::get_cluster();
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
     auto c = nlohmann::json::parse("{\"some number\": 0}");
     std::string new_content("{\"aaa\":\"bbb\"}");
     transaction_config cfg;
     cfg.cleanup_client_attempts(false);
     cfg.cleanup_lost_attempts(false);
-    couchbase::transactions::transactions txn(*cluster, cfg);
+    couchbase::transactions::transactions txn(cluster, cfg);
 
     // upsert initial doc
-    auto coll = cluster->bucket("default")->default_collection();
-    auto id = ClientTestEnvironment::get_uuid();
-    ASSERT_TRUE(coll->upsert(id, c).is_success());
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
     txn.run([&](attempt_context& ctx) {
-        auto doc = ctx.get(coll, id);
-        ctx.replace(coll, doc, new_content);
+        auto doc = ctx.get(id);
+        ctx.replace(doc, new_content);
     });
-    ASSERT_EQ(new_content, coll->get(id).content_as<std::string>());
+    ASSERT_EQ(new_content, TransactionsTestEnvironment::get_doc(id).content_as<std::string>());
 }
 
 TEST(SimpleTransactions, CanGetReplaceObjects)
 {
-    auto cluster = ClientTestEnvironment::get_cluster();
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
     SimpleObject o{ "someone", 100 };
     SimpleObject o2{ "someone else", 200 };
     transaction_config cfg;
     cfg.cleanup_client_attempts(false);
     cfg.cleanup_lost_attempts(false);
-    couchbase::transactions::transactions txn(*cluster, cfg);
+    couchbase::transactions::transactions txn(cluster, cfg);
 
     // upsert initial doc
-    auto coll = cluster->bucket("default")->default_collection();
-    auto id = ClientTestEnvironment::get_uuid();
-    ASSERT_TRUE(coll->upsert(id, o).is_success());
+    auto id = TransactionsTestEnvironment::get_document_id();
+    nlohmann::json j;
+    to_json(j, o);
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, j.dump()));
     txn.run([&](attempt_context& ctx) {
-        auto doc = ctx.get(coll, id);
-        ctx.replace(coll, doc, o2);
+        auto doc = ctx.get(id);
+        ctx.replace(doc, o2);
     });
-    ASSERT_EQ(o2, coll->get(id).content_as<SimpleObject>());
+    ASSERT_EQ(o2, TransactionsTestEnvironment::get_doc(id).content_as<SimpleObject>());
 }
 
 TEST(SimpleTransactions, CanGetReplaceMixedObjectStrings)
 {
-    auto cluster = ClientTestEnvironment::get_cluster();
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
     SimpleObject o{ "someone", 100 };
     SimpleObject o2{ "someone else", 200 };
+    nlohmann::json j;
+    to_json(j, o);
     nlohmann::json j2 = o2;
     transaction_config cfg;
     cfg.cleanup_client_attempts(false);
     cfg.cleanup_lost_attempts(false);
-    couchbase::transactions::transactions txn(*cluster, cfg);
+    couchbase::transactions::transactions txn(cluster, cfg);
 
     // upsert initial doc
-    auto coll = cluster->bucket("default")->default_collection();
-    auto id = ClientTestEnvironment::get_uuid();
-    ASSERT_TRUE(coll->upsert(id, o).is_success());
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, j.dump()));
     txn.run([&](attempt_context& ctx) {
-        auto doc = ctx.get(coll, id);
-        ctx.replace(coll, doc, j2.dump());
+        auto doc = ctx.get(id);
+        ctx.replace(doc, j2.dump());
     });
-    ASSERT_EQ(o2, coll->get(id).content_as<SimpleObject>());
+    ASSERT_EQ(o2, TransactionsTestEnvironment::get_doc(id).content_as<SimpleObject>());
+}
+
+TEST(SimpleTransactions, CanRollbackInsert)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    SimpleObject o{ "someone", 100 };
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+    couchbase::transactions::transactions txn(cluster, cfg);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    EXPECT_THROW(
+      {
+          txn.run([&](attempt_context& ctx) {
+              ctx.insert(id, o);
+              throw 3; // some arbitrary exception...
+          });
+      },
+      transaction_failed);
+    try {
+        auto res = TransactionsTestEnvironment::get_doc(id);
+        FAIL() << "expect a client_error with document_not_found, got result instead";
+
+    } catch (const client_error& e) {
+        ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+    }
+}
+
+TEST(SimpleTransactions, CanRollbackRemove)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+    couchbase::transactions::transactions txn(cluster, cfg);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+    EXPECT_THROW(
+      {
+          txn.run([&](attempt_context& ctx) {
+              auto res = ctx.get(id);
+              auto new_content = nlohmann::json::parse("{\"some number\": 100}");
+              ctx.remove(res);
+              throw 3; // just throw some arbitrary exception to get rollback
+          });
+      },
+      transaction_failed);
+    ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), c);
+}
+
+TEST(SimpleTransactions, CanRollbackReplace)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+    couchbase::transactions::transactions txn(cluster, cfg);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+    EXPECT_THROW(
+      {
+          txn.run([&](attempt_context& ctx) {
+              auto res = ctx.get(id);
+              auto new_content = nlohmann::json::parse("{\"some number\": 100}");
+              ctx.replace(res, new_content);
+              throw 3; // just throw some arbitrary exception to get rollback
+          });
+      },
+      transaction_failed);
+    ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), c);
+}
+
+int
+main(int argc, char* argv[])
+{
+    testing::InitGoogleTest(&argc, argv);
+    testing::AddGlobalTestEnvironment(new TransactionsTestEnvironment());
+    spdlog::set_level(spdlog::level::trace);
+    return RUN_ALL_TESTS();
 }

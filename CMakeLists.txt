@@ -27,7 +27,7 @@ set(ALLOW_DUPLICATE_CUSTOM_TARGETS TRUE)
 # ============= BEGIN DEPS ===========================================
 project(transactions_cxx)
 set(CB_VERSION_MAJOR 1)
-set(CB_VERSION_MINOR 0)
+set(CB_VERSION_MINOR 1)
 set(CB_VERSION_PATCH 0)
 set(CB_VERSION_TWEAK "")
 
@@ -50,33 +50,19 @@ else()
 endif()
 configure_file(${PROJECT_SOURCE_DIR}/include/couchbase/support.hxx.in ${PROJECT_SOURCE_DIR}/include/couchbase/support.hxx)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 
 
 option(BUILD_DOC "Build documentation" ON)
 option(BUILD_EXAMPLES "Build examples" ON)
 option(BUILD_TESTS "Build tests" ON)
-option(STATIC_BOOST "Link Boost libraries statically" OFF)
-
-set(LCB_NO_TESTS ON CACHE INTERNAL "")
-set(LCB_NO_TOOLS ON CACHE INTERNAL "")
-set(LCB_BUILD_LIBEV OFF CACHE INTERNAL "")
-set(LCB_BUILD_LIBUV OFF CACHE INTERNAL "")
-set(LCB_EMBED_PLUGIN_LIBEVENT ON CACHE INTERNAL "")
-set(LCB_STATIC_LIBEVENT ON CACHE INTERNAL "")
-set(LCB_BUILD_DTRACE OFF CACHE INTERNAL "")
-set(LCB_INSTALL_HEADERS OFF CACHE INTERNAL "")
-set(LCB_INSTALL_PKGCONFIG OFF CACHE INTERNAL "")
-set(LCB_INSTALL_LIBRARY OFF CACHE INTERNAL "")
-set(LCB_USE_HDR_HISTOGRAM OFF CACHE INTERNAL "")
 
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 
-add_definitions(-DLIBCOUCHBASE_STATIC=1)
-add_subdirectory(deps/libcouchbase)
 if(BUILD_TESTS)
-    add_subdirectory(deps/libcouchbase/contrib/gtest-1.8.1)
+    add_subdirectory(deps/gtest/)
 endif()
 
 configure_file(
@@ -84,56 +70,25 @@ configure_file(
     ${PROJECT_SOURCE_DIR}/include/couchbase/internal/nlohmann/json.hpp
     COPYONLY)
 
-add_subdirectory(deps/spdlog)
+add_subdirectory(deps/couchbase-cxx-client)
 
 find_package(Threads)
-# Just in case of debugging CMake recipes for Boost
-# set(Boost_DEBUG ON)
-# set(Boost_VERBOSE ON)
-set(Boost_USE_MULTITHREADED ON)
-set(Boost_USE_STATIC_LIBS ${STATIC_BOOST})
-find_package(Boost REQUIRED COMPONENTS system thread date_time)
-include_directories(BEFORE ${Boost_INCLUDE_DIRS})
-
-message(STATUS "Boost_INCLUDE_DIRS: ${Boost_INCLUDE_DIRS}")
-message(STATUS "Boost_LIBRARIES: ${Boost_LIBRARIES}")
 
 #============ END DEPS =======================================================
-#============ BEGIN CLIENT ===================================================
-include_directories(include)
-include_directories(BEFORE
-        ${PROJECT_SOURCE_DIR}/deps/spdlog/include
-        ${PROJECT_BINARY_DIR}/generated/json/include
-        ${PROJECT_SOURCE_DIR}/deps/libcouchbase/include
-        ${PROJECT_BINARY_DIR}/deps/libcouchbase/generated)
 
-file(GLOB_RECURSE client_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/client/*.hxx)
-file(GLOB_RECURSE client_src_FILES ${PROJECT_SOURCE_DIR}/src/client/*.cxx)
-add_definitions(-DBOOST_UUID_RANDOM_GENERATOR_COMPAT)
-add_library(client_cxx STATIC ${client_include_FILES} ${client_src_FILES})
-set_property(TARGET client_cxx PROPERTY C_VISIBILITY_PRESET hidden)
-# Do not hide C++ API of client_cxx, as user might want to use it
-# set_property(TARGET client_cxx PROPERTY CXX_VISIBILITY_PRESET hidden)
-set_property(TARGET client_cxx PROPERTY VISIBILITY_INLINES_HIDDEN ON)
-target_link_libraries(client_cxx
-                      PRIVATE
-                      ${CMAKE_THREAD_LIBS_INIT}
-                      spdlog::spdlog
-                      ${Boost_LIBRARIES}
-                      couchbaseS)
-set_target_properties(client_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
-#============ END CLIENT ====================================================================
-# =========== BEGIN TRANSACTIONS ============================================================
+# =========== BEGIN TRANSACTIONS ===========================================================
+include_directories(include)
 file(GLOB_RECURSE transactions_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/transactions/*.hxx)
 file(GLOB_RECURSE transactions_src_FILES ${PROJECT_SOURCE_DIR}/src/transactions/*.cxx)
 add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions_src_FILES})
 target_link_libraries(transactions_cxx
                       ${CMAKE_THREAD_LIBS_INIT}
-                      spdlog::spdlog
-                      ${Boost_LIBRARIES}
-                      client_cxx)
+                      spdlog::spdlog_header_only
+                      couchbase_cxx_client)
+
 set_target_properties(transactions_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})
 # =========== END TRANSACTIONS ================================================================
+
 # =========== BEGIN DOCS ======================================================================
 if(BUILD_DOC)
     find_package(Doxygen)
@@ -186,9 +141,8 @@ install(DIRECTORY include/couchbase
 #========== BEGIN TESTS ==========================================================================
 
 if(BUILD_TESTS)
-    file(GLOB_RECURSE CLIENT_TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/*.cpp")
-    # super fragile - lets try to do better
-    include_directories(${CURRENT_CMAKE_BINARY_DIR}/deps/libcouchbase/contrib/gtest-1.8.1)
+    file(GLOB_RECURSE CLIENT_TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/transactions/*.cpp")
+    include_directories(${CURRENT_CMAKE_BINARY_DIR}/deps/gtest)
     add_executable(client_tests ${CLIENT_TEST_SOURCES})
     target_link_libraries(client_tests transactions_cxx gtest)
 endif()

@@ -19,7 +19,7 @@
 #include <ostream>
 #include <string>
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include <couchbase/internal/nlohmann/json.hpp>
 #include <couchbase/support.hxx>
@@ -32,39 +32,39 @@ namespace transactions
     class transaction_links
     {
       private:
-        boost::optional<std::string> atr_id_;
-        boost::optional<std::string> atr_bucket_name_;
-        boost::optional<std::string> atr_scope_name_;
-        boost::optional<std::string> atr_collection_name_;
+        std::optional<std::string> atr_id_;
+        std::optional<std::string> atr_bucket_name_;
+        std::optional<std::string> atr_scope_name_;
+        std::optional<std::string> atr_collection_name_;
         // id of the transaction that has staged content
-        boost::optional<std::string> staged_transaction_id_;
-        boost::optional<std::string> staged_attempt_id_;
-        boost::optional<std::string> staged_content_;
+        std::optional<std::string> staged_transaction_id_;
+        std::optional<std::string> staged_attempt_id_;
+        std::optional<std::string> staged_content_;
 
         // for {BACKUP_FIELDS}
-        boost::optional<std::string> cas_pre_txn_;
-        boost::optional<std::string> revid_pre_txn_;
-        boost::optional<uint32_t> exptime_pre_txn_;
-        boost::optional<std::string> crc32_of_staging_;
-        boost::optional<std::string> op_;
-        boost::optional<nlohmann::json> forward_compat_;
+        std::optional<std::string> cas_pre_txn_;
+        std::optional<std::string> revid_pre_txn_;
+        std::optional<uint32_t> exptime_pre_txn_;
+        std::optional<std::string> crc32_of_staging_;
+        std::optional<std::string> op_;
+        std::optional<nlohmann::json> forward_compat_;
         bool is_deleted_;
 
       public:
         transaction_links() = default;
-        transaction_links(boost::optional<std::string> atr_id,
-                          boost::optional<std::string> atr_bucket_name,
-                          boost::optional<std::string> atr_scope_name,
-                          boost::optional<std::string> atr_collection_name,
-                          boost::optional<std::string> staged_transaction_id,
-                          boost::optional<std::string> staged_attempt_id,
-                          boost::optional<std::string> staged_content,
-                          boost::optional<std::string> cas_pre_txn,
-                          boost::optional<std::string> revid_pre_txn,
-                          boost::optional<uint32_t> exptime_pre_txn,
-                          boost::optional<std::string> crc32_of_staging,
-                          boost::optional<std::string> op,
-                          boost::optional<nlohmann::json> forward_compat,
+        transaction_links(std::optional<std::string> atr_id,
+                          std::optional<std::string> atr_bucket_name,
+                          std::optional<std::string> atr_scope_name,
+                          std::optional<std::string> atr_collection_name,
+                          std::optional<std::string> staged_transaction_id,
+                          std::optional<std::string> staged_attempt_id,
+                          std::optional<std::string> staged_content,
+                          std::optional<std::string> cas_pre_txn,
+                          std::optional<std::string> revid_pre_txn,
+                          std::optional<uint32_t> exptime_pre_txn,
+                          std::optional<std::string> crc32_of_staging,
+                          std::optional<std::string> op,
+                          std::optional<nlohmann::json> forward_compat,
                           bool is_deleted)
           : atr_id_(std::move(atr_id))
           , atr_bucket_name_(std::move(atr_bucket_name))
@@ -104,57 +104,57 @@ namespace transactions
             return !!(staged_attempt_id_);
         }
 
-        CB_NODISCARD boost::optional<std::string> atr_id() const
+        CB_NODISCARD std::optional<std::string> atr_id() const
         {
             return atr_id_;
         }
 
-        CB_NODISCARD boost::optional<std::string> atr_bucket_name() const
+        CB_NODISCARD std::optional<std::string> atr_bucket_name() const
         {
             return atr_bucket_name_;
         }
 
-        CB_NODISCARD boost::optional<std::string> atr_scope_name() const
+        CB_NODISCARD std::optional<std::string> atr_scope_name() const
         {
             return atr_scope_name_;
         }
 
-        CB_NODISCARD boost::optional<std::string> atr_collection_name() const
+        CB_NODISCARD std::optional<std::string> atr_collection_name() const
         {
             return atr_collection_name_;
         }
 
-        CB_NODISCARD boost::optional<std::string> staged_transaction_id() const
+        CB_NODISCARD std::optional<std::string> staged_transaction_id() const
         {
             return staged_transaction_id_;
         }
 
-        CB_NODISCARD boost::optional<std::string> staged_attempt_id() const
+        CB_NODISCARD std::optional<std::string> staged_attempt_id() const
         {
             return staged_attempt_id_;
         }
 
-        CB_NODISCARD boost::optional<std::string> cas_pre_txn() const
+        CB_NODISCARD std::optional<std::string> cas_pre_txn() const
         {
             return cas_pre_txn_;
         }
 
-        CB_NODISCARD boost::optional<std::string> revid_pre_txn() const
+        CB_NODISCARD std::optional<std::string> revid_pre_txn() const
         {
             return revid_pre_txn_;
         }
 
-        CB_NODISCARD boost::optional<uint32_t> exptime_pre_txn() const
+        CB_NODISCARD std::optional<uint32_t> exptime_pre_txn() const
         {
             return exptime_pre_txn_;
         }
 
-        CB_NODISCARD boost::optional<std::string> op() const
+        CB_NODISCARD std::optional<std::string> op() const
         {
             return op_;
         }
 
-        CB_NODISCARD boost::optional<std::string> crc32_of_staging() const
+        CB_NODISCARD std::optional<std::string> crc32_of_staging() const
         {
             return crc32_of_staging_;
         }
@@ -164,7 +164,7 @@ namespace transactions
             return staged_content_ ? *staged_content_ : "";
         }
 
-        CB_NODISCARD boost::optional<nlohmann::json> forward_compat() const
+        CB_NODISCARD std::optional<nlohmann::json> forward_compat() const
         {
             return forward_compat_;
         }

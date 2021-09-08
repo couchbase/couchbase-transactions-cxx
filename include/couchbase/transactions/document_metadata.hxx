@@ -16,10 +16,10 @@
 
 #pragma once
 
+#include <couchbase/support.hxx>
 #include <cstdint>
+#include <optional>
 #include <string>
-
-#include <boost/optional.hpp>
 
 namespace couchbase
 {
@@ -37,10 +37,10 @@ namespace transactions
          *
          *  We expect this constructor to become private soon.
          */
-        document_metadata(boost::optional<std::string> cas,
-                          boost::optional<std::string> revid,
-                          boost::optional<std::uint32_t> exptime,
-                          boost::optional<std::string> crc32)
+        document_metadata(std::optional<std::string> cas,
+                          std::optional<std::string> revid,
+                          std::optional<std::uint32_t> exptime,
+                          std::optional<std::string> crc32)
           : cas_(std::move(cas))
           , revid_(std::move(revid))
           , exptime_(exptime)
@@ -53,7 +53,7 @@ namespace transactions
          *
          * @return the CAS of the document, as a string.
          */
-        CB_NODISCARD boost::optional<std::string> cas() const
+        CB_NODISCARD std::optional<std::string> cas() const
         {
             return cas_;
         }
@@ -63,7 +63,7 @@ namespace transactions
          *
          * @return the revid of the document, as a string.
          */
-        CB_NODISCARD boost::optional<std::string> revid() const
+        CB_NODISCARD std::optional<std::string> revid() const
         {
             return revid_;
         }
@@ -74,7 +74,7 @@ namespace transactions
          * @return the expiry of the document, if one was set, and the request
          *         specified it.
          */
-        CB_NODISCARD boost::optional<std::uint32_t> exptime() const
+        CB_NODISCARD std::optional<std::uint32_t> exptime() const
         {
             return exptime_;
         }
@@ -84,16 +84,16 @@ namespace transactions
          *
          * @return the crc-32 for the document, as a string
          */
-        CB_NODISCARD boost::optional<std::string> crc32() const
+        CB_NODISCARD std::optional<std::string> crc32() const
         {
             return crc32_;
         }
 
       private:
-        const boost::optional<std::string> cas_;
-        const boost::optional<std::string> revid_;
-        const boost::optional<std::uint32_t> exptime_;
-        const boost::optional<std::string> crc32_;
+        const std::optional<std::string> cas_;
+        const std::optional<std::string> revid_;
+        const std::optional<std::uint32_t> exptime_;
+        const std::optional<std::string> crc32_;
     };
 } // namespace transactions
 } // namespace couchbase

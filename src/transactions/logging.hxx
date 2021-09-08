@@ -14,7 +14,8 @@
  *   limitations under the License.
  */
 #pragma once
-#include <couchbase/support.hxx>
+#include <couchbase/transactions.hxx>
+#include <optional>
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/stdout_sinks.h>
 #include <spdlog/spdlog.h>

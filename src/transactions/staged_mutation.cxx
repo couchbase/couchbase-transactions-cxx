@@ -18,7 +18,7 @@
 #include "attempt_context_impl.hxx"
 #include "transaction_fields.hxx"
 #include "utils.hxx"
-#include <couchbase/client/result.hxx>
+#include <couchbase/transactions/result.hxx>
 #include <utility>
 
 namespace tx = couchbase::transactions;
@@ -38,18 +38,18 @@ tx::staged_mutation_queue::add(const tx::staged_mutation& mutation)
 }
 
 void
-tx::staged_mutation_queue::extract_to(const std::string& prefix, std::vector<couchbase::mutate_in_spec>& specs)
+tx::staged_mutation_queue::extract_to(const std::string& prefix, couchbase::operations::mutate_in_request& req)
 {
     std::unique_lock<std::mutex> lock(mutex_);
-    std::vector<nlohmann::json> inserts;
-    std::vector<nlohmann::json> replaces;
-    std::vector<nlohmann::json> removes;
+    nlohmann::json inserts;
+    nlohmann::json replaces;
+    nlohmann::json removes;
 
     for (auto& mutation : queue_) {
-        nlohmann::json doc{ { ATR_FIELD_PER_DOC_ID, mutation.doc().id() },
-                            { ATR_FIELD_PER_DOC_BUCKET, mutation.doc().collection_ref().bucket_name() },
-                            { ATR_FIELD_PER_DOC_SCOPE, mutation.doc().collection_ref().scope() },
-                            { ATR_FIELD_PER_DOC_COLLECTION, mutation.doc().collection_ref().name() } };
+        nlohmann::json doc{ { ATR_FIELD_PER_DOC_ID, mutation.doc().id().key() },
+                            { ATR_FIELD_PER_DOC_BUCKET, mutation.doc().id().bucket() },
+                            { ATR_FIELD_PER_DOC_SCOPE, mutation.doc().id().scope() },
+                            { ATR_FIELD_PER_DOC_COLLECTION, mutation.doc().id().collection() } };
         switch (mutation.type()) {
             case staged_mutation_type::INSERT:
                 inserts.push_back(doc);
@@ -62,19 +62,17 @@ tx::staged_mutation_queue::extract_to(const std::string& prefix, std::vector<cou
                 break;
         }
     }
-    specs.push_back(mutate_in_spec::upsert(prefix + ATR_FIELD_DOCS_INSERTED, inserts).xattr());
-    specs.push_back(mutate_in_spec::upsert(prefix + ATR_FIELD_DOCS_REPLACED, replaces).xattr());
-    specs.push_back(mutate_in_spec::upsert(prefix + ATR_FIELD_DOCS_REMOVED, removes).xattr());
+    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, prefix + ATR_FIELD_DOCS_INSERTED, inserts.dump());
+    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, prefix + ATR_FIELD_DOCS_REPLACED, replaces.dump());
+    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, prefix + ATR_FIELD_DOCS_REMOVED, removes.dump());
 }
 
 tx::staged_mutation*
-tx::staged_mutation_queue::find_replace(std::shared_ptr<couchbase::collection> collection, const std::string& id)
+tx::staged_mutation_queue::find_replace(const couchbase::document_id& id)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
-        if (item.type() == staged_mutation_type::REPLACE && item.doc().id() == id &&
-            item.doc().collection_ref().bucket_name() == collection->bucket_name() &&
-            item.doc().collection_ref().scope() == collection->scope() && item.doc().collection_ref().name() == collection->name()) {
+        if (item.type() == staged_mutation_type::REPLACE && document_ids_equal(item.doc().id(), id)) {
             return &item;
         }
     }
@@ -82,13 +80,11 @@ tx::staged_mutation_queue::find_replace(std::shared_ptr<couchbase::collection> c
 }
 
 tx::staged_mutation*
-tx::staged_mutation_queue::find_insert(std::shared_ptr<couchbase::collection> collection, const std::string& id)
+tx::staged_mutation_queue::find_insert(const couchbase::document_id& id)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
-        if (item.type() == staged_mutation_type::INSERT && item.doc().id() == id &&
-            item.doc().collection_ref().bucket_name() == collection->bucket_name() &&
-            item.doc().collection_ref().scope() == collection->scope() && item.doc().collection_ref().name() == collection->name()) {
+        if (item.type() == staged_mutation_type::INSERT && document_ids_equal(item.doc().id(), id)) {
             return &item;
         }
     }
@@ -96,13 +92,11 @@ tx::staged_mutation_queue::find_insert(std::shared_ptr<couchbase::collection> co
 }
 
 tx::staged_mutation*
-tx::staged_mutation_queue::find_remove(std::shared_ptr<couchbase::collection> collection, const std::string& id)
+tx::staged_mutation_queue::find_remove(const couchbase::document_id& id)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
-        if (item.type() == staged_mutation_type::REMOVE && item.doc().id() == id &&
-            item.doc().collection_ref().bucket_name() == collection->bucket_name() &&
-            item.doc().collection_ref().scope() == collection->scope() && item.doc().collection_ref().name() == collection->name()) {
+        if (item.type() == staged_mutation_type::REMOVE && document_ids_equal(item.doc().id(), id)) {
             return &item;
         }
     }
@@ -156,16 +150,21 @@ tx::staged_mutation_queue::rollback_insert(attempt_context_impl& ctx, staged_mut
 {
     try {
         ctx.trace("rolling back staged insert for {} with cas {}", item.doc().id(), item.doc().cas());
-        ctx.error_if_expired_and_not_in_overtime(STAGE_DELETE_INSERTED, item.doc().id());
-        ctx.hooks_.before_rollback_delete_inserted(&ctx, item.doc().id());
-        std::vector<mutate_in_spec> specs({ mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() });
-        result res;
-        tx::wrap_collection_call(res, [&](result& r) {
-            r = item.doc().collection_ref().mutate_in(
-              item.doc().id(), specs, wrap_option(mutate_in_options(), ctx.config_).access_deleted(true).cas(item.doc().cas()));
+        ctx.error_if_expired_and_not_in_overtime(STAGE_DELETE_INSERTED, item.doc().id().key());
+        ctx.hooks_.before_rollback_delete_inserted(&ctx, item.doc().id().key());
+        couchbase::operations::mutate_in_request req{ item.doc().id() };
+        req.specs.add_spec(protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
+        req.access_deleted = true;
+        req.cas.value = item.doc().cas();
+        wrap_durable_request(req, ctx.config_);
+        auto barrier = std::make_shared<std::promise<result>>();
+        auto f = barrier->get_future();
+        ctx.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+            barrier->set_value(result::create_from_subdoc_response(resp));
         });
+        auto res = wrap_operation_future(f);
         ctx.trace("rollback result {}", res);
-        ctx.hooks_.after_rollback_delete_inserted(&ctx, item.doc().id());
+        ctx.hooks_.after_rollback_delete_inserted(&ctx, item.doc().id().key());
     } catch (const client_error& e) {
         auto ec = e.ec();
         if (ctx.expiry_overtime_mode_) {
@@ -197,16 +196,20 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx,
 {
     try {
         ctx.trace("rolling back staged remove/replace for {} with cas {}", item.doc().id(), item.doc().cas());
-        ctx.error_if_expired_and_not_in_overtime(STAGE_ROLLBACK_DOC, item.doc().id());
-        ctx.hooks_.before_doc_rolled_back(&ctx, item.doc().id());
-        std::vector<mutate_in_spec> specs({ mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr() });
-        result res;
-        tx::wrap_collection_call(res, [&](result& r) {
-            r = item.doc().collection_ref().mutate_in(
-              item.doc().id(), specs, wrap_option(mutate_in_options(), ctx.config_).cas(item.doc().cas()));
+        ctx.error_if_expired_and_not_in_overtime(STAGE_ROLLBACK_DOC, item.doc().id().key());
+        ctx.hooks_.before_doc_rolled_back(&ctx, item.doc().id().key());
+        couchbase::operations::mutate_in_request req{ item.doc().id() };
+        req.specs.add_spec(protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
+        req.cas.value = item.doc().cas();
+        wrap_durable_request(req, ctx.config_);
+        auto barrier = std::make_shared<std::promise<result>>();
+        auto f = barrier->get_future();
+        ctx.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+            barrier->set_value(result::create_from_subdoc_response(resp));
         });
+        auto res = wrap_operation_future(f);
         ctx.trace("rollback result {}", res);
-        ctx.hooks_.after_rollback_replace_or_remove(&ctx, item.doc().id());
+        ctx.hooks_.after_rollback_replace_or_remove(&ctx, item.doc().id().key());
 
     } catch (const client_error& e) {
         auto ec = e.ec();
@@ -237,33 +240,42 @@ tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation
         ctx.trace(
           "commit doc {}, cas_zero_mode {}, ambiguity_resolution_mode {}", item.doc().id(), cas_zero_mode, ambiguity_resolution_mode);
         try {
-            ctx.check_expiry_during_commit_or_rollback(STAGE_COMMIT_DOC, boost::optional<const std::string>(item.doc().id()));
-            ctx.hooks_.before_doc_committed(&ctx, item.doc().id());
+            ctx.check_expiry_during_commit_or_rollback(STAGE_COMMIT_DOC, std::optional<const std::string>(item.doc().id().key()));
+            ctx.hooks_.before_doc_committed(&ctx, item.doc().id().key());
 
             // move staged content into doc
             ctx.trace("commit doc id {}, content {}, cas {}", item.doc().id(), item.content(), item.doc().cas());
+
             result res;
             if (item.type() == staged_mutation_type::INSERT && !cas_zero_mode) {
-                tx::wrap_collection_call(
-                  res, [&](result& r) { r = item.doc().collection_ref().insert(item.doc().id(), item.doc().content<nlohmann::json>()); });
-            } else {
-                tx::wrap_collection_call(res, [&](result& r) {
-                    r = item.doc().collection_ref().mutate_in(item.doc().id(),
-                                                              {
-                                                                mutate_in_spec::upsert(TRANSACTION_INTERFACE_PREFIX_ONLY, nullptr).xattr(),
-                                                                mutate_in_spec::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
-                                                                mutate_in_spec::fulldoc_upsert(item.content()),
-                                                              },
-                                                              wrap_option(mutate_in_options(), ctx.config_)
-                                                                .cas(cas_zero_mode ? 0 : item.doc().cas())
-                                                                .store_semantics(subdoc_store_semantics::replace));
+                couchbase::operations::insert_request req{ item.doc().id() };
+                req.value = item.doc().content<nlohmann::json>().dump();
+                wrap_durable_request(req, ctx.config_);
+                auto barrier = std::make_shared<std::promise<result>>();
+                auto f = barrier->get_future();
+                ctx.cluster_ref().execute(req, [barrier](couchbase::operations::insert_response resp) mutable {
+                    barrier->set_value(result::create_from_mutation_response(resp));
                 });
+                res = wrap_operation_future(f);
+            } else {
+                couchbase::operations::mutate_in_request req{ item.doc().id() };
+                req.specs.add_spec(protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
+                req.specs.add_spec(protocol::subdoc_opcode::set_doc, false, false, false, "", item.content());
+                req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::replace;
+                req.cas.value = cas_zero_mode ? 0 : item.doc().cas();
+                wrap_durable_request(req, ctx.config_);
+                auto barrier = std::make_shared<std::promise<result>>();
+                auto f = barrier->get_future();
+                ctx.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+                    barrier->set_value(result::create_from_subdoc_response(resp));
+                });
+                res = wrap_operation_future(f);
             }
             ctx.trace("commit doc result {}", res);
             // TODO: mutation tokens
-            ctx.hooks_.after_doc_committed_before_saving_cas(&ctx, item.doc().id());
+            ctx.hooks_.after_doc_committed_before_saving_cas(&ctx, item.doc().id().key());
             item.doc().cas(res.cas);
-            ctx.hooks_.after_doc_committed(&ctx, item.doc().id());
+            ctx.hooks_.after_doc_committed(&ctx, item.doc().id().key());
         } catch (const client_error& e) {
             error_class ec = e.ec();
             if (ctx.expiry_overtime_mode_) {
@@ -293,12 +305,17 @@ tx::staged_mutation_queue::remove_doc(attempt_context_impl& ctx, staged_mutation
 {
     retry_op<void>([&] {
         try {
-            ctx.check_expiry_during_commit_or_rollback(STAGE_REMOVE_DOC, boost::optional<const std::string>(item.doc().id()));
-            ctx.hooks_.before_doc_removed(&ctx, item.doc().id());
-            result res;
-            tx::wrap_collection_call(
-              res, [&](result& r) { r = item.doc().collection_ref().remove(item.doc().id(), wrap_option(remove_options(), ctx.config_)); });
-            ctx.hooks_.after_doc_removed_pre_retry(&ctx, item.doc().id());
+            ctx.check_expiry_during_commit_or_rollback(STAGE_REMOVE_DOC, std::optional<const std::string>(item.doc().id().key()));
+            ctx.hooks_.before_doc_removed(&ctx, item.doc().id().key());
+            couchbase::operations::remove_request req{ item.doc().id() };
+            wrap_durable_request(req, ctx.config_);
+            auto barrier = std::make_shared<std::promise<result>>();
+            auto f = barrier->get_future();
+            ctx.cluster_ref().execute(req, [barrier](couchbase::operations::remove_response resp) mutable {
+                barrier->set_value(result::create_from_mutation_response(resp));
+            });
+            wrap_operation_future(f);
+            ctx.hooks_.after_doc_removed_pre_retry(&ctx, item.doc().id().key());
         } catch (const client_error& e) {
             error_class ec = e.ec();
             if (ctx.expiry_overtime_mode_) {

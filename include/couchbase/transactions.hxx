@@ -20,7 +20,7 @@
 #include <functional>
 #include <thread>
 
-#include <couchbase/client/cluster.hxx>
+#include <couchbase/cluster.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
@@ -41,6 +41,15 @@ namespace transactions
     /** @brief Transaction logic should be contained in a lambda of this form */
     typedef std::function<void(attempt_context&)> logic;
 
+    /**
+     * @brief logging levels
+     */
+    enum class log_level { TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL, OFF };
+
+    /**
+     * @brief set log level for transactions
+     */
+    void set_transactions_log_level(log_level level);
     /**
      * @mainpage
      * A transaction consists of a lambda containing all the operations you wish to perform within a transaction.
@@ -114,7 +123,7 @@ namespace transactions
          * @param cluster The cluster to use for the transactions.
          * @param config The configuration parameters to use for the transactions.
          */
-        transactions(couchbase::cluster& cluster, const transaction_config& config);
+        transactions(cluster& cluster, const transaction_config& config);
 
         /**
          * @brief Destructor
@@ -193,16 +202,16 @@ namespace transactions
          *
          * @return Ref to the cluster used by this transaction object.
          */
-        CB_NODISCARD couchbase::cluster& cluster_ref()
+        CB_NODISCARD cluster& cluster_ref()
         {
             return cluster_;
         }
 
       private:
-        couchbase::cluster& cluster_;
+        cluster& cluster_;
         transaction_config config_;
         std::unique_ptr<transactions_cleanup> cleanup_;
-        const int max_attempts_{ 1000 };
+        const size_t max_attempts_{ 1000 };
         const std::chrono::milliseconds min_retry_delay_{ 1 };
     };
 } // namespace transactions

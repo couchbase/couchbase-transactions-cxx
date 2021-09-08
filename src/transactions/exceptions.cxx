@@ -16,8 +16,8 @@
 #include "exceptions_internal.hxx"
 #include "transaction_context.hxx"
 
+#include <couchbase/errors.hxx>
 #include <couchbase/transactions/exceptions.hxx>
-#include <libcouchbase/couchbase.h>
 
 namespace couchbase
 {
@@ -35,35 +35,42 @@ namespace transactions
         }
     }
 
-    error_class error_class_from_result(const couchbase::result& res)
+    error_class error_class_from_result(const result& res)
     {
-        uint32_t rc = res.error();
-        assert(rc != LCB_SUCCESS);
-        switch (rc) {
-            case LCB_ERR_DOCUMENT_NOT_FOUND:
+        subdoc_result::status_type subdoc_status = res.subdoc_status();
+        assert(res.ec || (!res.ignore_subdoc_errors && subdoc_status != subdoc_result::status_type::success));
+        if (res.ec || res.ignore_subdoc_errors) {
+            if (res.ec == couchbase::error::key_value_errc::document_not_found) {
                 return FAIL_DOC_NOT_FOUND;
-            case LCB_ERR_DOCUMENT_EXISTS:
+            }
+            if (res.ec == couchbase::error::key_value_errc::document_exists) {
                 return FAIL_DOC_ALREADY_EXISTS;
-            case LCB_ERR_SUBDOC_PATH_NOT_FOUND:
-                return FAIL_PATH_NOT_FOUND;
-            case LCB_ERR_SUBDOC_PATH_EXISTS:
-                return FAIL_PATH_ALREADY_EXISTS;
-            case LCB_ERR_CAS_MISMATCH:
+            }
+            if (res.ec == couchbase::error::common_errc::cas_mismatch) {
                 return FAIL_CAS_MISMATCH;
-            case LCB_ERR_VALUE_TOO_LARGE:
+            }
+            if (res.ec == couchbase::error::key_value_errc::value_too_large) {
                 return FAIL_ATR_FULL;
-            case LCB_ERR_UNAMBIGUOUS_TIMEOUT:
-            case LCB_ERR_NETWORK:
-            case LCB_ERR_TIMEOUT:
-            case LCB_ERR_TEMPORARY_FAILURE:
-            case LCB_ERR_DURABLE_WRITE_IN_PROGRESS:
+            }
+            if (res.ec == couchbase::error::common_errc::unambiguous_timeout ||
+                res.ec == couchbase::error::common_errc::temporary_failure ||
+                res.ec == couchbase::error::key_value_errc::durable_write_in_progress) {
                 return FAIL_TRANSIENT;
-            case LCB_ERR_DURABILITY_AMBIGUOUS:
-            case LCB_ERR_AMBIGUOUS_TIMEOUT:
-            case LCB_ERR_REQUEST_CANCELED:
+            }
+            if (res.ec == couchbase::error::key_value_errc::durability_ambiguous ||
+                res.ec == couchbase::error::common_errc::ambiguous_timeout || res.ec == couchbase::error::common_errc::request_canceled) {
                 return FAIL_AMBIGUOUS;
-            default:
+            } else {
                 return FAIL_OTHER;
+            }
+        } else {
+            if (subdoc_status == subdoc_result::status_type::subdoc_path_not_found) {
+                return FAIL_PATH_NOT_FOUND;
+            } else if (subdoc_status == subdoc_result::status_type::subdoc_path_exists) {
+                return FAIL_PATH_ALREADY_EXISTS;
+            } else {
+                return FAIL_OTHER;
+            }
         }
     }
 

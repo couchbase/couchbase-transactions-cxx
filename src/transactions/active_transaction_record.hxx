@@ -19,10 +19,11 @@
 #include <string>
 #include <utility>
 
-#include <boost/optional.hpp>
+#include <optional>
 
-#include <couchbase/client/collection.hxx>
+#include <couchbase/cluster.hxx>
 #include <couchbase/transactions/exceptions.hxx>
+#include <couchbase/transactions/result.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 
 #include "atr_entry.hxx"
@@ -34,12 +35,10 @@ namespace transactions
     class active_transaction_record
     {
       public:
-        static boost::optional<active_transaction_record> get_atr(std::shared_ptr<collection> collection, const std::string& atr_id);
+        static std::optional<active_transaction_record> get_atr(cluster& cluster, const couchbase::document_id& atr_id);
 
-        active_transaction_record(std::string id, std::shared_ptr<collection> collection, uint64_t cas, std::vector<atr_entry> entries)
+        active_transaction_record(const couchbase::document_id& id, uint64_t, std::vector<atr_entry> entries)
           : id_(std::move(id))
-          , collection_(collection)
-          , cas_ns_(cas)
           , entries_(std::move(entries))
         {
         }
@@ -50,17 +49,12 @@ namespace transactions
         }
 
       private:
-        const std::string id_;
-        std::shared_ptr<collection> collection_;
-        const uint64_t cas_ns_;
+        const couchbase::document_id id_;
         const std::vector<atr_entry> entries_;
 
         static inline uint64_t parse_mutation_cas(const std::string& cas);
-        static inline boost::optional<std::vector<doc_record>> process_document_ids(nlohmann::json& entry, std::string key);
-        static inline active_transaction_record map_to_atr(std::shared_ptr<collection> collection,
-                                                           const std::string& atr_id,
-                                                           result& res,
-                                                           nlohmann::json& attempts);
+        static inline std::optional<std::vector<doc_record>> process_document_ids(nlohmann::json& entry, std::string key);
+        static inline active_transaction_record map_to_atr(const couchbase::document_id& atr_id, result& res, nlohmann::json& attempts);
     };
 
 } // namespace transactions

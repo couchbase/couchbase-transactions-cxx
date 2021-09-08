@@ -19,6 +19,8 @@
 #include <vector>
 
 #include "atr_ids.hxx"
+#include <couchbase/utils/crc32.hxx>
+
 namespace tx = couchbase::transactions;
 
 const std::vector<std::string> ATR_IDS({
@@ -202,7 +204,7 @@ tx::atr_ids::all()
 }
 
 const std::string&
-tx::atr_ids::atr_id_for_vbucket(int vbucket_id)
+tx::atr_ids::atr_id_for_vbucket(size_t vbucket_id)
 {
     if (vbucket_id < 0 || vbucket_id > ATR_IDS.size()) {
         throw std::invalid_argument(std::string("invalid vbucket_id: ") + std::to_string(vbucket_id));
@@ -210,12 +212,10 @@ tx::atr_ids::atr_id_for_vbucket(int vbucket_id)
     return ATR_IDS[vbucket_id];
 }
 
-#include "../../deps/libcouchbase/src/vbucket/crc32.h"
-
-int
+size_t
 tx::atr_ids::vbucket_for_key(const std::string& key)
 {
     static const int num_vbuckets = 1024;
-    uint32_t digest = hash_crc32(key.data(), key.size());
-    return static_cast<int>(digest % num_vbuckets);
+    uint32_t digest = utils::hash_crc32(key.data(), key.size());
+    return static_cast<size_t>(digest % num_vbuckets);
 }

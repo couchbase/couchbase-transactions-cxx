@@ -17,8 +17,8 @@
 #pragma once
 
 #include "transaction_context.hxx"
-#include <couchbase/client/result.hxx>
 #include <couchbase/transactions/exceptions.hxx>
+#include <couchbase/transactions/result.hxx>
 
 namespace couchbase
 {
@@ -77,7 +77,7 @@ namespace transactions
 
     enum final_error { FAILED, EXPIRED, FAILED_POST_COMMIT, AMBIGUOUS };
 
-    error_class error_class_from_result(const couchbase::result& res);
+    error_class error_class_from_result(const result& res);
 
     external_exception external_exception_from_error_class(error_class ec);
 
@@ -85,33 +85,29 @@ namespace transactions
     {
       private:
         error_class ec_;
-        uint32_t rc_;
-        boost::optional<couchbase::result> res_;
+        std::optional<result> res_;
 
       public:
-        explicit client_error(const couchbase::result& res)
+        explicit client_error(const result& res)
           : runtime_error(res.strerror())
           , ec_(error_class_from_result(res))
-          , rc_(res.error())
           , res_(res)
         {
-            assert(rc_ != 0 && "cannot throw client_error if there is no error");
         }
         explicit client_error(error_class ec, const std::string& what)
           : runtime_error(what)
           , ec_(ec)
-          , rc_(0) // only slightly better than uninitialized.  Consider boost::optional<uint32_t>
         {
         }
         error_class ec() const
         {
             return ec_;
         }
-        uint32_t rc() const
+        /*uint32_t rc() const
         {
             return rc_;
-        }
-        boost::optional<couchbase::result> res() const
+        }*/
+        std::optional<result> res() const
         {
             return res_;
         }

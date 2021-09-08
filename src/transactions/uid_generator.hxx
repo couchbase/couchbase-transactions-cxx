@@ -28,8 +28,6 @@ namespace transactions
       public:
         static std::string next();
 
-      private:
-        static std::mutex mutex_;
     };
 } // namespace transactions
 } // namespace couchbase

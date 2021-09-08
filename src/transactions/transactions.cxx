@@ -24,7 +24,7 @@
 
 namespace tx = couchbase::transactions;
 
-tx::transactions::transactions(couchbase::cluster& cluster, const transaction_config& config)
+tx::transactions::transactions(cluster& cluster, const transaction_config& config)
   : cluster_(cluster)
   , config_(config)
   , cleanup_(new transactions_cleanup(cluster_, config_))
@@ -64,7 +64,7 @@ tx::transactions::run(const logic& logic)
                     // if you get here, we didn't throw, yet we had an error.  Fall through in
                     // this case.  Note the current logic is such that rollback will not have a
                     // commit ambiguous error, so we should always throw.
-                    assert(true || "should never reach this");
+                    assert(true);
                 }
                 if (er.should_retry() && overall.has_expired_client_side(config_)) {
                     txn_log->trace("auto rollback succeeded, however we are expired so no retry");

@@ -17,11 +17,11 @@
 
 #include "exceptions_internal.hxx"
 #include "logging.hxx"
-#include <boost/algorithm/string.hpp>
-#include <boost/optional.hpp>
+
 #include <chrono>
 #include <couchbase/internal/nlohmann/json.hpp>
 #include <list>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -88,9 +88,9 @@ namespace transactions
 
     struct forward_compat_behavior_full {
         forward_compat_behavior behavior;
-        boost::optional<std::chrono::milliseconds> retry_delay;
+        std::optional<std::chrono::milliseconds> retry_delay;
 
-        forward_compat_behavior_full(forward_compat_behavior b, boost::optional<std::chrono::milliseconds> r)
+        forward_compat_behavior_full(forward_compat_behavior b, std::optional<std::chrono::milliseconds> r)
           : behavior(b)
           , retry_delay(r)
         {
@@ -106,12 +106,12 @@ namespace transactions
         }
 
         template<typename OStream>
-        friend OStream& operator<<(OStream& os, const forward_compat_behavior_full& behavior)
+        friend OStream& operator<<(OStream& os, const forward_compat_behavior_full& b)
         {
             os << "forward_compat_behavior_full:{";
-            os << "behavior: " << forward_compat_behavior_name(behavior.behavior);
-            if (behavior.retry_delay) {
-                os << ", retry_delay: " << behavior.retry_delay->count() << " ms";
+            os << "behavior: " << forward_compat_behavior_name(b.behavior);
+            if (b.retry_delay) {
+                os << ", retry_delay: " << b.retry_delay->count() << " ms";
             }
             os << "}";
         }
@@ -132,6 +132,7 @@ namespace transactions
         }
 
         virtual forward_compat_behavior_full check(forward_compat_supported supported) = 0;
+        virtual ~forward_compat_requirement() = default;
     };
 
     struct forward_compat_protocol_requirement : public forward_compat_requirement {
@@ -150,7 +151,7 @@ namespace transactions
             if ((min_protocol_major > supported.protocol_major) || (min_protocol_minor > supported.protocol_minor)) {
                 return behavior;
             }
-            return { forward_compat_behavior::CONTINUE, boost::none };
+            return { forward_compat_behavior::CONTINUE, std::nullopt };
         }
     };
 
@@ -169,7 +170,7 @@ namespace transactions
             if (it == supported.extensions.end()) {
                 return behavior;
             }
-            return { forward_compat_behavior::CONTINUE, boost::none };
+            return { forward_compat_behavior::CONTINUE, std::nullopt };
         }
     };
 
@@ -220,17 +221,17 @@ namespace transactions
                         std::string ext = item["e"];
                         compat_map_[stage].push_back(new forward_compat_extension_requirement(behavior, ext));
                     } else if (item.contains("p") && item.contains("b")) {
-                        std::vector<std::string> proto;
                         std::string proto_string = item["p"];
-                        boost::split(proto, proto_string, boost::is_any_of("."));
-                        compat_map_[stage].push_back(new forward_compat_protocol_requirement(behavior, stoul(proto[0]), stoul(proto[1])));
+                        auto proto = split_string(proto_string, '.');
+                        compat_map_[stage].push_back(new forward_compat_protocol_requirement(
+                          behavior, static_cast<uint32_t>(std::stoi(proto[0])), static_cast<uint32_t>(std::stoi(proto[1]))));
                     }
                 }
             }
         }
 
       public:
-        static void check(forward_compat_stage stage, boost::optional<nlohmann::json> json)
+        static void check(forward_compat_stage stage, std::optional<nlohmann::json> json)
         {
             if (json) {
                 forward_compat_supported supported;
