@@ -205,7 +205,7 @@ main(int, const char*[])
     {
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
-        cluster.open(couchbase::origin(auth, connstr), [barrier](std::error_code ec) mutable { barrier->set_value(ec); });
+        cluster.open(couchbase::origin(auth, connstr), [barrier](std::error_code ec) { barrier->set_value(ec); });
         auto rc = f.get();
         if (rc) {
             cout << "ERROR opening cluster: " << rc.message() << endl;
@@ -216,7 +216,7 @@ main(int, const char*[])
     {
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
-        cluster.open_bucket(bucket_name, [barrier](std::error_code ec) mutable { barrier->set_value(ec); });
+        cluster.open_bucket(bucket_name, [barrier](std::error_code ec) { barrier->set_value(ec); });
         auto rc = f.get();
         if (rc) {
             cout << "ERROR opening bucket `" << bucket_name << "`: " << rc.message() << endl;
@@ -237,7 +237,7 @@ main(int, const char*[])
         to_json(j, player_data);
         req.value = j.dump();
         auto barrier = std::make_shared<std::promise<couchbase::operations::upsert_response>>();
-        cluster.execute(req, [barrier](couchbase::operations::upsert_response resp) mutable { barrier->set_value(resp); });
+        cluster.execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp); });
         auto f = barrier->get_future();
         auto resp = f.get();
         cout << "Upserted sample player document: " << player_id.key() << "with cas:" << resp.cas.value << endl;
@@ -250,7 +250,7 @@ main(int, const char*[])
         req.value = j.dump();
         auto barrier = std::make_shared<std::promise<couchbase::operations::upsert_response>>();
         auto f = barrier->get_future();
-        cluster.execute(req, [barrier](couchbase::operations::upsert_response resp) mutable { barrier->set_value(resp); });
+        cluster.execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp); });
         auto resp = f.get();
         cout << "Upserted sample monster document: " << monster_id.key() << endl;
     }

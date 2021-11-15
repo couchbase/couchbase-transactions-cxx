@@ -16,9 +16,9 @@
 
 #include "staged_mutation.hxx"
 #include "attempt_context_impl.hxx"
+#include "result.hxx"
 #include "transaction_fields.hxx"
 #include "utils.hxx"
-#include <couchbase/transactions/result.hxx>
 #include <utility>
 
 namespace tx = couchbase::transactions;
@@ -26,21 +26,21 @@ namespace tx = couchbase::transactions;
 bool
 tx::staged_mutation_queue::empty()
 {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
     return queue_.empty();
 }
 
 void
 tx::staged_mutation_queue::add(const tx::staged_mutation& mutation)
 {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
     queue_.push_back(mutation);
 }
 
 void
 tx::staged_mutation_queue::extract_to(const std::string& prefix, couchbase::operations::mutate_in_request& req)
 {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
     nlohmann::json inserts;
     nlohmann::json replaces;
     nlohmann::json removes;
@@ -70,7 +70,7 @@ tx::staged_mutation_queue::extract_to(const std::string& prefix, couchbase::oper
 tx::staged_mutation*
 tx::staged_mutation_queue::find_replace(const couchbase::document_id& id)
 {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
         if (item.type() == staged_mutation_type::REPLACE && document_ids_equal(item.doc().id(), id)) {
             return &item;
@@ -82,7 +82,7 @@ tx::staged_mutation_queue::find_replace(const couchbase::document_id& id)
 tx::staged_mutation*
 tx::staged_mutation_queue::find_insert(const couchbase::document_id& id)
 {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
         if (item.type() == staged_mutation_type::INSERT && document_ids_equal(item.doc().id(), id)) {
             return &item;
@@ -94,7 +94,7 @@ tx::staged_mutation_queue::find_insert(const couchbase::document_id& id)
 tx::staged_mutation*
 tx::staged_mutation_queue::find_remove(const couchbase::document_id& id)
 {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
         if (item.type() == staged_mutation_type::REMOVE && document_ids_equal(item.doc().id(), id)) {
             return &item;
@@ -105,7 +105,7 @@ tx::staged_mutation_queue::find_remove(const couchbase::document_id& id)
 void
 tx::staged_mutation_queue::iterate(std::function<void(staged_mutation&)> op)
 {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
         op(item);
     }
@@ -114,7 +114,7 @@ tx::staged_mutation_queue::iterate(std::function<void(staged_mutation&)> op)
 void
 tx::staged_mutation_queue::commit(attempt_context_impl& ctx)
 {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
         switch (item.type()) {
             case staged_mutation_type::REMOVE:
@@ -131,7 +131,7 @@ tx::staged_mutation_queue::commit(attempt_context_impl& ctx)
 void
 tx::staged_mutation_queue::rollback(attempt_context_impl& ctx)
 {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
     for (auto& item : queue_) {
         switch (item.type()) {
             case staged_mutation_type::INSERT:
@@ -159,7 +159,7 @@ tx::staged_mutation_queue::rollback_insert(attempt_context_impl& ctx, staged_mut
         wrap_durable_request(req, ctx.config_);
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
-        ctx.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+        ctx.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
             barrier->set_value(result::create_from_subdoc_response(resp));
         });
         auto res = wrap_operation_future(f);
@@ -204,7 +204,7 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx,
         wrap_durable_request(req, ctx.config_);
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
-        ctx.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+        ctx.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
             barrier->set_value(result::create_from_subdoc_response(resp));
         });
         auto res = wrap_operation_future(f);
@@ -253,7 +253,7 @@ tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation
                 wrap_durable_request(req, ctx.config_);
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
-                ctx.cluster_ref().execute(req, [barrier](couchbase::operations::insert_response resp) mutable {
+                ctx.cluster_ref().execute(req, [barrier](couchbase::operations::insert_response resp) {
                     barrier->set_value(result::create_from_mutation_response(resp));
                 });
                 res = wrap_operation_future(f);
@@ -266,7 +266,7 @@ tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation
                 wrap_durable_request(req, ctx.config_);
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
-                ctx.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+                ctx.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
                     barrier->set_value(result::create_from_subdoc_response(resp));
                 });
                 res = wrap_operation_future(f);
@@ -311,7 +311,7 @@ tx::staged_mutation_queue::remove_doc(attempt_context_impl& ctx, staged_mutation
             wrap_durable_request(req, ctx.config_);
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
-            ctx.cluster_ref().execute(req, [barrier](couchbase::operations::remove_response resp) mutable {
+            ctx.cluster_ref().execute(req, [barrier](couchbase::operations::remove_response resp) {
                 barrier->set_value(result::create_from_mutation_response(resp));
             });
             wrap_operation_future(f);

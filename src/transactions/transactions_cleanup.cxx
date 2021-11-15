@@ -167,7 +167,7 @@ tx::transactions_cleanup::handle_atr_cleanup(const couchbase::document_id& atr_i
     wrap_request(req, config_);
     auto barrier = std::make_shared<std::promise<bool>>();
     auto f = barrier->get_future();
-    cluster_.execute(req, [barrier](couchbase::operations::exists_response resp) mutable { barrier->set_value(resp.cas.value != 0); });
+    cluster_.execute(req, [barrier](couchbase::operations::exists_response resp) { barrier->set_value(resp.cas.value != 0); });
 
     if (f.get()) {
         auto atr = active_transaction_record::get_atr(cluster_, atr_id);
@@ -213,7 +213,7 @@ tx::transactions_cleanup::create_client_record(const std::string& bucket_name)
         wrap_durable_request(req, config_);
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
-        cluster_.execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+        cluster_.execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
             barrier->set_value(result::create_from_subdoc_response(resp));
         });
         wrap_operation_future(f);
@@ -245,7 +245,7 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
             wrap_request(req, config_);
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
-            cluster_.execute(req, [barrier](couchbase::operations::lookup_in_response resp) mutable {
+            cluster_.execute(req, [barrier](couchbase::operations::lookup_in_response resp) {
                 barrier->set_value(result::create_from_subdoc_response(resp));
             });
             auto res = wrap_operation_future(f);
@@ -337,7 +337,7 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
             wrap_durable_request(mutate_req, config_);
             auto mutate_barrier = std::make_shared<std::promise<result>>();
             auto mutate_f = mutate_barrier->get_future();
-            cluster_.execute(mutate_req, [mutate_barrier](couchbase::operations::mutate_in_response resp) mutable {
+            cluster_.execute(mutate_req, [mutate_barrier](couchbase::operations::mutate_in_response resp) {
                 mutate_barrier->set_value(result::create_from_subdoc_response(resp));
             });
             res = wrap_operation_future(mutate_f);
@@ -367,7 +367,7 @@ tx::transactions_cleanup::get_buckets()
     // don't wrap this one, as the kv timeout isn't appropriate here.
     auto barrier = std::make_shared<std::promise<std::vector<std::string>>>();
     auto f = barrier->get_future();
-    cluster_.execute(req, [barrier](couchbase::operations::management::bucket_get_all_response resp) mutable {
+    cluster_.execute(req, [barrier](couchbase::operations::management::bucket_get_all_response resp) {
         std::vector<std::string> bucket_names;
         for (auto& b : resp.buckets) {
             bucket_names.push_back(b.name);
@@ -380,7 +380,7 @@ tx::transactions_cleanup::get_buckets()
     for (auto& b : f.get()) {
         auto barrier = std::make_shared<std::promise<std::string>>();
         futures.push_back(std::move(barrier->get_future()));
-        cluster_.open_bucket(b, [barrier, b](std::error_code ec) mutable {
+        cluster_.open_bucket(b, [barrier, b](std::error_code ec) {
             if (ec) {
                 lost_attempts_cleanup_log->error("got error {} opening bucket `{}`", ec, b);
             }
@@ -415,7 +415,7 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
                       wrap_durable_request(req, config_);
                       auto barrier = std::make_shared<std::promise<result>>();
                       auto f = barrier->get_future();
-                      cluster_.execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+                      cluster_.execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
                           barrier->set_value(result::create_from_subdoc_response(resp));
                       });
                       wrap_operation_future(f);

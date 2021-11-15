@@ -14,8 +14,6 @@
  *   limitations under the License.
  */
 #pragma once
-#include <couchbase/transactions.hxx>
-#include <optional>
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/stdout_sinks.h>
 #include <spdlog/spdlog.h>
@@ -30,13 +28,13 @@ namespace transactions
 {
     static const std::string attempt_format_string("[{}/{}]:");
 
-    static std::shared_ptr<spdlog::logger> txn_log = spdlog::get(TXN_LOG) ? spdlog::get(TXN_LOG) : spdlog::stdout_logger_mt(TXN_LOG);
+    std::shared_ptr<spdlog::logger> init_txn_log();
+    std::shared_ptr<spdlog::logger> init_attempt_cleanup_log();
+    std::shared_ptr<spdlog::logger> init_lost_attempts_log();
 
-    static std::shared_ptr<spdlog::logger> attempt_cleanup_log =
-      spdlog::get(ATTEMPT_CLEANUP_LOG) ? spdlog::get(ATTEMPT_CLEANUP_LOG) : spdlog::stdout_logger_mt(ATTEMPT_CLEANUP_LOG);
-
-    static std::shared_ptr<spdlog::logger> lost_attempts_cleanup_log =
-      spdlog::get(LOST_ATTEMPT_CLEANUP_LOG) ? spdlog::get(LOST_ATTEMPT_CLEANUP_LOG) : spdlog::stdout_logger_mt(LOST_ATTEMPT_CLEANUP_LOG);
+    static std::shared_ptr<spdlog::logger> txn_log = init_txn_log();
+    static std::shared_ptr<spdlog::logger> attempt_cleanup_log = init_attempt_cleanup_log();
+    static std::shared_ptr<spdlog::logger> lost_attempts_cleanup_log = init_lost_attempts_log();
 
 } // namespace transactions
 } // namespace couchbase

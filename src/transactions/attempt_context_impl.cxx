@@ -24,7 +24,6 @@
 #include "staged_mutation.hxx"
 #include "utils.hxx"
 
-#include <couchbase/transactions.hxx>
 #include <couchbase/transactions/attempt_state.hxx>
 
 namespace couchbase
@@ -33,23 +32,15 @@ namespace transactions
 {
     cluster& attempt_context_impl::cluster_ref()
     {
-        return parent_->cluster_ref();
+        return overall_.cluster_ref();
     }
 
-    void attempt_context_impl::existing_error()
-    {
-        if (!errors_.empty()) {
-            throw transaction_operation_failed(FAIL_OTHER, "Previous operation failed").cause(PREVIOUS_OPERATION_FAILED);
-        }
-    }
-
-    attempt_context_impl::attempt_context_impl(transactions* parent, transaction_context& transaction_ctx, const transaction_config& config)
+    attempt_context_impl::attempt_context_impl(transaction_context& transaction_ctx)
       : overall_(transaction_ctx)
-      , config_(config)
-      , parent_(parent)
+      , config_(transaction_ctx.config())
       , is_done_(false)
       , staged_mutations_(new staged_mutation_queue())
-      , hooks_(config.attempt_context_hooks())
+      , hooks_(config_.attempt_context_hooks())
     {
         // put a new transaction_attempt in the context...
         overall_.add_attempt();
@@ -59,9 +50,12 @@ namespace transactions
     attempt_context_impl::~attempt_context_impl() = default;
 
     // not a member of attempt_context_impl, as forward_compat is internal.
-    void attempt_context_impl::check_and_handle_blocking_transactions(const transaction_get_result& doc, forward_compat_stage stage)
+    template<typename Handler>
+    void attempt_context_impl::check_and_handle_blocking_transactions(const transaction_get_result& doc,
+                                                                      forward_compat_stage stage,
+                                                                      Handler&& cb)
     {
-        // The main reason to require doc to be fetched inside the transaction is so we can detect this on the client side
+        // The main reason to require doc to be fetched inside the transaction is we can detect this on the client side
         if (doc.links().has_staged_write()) {
             // Check not just writing the same doc twice in the same transaction
             // NOTE: we check the transaction rather than attempt id. This is to handle [RETRY-ERR-AMBIG-REPLACE].
@@ -71,7 +65,8 @@ namespace transactions
                 if (doc.links().atr_id() && doc.links().atr_bucket_name() && doc.links().staged_attempt_id()) {
                     debug("doc {} in another txn, checking atr...", doc.id());
                     forward_compat::check(stage, doc.links().forward_compat());
-                    check_atr_entry_for_blocking_document(doc);
+                    exp_delay delay(std::chrono::milliseconds(50), std::chrono::milliseconds(500), std::chrono::seconds(1));
+                    return check_atr_entry_for_blocking_document(doc, delay, cb);
                 } else {
                     debug("doc {} is in another transaction {}, but doesn't have enough info to check the atr. "
                           "probably a bug, proceeding to overwrite",
@@ -80,30 +75,101 @@ namespace transactions
                 }
             }
         }
+        return cb(std::nullopt);
     }
 
     transaction_get_result attempt_context_impl::get(const couchbase::document_id& id)
     {
-        return cache_error<transaction_get_result>([&]() {
-            auto result = get_optional(id);
-            if (result) {
-                trace("get returning {}", *result);
-                return *result;
+        blocking_mode_ = true;
+        auto barrier = std::make_shared<std::promise<transaction_get_result>>();
+        auto f = barrier->get_future();
+        get(id, [barrier](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+            if (err) {
+                barrier->set_exception(std::make_exception_ptr(*err));
+            } else {
+                barrier->set_value(*res);
             }
-            error("Document with id {} not found", id);
-            throw transaction_operation_failed(FAIL_DOC_NOT_FOUND, "Document not found");
+        });
+        return f.get();
+    }
+    void attempt_context_impl::get(const couchbase::document_id& id, Callback&& cb)
+    {
+        cache_error_async(std::move(cb), [&]() {
+            check_if_done(cb);
+            do_get(id, [this, id, cb = std::move(cb)](std::optional<error_class> ec, std::optional<transaction_get_result> res) {
+                if (ec) {
+                    switch (*ec) {
+                        case FAIL_EXPIRY:
+                            return op_completed_with_error(std::move(cb),
+                                                           transaction_operation_failed(*ec, "transaction expired during get").expired());
+                        case FAIL_DOC_NOT_FOUND:
+                            return op_completed_with_error(std::move(cb), transaction_operation_failed(*ec, "document not found"));
+                        case FAIL_TRANSIENT:
+                            return op_completed_with_error(std::move(cb),
+                                                           transaction_operation_failed(*ec, "transient failure in get").retry());
+                        case FAIL_HARD:
+                            return op_completed_with_error(std::move(cb),
+                                                           transaction_operation_failed(*ec, "fail hard in get").no_rollback());
+                        default: {
+                            std::string msg("got error while getting doc ");
+                            return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, msg.append(id.key())));
+                        }
+                    }
+                } else {
+                    if (res) {
+                        hooks_.after_get_complete(this, id.key());
+                        forward_compat::check(forward_compat_stage::GETS, res->links().forward_compat());
+                        return op_completed_with_callback(std::move(cb), res);
+                    }
+                }
+            });
         });
     }
 
     std::optional<transaction_get_result> attempt_context_impl::get_optional(const couchbase::document_id& id)
     {
-        return cache_error<std::optional<transaction_get_result>>([&]() {
-            auto retval = do_get(id);
-            hooks_.after_get_complete(this, id.key());
-            if (retval) {
-                forward_compat::check(forward_compat_stage::GETS, retval->links().forward_compat());
+        auto barrier = std::make_shared<std::promise<std::optional<transaction_get_result>>>();
+        auto f = barrier->get_future();
+        get_optional(id, [barrier](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+            if (err) {
+                return barrier->set_exception(std::make_exception_ptr(*err));
             }
-            return retval;
+            return barrier->set_value(res);
+        });
+        return f.get();
+    }
+
+    void attempt_context_impl::get_optional(const couchbase::document_id& id, Callback&& cb)
+    {
+        cache_error_async(std::move(cb), [&]() {
+            check_if_done(cb);
+            do_get(id, [this, id, cb = std::move(cb)](std::optional<error_class> ec, std::optional<transaction_get_result> res) {
+                if (ec) {
+                    switch (*ec) {
+                        case FAIL_EXPIRY:
+                            return op_completed_with_error(std::move(cb),
+                                                           transaction_operation_failed(*ec, "transaction expired during get").expired());
+                        case FAIL_DOC_NOT_FOUND:
+                            return op_completed_with_callback(std::move(cb), std::nullopt);
+                        case FAIL_TRANSIENT:
+                            return op_completed_with_error(std::move(cb),
+                                                           transaction_operation_failed(*ec, "transient failure in get").retry());
+                        case FAIL_HARD:
+                            return op_completed_with_error(std::move(cb),
+                                                           transaction_operation_failed(*ec, "fail hard in get").no_rollback());
+                        default: {
+                            std::string msg("got error while getting doc ");
+                            return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, msg.append(id.key())));
+                        }
+                    }
+                } else {
+                    hooks_.after_get_complete(this, id.key());
+                    if (res) {
+                        forward_compat::check(forward_compat_stage::GETS, res->links().forward_compat());
+                    }
+                    return op_completed_with_callback(std::move(cb), res);
+                }
+            });
         });
     }
 
@@ -142,109 +208,150 @@ namespace transactions
         return wrap_durable_request(req, config_);
     }
 
-    transaction_get_result attempt_context_impl::replace_raw(const transaction_get_result& document, const std::string& content)
+    void attempt_context_impl::replace_raw(const transaction_get_result& document, const std::string& content, Callback&& cb)
     {
-        return retry_op_exp<transaction_get_result>([&]() -> transaction_get_result {
-            return cache_error<transaction_get_result>([&]() {
-                try {
-                    trace("replacing {} with {}", document, content);
-                    check_if_done();
-                    check_expiry_pre_commit(STAGE_REPLACE, document.id().key());
-                    select_atr_if_needed(document.id());
-                    check_and_handle_blocking_transactions(document, forward_compat_stage::WWC_REPLACING);
-                    set_atr_pending_if_first_mutation(document.id());
-                    auto req = create_staging_request(document, "replace");
-                    hooks_.before_staged_replace(this, document.id().key());
-                    trace("about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
-                    auto barrier = std::make_shared<std::promise<result>>();
-                    auto f = barrier->get_future();
-                    parent_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
-                        barrier->set_value(result::create_from_subdoc_response(resp));
-                    });
-                    auto res = wrap_operation_future(f);
-                    hooks_.after_staged_replace_complete(this, document.id().key());
-                    transaction_get_result out = document;
-                    out.cas(res.cas);
-                    trace("replace staged content, result {}", res);
-                    staged_mutation* existing_replace = staged_mutations_->find_replace(document.id());
-                    staged_mutation* existing_insert = staged_mutations_->find_insert(document.id());
-                    if (existing_replace != nullptr) {
-                        trace("document {} was replaced already in txn, replacing again", document.id());
-                        // only thing that we need to change are the content, cas
-                        existing_replace->content(content);
-                        existing_replace->doc().cas(out.cas());
-                    } else if (existing_insert != nullptr) {
-                        trace("document {} replaced after insert in this txn", document.id());
-                        // only thing that we need to change are the content, cas
-                        existing_insert->doc().content(content);
-                        existing_insert->doc().cas(out.cas());
-                    } else {
-                        staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::REPLACE));
-                    }
-                    return out;
-                } catch (const client_error& e) {
-                    error_class ec = e.ec();
-                    switch (ec) {
-                        case FAIL_EXPIRY:
-                            expiry_overtime_mode_ = true;
-                            throw transaction_operation_failed(ec, e.what()).expired();
-                        case FAIL_DOC_NOT_FOUND:
-                        case FAIL_DOC_ALREADY_EXISTS:
-                        case FAIL_CAS_MISMATCH:
-                            throw transaction_operation_failed(ec, e.what()).retry();
-                        case FAIL_TRANSIENT:
-                        case FAIL_AMBIGUOUS:
-                            throw transaction_operation_failed(ec, e.what()).retry();
-                        case FAIL_HARD:
-                            throw transaction_operation_failed(ec, e.what()).no_rollback();
-                        default:
-                            throw transaction_operation_failed(ec, e.what());
-                    }
-                }
-            });
-        });
-    }
-
-    transaction_get_result attempt_context_impl::insert_raw(const couchbase::document_id& id, const std::string& content)
-    {
-        return cache_error<transaction_get_result>([&]() {
+        return cache_error_async(std::move(cb), [&]() {
             try {
-                check_if_done();
-                if (check_for_own_write(id)) {
-                    throw transaction_operation_failed(FAIL_OTHER,
-                                                       "cannot insert a document that has already been mutated in this transaction");
+                trace("replacing {} with {}", document, content);
+                check_if_done(cb);
+                if (check_expiry_pre_commit(STAGE_REPLACE, document.id().key())) {
+                    return op_completed_with_error(cb, transaction_operation_failed(FAIL_EXPIRY, "transaction expired").expired());
                 }
-                check_expiry_pre_commit(STAGE_INSERT, id.key());
-                select_atr_if_needed(id);
-                set_atr_pending_if_first_mutation(id);
-                uint64_t cas = 0;
-                return retry_op<transaction_get_result>([&]() -> transaction_get_result { return create_staged_insert(id, content, cas); });
+                check_and_handle_blocking_transactions(
+                  document,
+                  forward_compat_stage::WWC_REPLACING,
+                  [this, document = std::move(document), cb = std::move(cb), content](std::optional<transaction_operation_failed> err) {
+                      if (err) {
+                          op_completed_with_error(cb, *err);
+                      }
+                      select_atr_if_needed_unlocked(
+                        document.id(),
+                        [this, document = std::move(document), cb = std::move(cb), content](
+                          std::optional<transaction_operation_failed> err) {
+                            if (err) {
+                                op_completed_with_error(cb, *err);
+                            }
+                            auto req = create_staging_request(document, "replace");
+                            req.cas.value = document.cas();
+                            hooks_.before_staged_replace(this, document.id().key());
+                            trace(
+                              "about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
+                            overall_.cluster_ref().execute(
+                              req,
+                              [this, document = std::move(document), content, cb = std::move(cb)](
+                                couchbase::operations::mutate_in_response resp) {
+                                  auto ec = error_class_from_response(resp);
+                                  if (!ec) {
+                                      hooks_.after_staged_replace_complete(this, document.id().key());
+                                      transaction_get_result out = document;
+                                      out.cas(resp.cas.value);
+                                      trace("replace staged content, result {}", out);
+                                      staged_mutation* existing_replace = staged_mutations_->find_replace(document.id());
+                                      staged_mutation* existing_insert = staged_mutations_->find_insert(document.id());
+                                      if (existing_replace != nullptr) {
+                                          trace("document {} was replaced already in txn, replacing again", document.id());
+                                          // only thing that we need to change are the content, cas
+                                          existing_replace->content(content);
+                                          existing_replace->doc().cas(out.cas());
+                                      } else if (existing_insert != nullptr) {
+                                          trace("document {} replaced after insert in this txn", document.id());
+                                          // only thing that we need to change are the content, cas
+                                          existing_insert->doc().content(content);
+                                          existing_insert->doc().cas(out.cas());
+                                      } else {
+                                          staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::REPLACE));
+                                      }
+                                      return op_completed_with_callback(std::move(cb), out);
+                                  } else {
+                                      transaction_operation_failed err(*ec, resp.ctx.ec.message());
+                                      switch (*ec) {
+                                          case FAIL_DOC_NOT_FOUND:
+                                          case FAIL_DOC_ALREADY_EXISTS:
+                                          case FAIL_CAS_MISMATCH:
+                                          case FAIL_TRANSIENT:
+                                          case FAIL_AMBIGUOUS:
+                                              return op_completed_with_error(std::move(cb), err.retry());
+                                          case FAIL_HARD:
+                                              return op_completed_with_error(std::move(cb), err.no_rollback());
+                                          default:
+                                              return op_completed_with_error(std::move(cb), err);
+                                      }
+                                  }
+                              });
+                        });
+                  });
             } catch (const client_error& e) {
                 error_class ec = e.ec();
-                if (expiry_overtime_mode_) {
-                    throw transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired();
-                }
                 switch (ec) {
                     case FAIL_EXPIRY:
                         expiry_overtime_mode_ = true;
-                        throw transaction_operation_failed(ec, "attempt timed-out").expired();
-                    case FAIL_TRANSIENT:
-                        throw transaction_operation_failed(ec, "transient error in insert").retry();
-                    case FAIL_OTHER:
-                        throw transaction_operation_failed(ec, e.what());
-                    case FAIL_HARD:
-                        throw transaction_operation_failed(ec, e.what()).no_rollback();
+                        throw transaction_operation_failed(ec, e.what()).expired();
                     default:
-                        throw transaction_operation_failed(FAIL_OTHER, e.what()).retry();
+                        throw transaction_operation_failed(ec, e.what());
                 }
             }
         });
     }
 
-    // Make thread-safe - atomic check then a lock and second check, perhaps.
-    void attempt_context_impl::select_atr_if_needed(const couchbase::document_id& id)
+    transaction_get_result attempt_context_impl::replace_raw(const transaction_get_result& document, const std::string& content)
     {
-        if (!atr_id_) {
+        auto barrier = std::make_shared<std::promise<transaction_get_result>>();
+        auto f = barrier->get_future();
+        replace_raw(
+          document, content, [barrier](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+              if (err) {
+                  return barrier->set_exception(std::make_exception_ptr(*err));
+              }
+              barrier->set_value(*res);
+          });
+        return f.get();
+    }
+    transaction_get_result attempt_context_impl::insert_raw(const couchbase::document_id& id, const std::string& content)
+    {
+        auto barrier = std::make_shared<std::promise<transaction_get_result>>();
+        auto f = barrier->get_future();
+        insert_raw(id, content, [barrier](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+            if (err) {
+                return barrier->set_exception(std::make_exception_ptr(*err));
+            }
+            barrier->set_value(*res);
+        });
+        return f.get();
+    }
+    void attempt_context_impl::insert_raw(const couchbase::document_id& id, const std::string& content, Callback&& cb)
+    {
+        return cache_error_async(std::move(cb), [&]() {
+            try {
+                check_if_done(cb);
+                if (check_for_own_write(id)) {
+                    return op_completed_with_error(
+                      std::move(cb),
+                      transaction_operation_failed(FAIL_OTHER,
+                                                   "cannot insert a document that has already been mutated in this transaction"));
+                }
+                if (check_expiry_pre_commit(STAGE_INSERT, id.key())) {
+                    return op_completed_with_error(std::move(cb),
+                                                   transaction_operation_failed(FAIL_EXPIRY, "transaction expired").expired());
+                }
+                select_atr_if_needed_unlocked(id, [this, cb = std::move(cb), id, content](std::optional<transaction_operation_failed> err) {
+                    uint64_t cas = 0;
+                    create_staged_insert(id, content, cas, cb);
+                });
+            } catch (const std::exception& e) {
+                return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, e.what()));
+            }
+        });
+    }
+
+    void attempt_context_impl::select_atr_if_needed_unlocked(const couchbase::document_id& id,
+                                                             std::function<void(std::optional<transaction_operation_failed>)>&& cb)
+    {
+        try {
+            std::unique_lock<std::mutex> lock(mutex_);
+            if (atr_id_) {
+                trace("atr exists, moving on");
+                return cb(std::nullopt);
+            }
             size_t vbucket_id = 0;
             std::optional<const std::string> hook_atr = hooks_.random_atr_id_for_vbucket(this);
             if (hook_atr) {
@@ -257,114 +364,132 @@ namespace transactions
             overall_.atr_id(atr_id_->key());
             state(attempt_state::NOT_STARTED);
             trace("first mutated doc in transaction is \"{}\" on vbucket {}, so using atr \"{}\"", id, vbucket_id, atr_id_.value());
+            set_atr_pending_locked(id, std::move(lock), cb);
+        } catch (const std::exception& e) {
+            error("unexpected error {} during select atr if needed");
         }
     }
-
-    void attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_get_result& doc)
+    template<typename Handler, typename Delay>
+    void attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_get_result& doc, Delay delay, Handler&& cb)
     {
         try {
-            retry_op_exponential_backoff_timeout<void>(
-              std::chrono::milliseconds(50), std::chrono::milliseconds(500), std::chrono::seconds(1), [&] {
-                  try {
-                      hooks_.before_check_atr_entry_for_blocking_doc(this, doc.id().key());
-                      couchbase::document_id atr_id(doc.links().atr_bucket_name().value(),
-                                                    doc.links().atr_scope_name().value(),
-                                                    doc.links().atr_collection_name().value(),
-                                                    doc.links().atr_id().value());
-                      auto atr = active_transaction_record::get_atr(cluster_ref(), atr_id);
-                      if (atr) {
-                          auto entries = atr->entries();
-                          auto it = std::find_if(entries.begin(), entries.end(), [&doc](const atr_entry& e) {
-                              return e.attempt_id() == doc.links().staged_attempt_id();
-                          });
-                          if (it != entries.end()) {
-                              forward_compat::check(forward_compat_stage::WWC_READING_ATR, it->forward_compat());
-                              if (it->has_expired()) {
-                                  debug("existing atr entry has expired (age is {}ms), ignoring", it->age_ms());
-                                  return;
-                              }
-                              switch (it->state()) {
-                                  case attempt_state::COMPLETED:
-                                  case attempt_state::ROLLED_BACK:
-                                      debug("existing atr entry can be ignored due to state {}", it->state());
-                                      return;
-                                  default:
-                                      debug("existing atr entry found in state {}, retrying", it->state());
-                              }
-                              throw retry_operation("retry check for blocking doc");
-                          } else {
-                              debug("no blocking atr entry");
-                              return;
+            delay();
+            hooks_.before_check_atr_entry_for_blocking_doc(this, doc.id().key());
+            couchbase::document_id atr_id(doc.links().atr_bucket_name().value(),
+                                          doc.links().atr_scope_name().value(),
+                                          doc.links().atr_collection_name().value(),
+                                          doc.links().atr_id().value());
+            active_transaction_record::get_atr(
+              cluster_ref(),
+              atr_id,
+              [this, delay = std::move(delay), cb = std::move(cb), doc = std::move(doc)](std::error_code err,
+                                                                                         std::optional<active_transaction_record> atr) {
+                  if (!err) {
+                      auto entries = atr->entries();
+                      auto it = std::find_if(entries.begin(), entries.end(), [&doc](const atr_entry& e) {
+                          return e.attempt_id() == doc.links().staged_attempt_id();
+                      });
+                      if (it != entries.end()) {
+                          forward_compat::check(forward_compat_stage::WWC_READING_ATR, it->forward_compat());
+                          if (it->has_expired()) {
+                              debug("existing atr entry has expired (age is {}ms), ignoring", it->age_ms());
+                              return cb(std::nullopt);
                           }
+                          switch (it->state()) {
+                              case attempt_state::COMPLETED:
+                              case attempt_state::ROLLED_BACK:
+                                  debug("existing atr entry can be ignored due to state {}", it->state());
+                                  return cb(std::nullopt);
+                              default:
+                                  debug("existing atr entry found in state {}, retrying", it->state());
+                          }
+                          return check_atr_entry_for_blocking_document(doc, delay, cb);
                       } else {
-                          debug("atr entry not found, assuming we can proceed");
-                          return;
+                          debug("no blocking atr entry");
+                          return cb(std::nullopt);
                       }
-                      // if we are here, there is still a write-write conflict
-                      throw transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, "document is in another transaction").retry();
-                  } catch (const client_error& e) {
-                      throw transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, e.what()).retry();
+                  } else {
+                      debug("atr entry not found, assuming we can proceed");
+                      return cb(std::nullopt);
                   }
+                  // if we are here, there is still a write-write conflict
+                  return cb(std::make_optional(
+                    transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, "document is in another transaction").retry()));
               });
         } catch (const retry_operation_timeout& t) {
-            throw transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, t.what()).retry();
+            return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, t.what()).retry());
         }
+    }
+    void attempt_context_impl::remove(transaction_get_result& document, VoidCallback&& cb)
+    {
+        return cache_error_async(std::move(cb), [&]() {
+            check_if_done(cb);
+            if (check_expiry_pre_commit(STAGE_REMOVE, document.id().key())) {
+                return op_completed_with_error(cb, transaction_operation_failed(FAIL_EXPIRY, "transaction expired"));
+            }
+            if (staged_mutations_->find_insert(document.id())) {
+                error("cannot remove document {}, as it was inserted in this transaction", document.id());
+                throw transaction_operation_failed(FAIL_OTHER, "Cannot remove a document inserted in the same transaction");
+            }
+            trace("removing {}", document);
+            // check_and_handle_blocking_transactions(document, forward_compat_stage::WWC_REMOVING);
+            select_atr_if_needed_unlocked(
+              document.id(), [document = std::move(document), cb = std::move(cb), this](std::optional<transaction_operation_failed> err) {
+                  hooks_.before_staged_remove(this, document.id().key());
+                  trace("about to remove remove doc {} with cas {}", document.id(), document.cas());
+                  auto req = create_staging_request(document, "remove");
+                  req.cas.value = document.cas();
+                  req.access_deleted = document.links().is_deleted();
+                  overall_.cluster_ref().execute(
+                    req, [this, document = std::move(document), cb = std::move(cb)](couchbase::operations::mutate_in_response resp) {
+                        auto ec = error_class_from_response(resp);
+                        if (!ec) {
+                            trace("removed doc {} CAS={}, rc={}", document.id(), resp.cas.value, resp.ctx.ec.message());
+                            hooks_.after_staged_remove_complete(this, document.id().key());
+                            // TODO: this copy...  can we do better?
+                            transaction_get_result new_res = document;
+                            new_res.cas(resp.cas.value);
+                            staged_mutations_->add(staged_mutation(new_res, "", staged_mutation_type::REMOVE));
+                            op_completed_with_callback(cb);
+                        } else {
+                            transaction_operation_failed err(*ec, resp.ctx.ec.message());
+                            switch (*ec) {
+                                case FAIL_EXPIRY:
+                                    expiry_overtime_mode_ = true;
+                                    op_completed_with_error(std::move(cb), err.expired());
+                                    break;
+                                case FAIL_DOC_NOT_FOUND:
+                                case FAIL_DOC_ALREADY_EXISTS:
+                                case FAIL_CAS_MISMATCH:
+                                case FAIL_TRANSIENT:
+                                case FAIL_AMBIGUOUS:
+                                    op_completed_with_error(std::move(cb), err.retry());
+                                    break;
+                                case FAIL_HARD:
+                                    op_completed_with_error(std::move(cb), err.no_rollback());
+                                    break;
+                                default:
+                                    op_completed_with_error(std::move(cb), err);
+                                    break;
+                            }
+                        }
+                    });
+              });
+        });
     }
 
     void attempt_context_impl::remove(transaction_get_result& document)
     {
-        return cache_error<void>([&]() {
-            try {
-                check_if_done();
-                check_expiry_pre_commit(STAGE_REMOVE, document.id().key());
-                if (staged_mutations_->find_insert(document.id())) {
-                    error("cannot remove document {}, as it was inserted in this transaction", document.id());
-                    throw transaction_operation_failed(FAIL_OTHER, "Cannot remove a document inserted in the same transaction");
-                }
-                trace("removing {}", document);
-                check_and_handle_blocking_transactions(document, forward_compat_stage::WWC_REMOVING);
-                select_atr_if_needed(document.id());
-
-                set_atr_pending_if_first_mutation(document.id());
-
-                hooks_.before_staged_remove(this, document.id().key());
-                trace("about to remove remove doc {} with cas {}", document.id(), document.cas());
-                auto req = create_staging_request(document, "remove");
-                req.cas.value = document.cas();
-                req.access_deleted = document.links().is_deleted();
-                auto barrier = std::make_shared<std::promise<result>>();
-                auto f = barrier->get_future();
-                parent_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
-                    barrier->set_value(result::create_from_subdoc_response(resp));
-                });
-                auto res = wrap_operation_future(f);
-                trace("removed doc {} CAS={}, rc={}", document.id(), res.cas, res.strerror());
-                hooks_.after_staged_remove_complete(this, document.id().key());
-                document.cas(res.cas);
-                staged_mutations_->add(staged_mutation(document, "", staged_mutation_type::REMOVE));
-            } catch (const client_error& e) {
-                error_class ec = e.ec();
-                switch (ec) {
-                    case FAIL_EXPIRY:
-                        expiry_overtime_mode_ = true;
-                        throw transaction_operation_failed(ec, e.what()).expired();
-                    case FAIL_DOC_NOT_FOUND:
-                        throw transaction_operation_failed(ec, e.what()).retry();
-                    case FAIL_DOC_ALREADY_EXISTS:
-                    case FAIL_CAS_MISMATCH:
-                        throw transaction_operation_failed(ec, e.what()).retry();
-                    case FAIL_TRANSIENT:
-                    case FAIL_AMBIGUOUS:
-                        throw transaction_operation_failed(ec, e.what()).retry();
-                    case FAIL_HARD:
-                        throw transaction_operation_failed(ec, e.what()).no_rollback();
-                    default:
-                        throw transaction_operation_failed(ec, e.what());
-                }
+        auto barrier = std::make_shared<std::promise<void>>();
+        auto f = barrier->get_future();
+        remove(document, [barrier](std::optional<transaction_operation_failed> err) {
+            if (err) {
+                return barrier->set_exception(std::make_exception_ptr(*err));
             }
+            barrier->set_value();
         });
+        f.get();
     }
-
     void attempt_context_impl::atr_commit()
     {
         try {
@@ -385,7 +510,7 @@ namespace transactions
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
             trace("updating atr {}", req.id);
-            parent_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+            overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
                 barrier->set_value(result::create_from_subdoc_response(resp));
             });
             auto res = wrap_operation_future(f);
@@ -427,7 +552,7 @@ namespace transactions
             wrap_request(req, config_);
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
-            parent_->cluster_ref().execute(req, [barrier](couchbase::operations::lookup_in_response resp) mutable {
+            overall_.cluster_ref().execute(req, [barrier](couchbase::operations::lookup_in_response resp) {
                 barrier->set_value(result::create_from_subdoc_response(resp));
             });
             auto res = wrap_operation_future(f);
@@ -476,7 +601,7 @@ namespace transactions
             wrap_durable_request(req, config_);
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
-            parent_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+            overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
                 barrier->set_value(result::create_from_subdoc_response(resp));
             });
             wrap_operation_future(f);
@@ -495,18 +620,11 @@ namespace transactions
 
     void attempt_context_impl::commit()
     {
+        op_list_.wait_and_block_ops();
         debug("commit {}", id());
         existing_error();
-        try {
-            check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {});
-        } catch (const client_error& e) {
-            auto ec = e.ec();
-            switch (ec) {
-                case FAIL_EXPIRY:
-                    throw transaction_operation_failed(ec, e.what()).expired();
-                default:
-                    throw transaction_operation_failed(ec, e.what());
-            }
+        if (check_expiry_pre_commit(STAGE_BEFORE_COMMIT, {})) {
+            throw transaction_operation_failed(FAIL_EXPIRY, "transaction expired").expired();
         }
         if (atr_id_ && !atr_id_->key().empty() && !is_done_) {
             retry_op_exp<void>([&]() { atr_commit(); });
@@ -545,7 +663,7 @@ namespace transactions
             wrap_durable_request(req, config_);
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
-            parent_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+            overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
                 barrier->set_value(result::create_from_subdoc_response(resp));
             });
             wrap_operation_future(f);
@@ -590,7 +708,7 @@ namespace transactions
             wrap_durable_request(req, config_);
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
-            parent_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+            overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
                 barrier->set_value(result::create_from_subdoc_response(resp));
             });
             wrap_operation_future(f);
@@ -630,7 +748,8 @@ namespace transactions
 
     void attempt_context_impl::rollback()
     {
-        debug("rolling back");
+        op_list_.wait_and_block_ops();
+        debug("rolling back {}", id());
         // check for expiry
         check_expiry_during_commit_or_rollback(STAGE_ROLLBACK, std::nullopt);
         if (!atr_id_ || atr_id_->key().empty() || state() == attempt_state::NOT_STARTED) {
@@ -677,28 +796,31 @@ namespace transactions
         return over || hook;
     }
 
-    void attempt_context_impl::check_expiry_pre_commit(std::string stage, std::optional<const std::string> doc_id)
+    bool attempt_context_impl::check_expiry_pre_commit(std::string stage, std::optional<const std::string> doc_id)
     {
         if (has_expired_client_side(stage, std::move(doc_id))) {
             debug("{} has expired in stage {}, entering expiry-overtime mode - will make one attempt to rollback", id(), stage);
 
-            // [EXP-ROLLBACK] Combo of setting this mode and throwing AttemptExpired will result in a attempt to rollback, which will
+            // [EXP-ROLLBACK] Combo of setting this mode and throwing AttemptExpired will result in an attempt to rollback, which will
             // ignore expiries, and bail out if anything fails
             expiry_overtime_mode_ = true;
-            throw attempt_expired(std::string("Attempt has expired in stage ") + stage);
+            return true;
         }
+        return false;
     }
 
-    void attempt_context_impl::error_if_expired_and_not_in_overtime(const std::string& stage, std::optional<const std::string> doc_id)
+    std::optional<error_class> attempt_context_impl::error_if_expired_and_not_in_overtime(const std::string& stage,
+                                                                                          std::optional<const std::string> doc_id)
     {
         if (expiry_overtime_mode_) {
             debug("not doing expired check in {} as already in expiry-overtime", stage);
-            return;
+            return {};
         }
         if (has_expired_client_side(stage, std::move(doc_id))) {
             debug("expired in {}", stage);
-            throw attempt_expired(std::string("Expired in ") + stage);
+            return FAIL_EXPIRY;
         }
+        return {};
     }
 
     void attempt_context_impl::check_expiry_during_commit_or_rollback(const std::string& stage, std::optional<const std::string> doc_id)
@@ -713,16 +835,18 @@ namespace transactions
             debug("{} ignoring expiry in stage {}  as in expiry-overtime mode", id(), stage);
         }
     }
-
-    void attempt_context_impl::set_atr_pending_if_first_mutation(const couchbase::document_id& id)
+    template<typename Handler>
+    void attempt_context_impl::set_atr_pending_locked(const couchbase::document_id& id, std::unique_lock<std::mutex>&& lock, Handler&& fn)
     {
-        if (staged_mutations_->empty()) {
-            std::string prefix(ATR_FIELD_ATTEMPTS + "." + this->id() + ".");
-            if (!atr_id_) {
-                throw transaction_operation_failed(FAIL_OTHER, std::string("ATR ID is not initialized"));
-            }
-            try {
-                error_if_expired_and_not_in_overtime(STAGE_ATR_PENDING, {});
+        try {
+            if (staged_mutations_->empty()) {
+                std::string prefix(ATR_FIELD_ATTEMPTS + "." + this->id() + ".");
+                if (!atr_id_) {
+                    return fn(transaction_operation_failed(FAIL_OTHER, std::string("ATR ID is not initialized")));
+                }
+                if (auto ec = error_if_expired_and_not_in_overtime(STAGE_ATR_PENDING, {})) {
+                    return fn(transaction_operation_failed(*ec, "transaction expired setting ATR").expired());
+                }
                 hooks_.before_atr_pending(this);
                 debug("updating atr {}", atr_id_.value());
                 couchbase::operations::mutate_in_request req{ atr_id_.value() };
@@ -748,45 +872,51 @@ namespace transactions
                                    prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
                                    jsonify(std::chrono::duration_cast<std::chrono::milliseconds>(config_.expiration_time()).count()));
                 req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::upsert;
-                // wrap_durable_request(req, config_);
-                auto barrier = std::make_shared<std::promise<result>>();
-                auto f = barrier->get_future();
-                parent_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
-                    barrier->set_value(result::create_from_subdoc_response(resp));
+
+                wrap_durable_request(req, config_);
+                overall_.cluster_ref().execute(req, [this, &lock, fn = std::move(fn)](couchbase::operations::mutate_in_response resp) {
+                    auto ec = error_class_from_response(resp);
+                    if (!ec) {
+                        hooks_.after_atr_pending(this);
+                        state(attempt_state::PENDING);
+                        debug("set ATR {} to Pending, got CAS (start time) {}", atr_id_.value(), resp.cas.value);
+                        return fn(std::nullopt);
+                    } else {
+                        transaction_operation_failed err(*ec, resp.ctx.ec.message());
+                        trace("got {} trying to set atr to pending", resp.ctx.ec.message());
+                        if (expiry_overtime_mode_) {
+                            return fn(err.no_rollback().expired());
+                        }
+                        switch (*ec) {
+                            case FAIL_EXPIRY:
+                                expiry_overtime_mode_ = true;
+                                // this should trigger rollback (unlike the above when already in overtime mode)
+                                return fn(err.expired());
+                            case FAIL_ATR_FULL:
+                                return fn(err);
+                            case FAIL_PATH_ALREADY_EXISTS:
+                                // assuming this got resolved, moving on as if ok
+                                return fn(std::nullopt);
+                            case FAIL_AMBIGUOUS:
+                                // Retry just this
+                                overall_.retry_delay();
+                                // keep it locked!
+                                debug("got {}, retrying set atr pending", resp.ctx.ec.message());
+                                return set_atr_pending_locked(resp.ctx.id, std::move(lock), std::move(fn));
+                            case FAIL_TRANSIENT:
+                                // Retry txn
+                                return fn(err.retry());
+                            case FAIL_HARD:
+                                return fn(err.no_rollback());
+                            default:
+                                return fn(err);
+                        }
+                    }
                 });
-                auto res = wrap_operation_future(f);
-                debug("set ATR {} to Pending, got CAS (start time) {}", atr_id_.value(), res.cas);
-                hooks_.after_atr_pending(this);
-                state(attempt_state::PENDING);
-            } catch (const client_error& e) {
-                debug("caught {}, ec={}", e.what(), e.ec());
-                if (expiry_overtime_mode_) {
-                    throw transaction_operation_failed(FAIL_EXPIRY, e.what()).no_rollback().expired();
-                }
-                error_class ec = e.ec();
-                switch (ec) {
-                    case FAIL_EXPIRY:
-                        expiry_overtime_mode_ = true;
-                        // this should trigger rollback (unlike the above when already in overtime mode)
-                        throw transaction_operation_failed(ec, e.what()).expired();
-                    case FAIL_ATR_FULL:
-                        throw transaction_operation_failed(ec, e.what());
-                    case FAIL_PATH_ALREADY_EXISTS:
-                        // assuming this got resolved, moving on as if ok
-                        break;
-                    case FAIL_AMBIGUOUS:
-                        // Retry just this
-                        overall_.retry_delay(config_);
-                        return set_atr_pending_if_first_mutation(id);
-                    case FAIL_TRANSIENT:
-                        // Retry txn
-                        throw transaction_operation_failed(ec, e.what()).retry();
-                    case FAIL_HARD:
-                        throw transaction_operation_failed(ec, e.what()).no_rollback();
-                    default:
-                        throw transaction_operation_failed(ec, e.what());
-                }
             }
+        } catch (const std::exception& e) {
+            error("unexpected error setting atr pending {}", e.what());
+            return fn(transaction_operation_failed(FAIL_OTHER, "unexpected error setting atr pending"));
         }
     }
 
@@ -803,127 +933,125 @@ namespace transactions
         return nullptr;
     }
 
-    void attempt_context_impl::check_if_done()
+    template<typename Handler>
+    void attempt_context_impl::check_if_done(Handler& cb)
     {
         if (is_done_) {
-            throw transaction_operation_failed(FAIL_OTHER, "Cannot perform operations after transaction has been committed or rolled back")
-              .no_rollback();
+            return op_completed_with_error(
+              cb,
+              transaction_operation_failed(FAIL_OTHER, "Cannot perform operations after transaction has been committed or rolled back")
+                .no_rollback());
         }
     }
-
-    std::optional<transaction_get_result> attempt_context_impl::do_get(const couchbase::document_id& id)
+    template<typename Handler>
+    void attempt_context_impl::do_get(const couchbase::document_id& id, Handler&& cb)
     {
         try {
-            check_if_done();
-            check_expiry_pre_commit(STAGE_GET, id.key());
+            if (check_expiry_pre_commit(STAGE_GET, id.key())) {
+                return cb(FAIL_EXPIRY, std::nullopt);
+            }
 
             staged_mutation* own_write = check_for_own_write(id);
             if (own_write) {
                 debug("found own-write of mutated doc {}", id);
-                return transaction_get_result::create_from(own_write->doc(), own_write->content());
+                return cb(std::nullopt, transaction_get_result::create_from(own_write->doc(), own_write->content()));
             }
             staged_mutation* own_remove = staged_mutations_->find_remove(id);
             if (own_remove) {
                 debug("found own-write of removed doc {}", id);
-                return {};
+                return cb(std::nullopt, std::nullopt);
             }
 
             hooks_.before_doc_get(this, id.key());
 
-            auto doc_res = get_doc(id);
-            if (!doc_res) {
-                return {};
-            }
-            auto doc = doc_res->first;
-            auto get_doc_res = doc_res->second;
-            if (doc.links().is_document_in_transaction()) {
-                debug("doc {} in transaction", doc);
-                couchbase::document_id doc_atr_id{ doc.links().atr_bucket_name().value(),
-                                                   doc.links().atr_scope_name().value(),
-                                                   doc.links().atr_collection_name().value(),
-                                                   doc.links().atr_id().value() };
-                std::optional<active_transaction_record> atr = active_transaction_record::get_atr(cluster_ref(), doc_atr_id);
-                if (atr) {
-                    active_transaction_record& atr_doc = atr.value();
-                    std::optional<atr_entry> entry;
-                    for (auto& e : atr_doc.entries()) {
-                        if (doc.links().staged_attempt_id().value() == e.attempt_id()) {
-                            entry.emplace(e);
-                            break;
-                        }
-                    }
-                    bool ignore_doc = false;
-                    auto content = doc.content<std::string>();
-                    if (entry) {
-                        if (doc.links().staged_attempt_id() && entry->attempt_id() == this->id()) {
-                            // Attempt is reading its own writes
-                            // This is here as backup, it should be returned from the in-memory cache instead
-                            content = doc.links().staged_content();
-                        } else {
-                            forward_compat::check(forward_compat_stage::GETS_READING_ATR, entry->forward_compat());
-                            switch (entry->state()) {
-                                case attempt_state::COMMITTED:
-                                    if (doc.links().is_document_being_removed()) {
-                                        ignore_doc = true;
-                                    } else {
-                                        content = doc.links().staged_content();
-                                    }
-                                    break;
-                                default:
-                                    if (doc.content<nlohmann::json>().empty()) {
-                                        // This document is being inserted, so should not be visible yet
-                                        ignore_doc = true;
-                                    }
-                                    break;
-                            }
-                        }
+            get_doc(id, [this, id, cb = std::move(cb)](std::optional<error_class> ec, std::optional<transaction_get_result> doc) {
+                if (!ec && !doc) {
+                    // it just isn't there.
+                    return cb(std::nullopt, std::nullopt);
+                }
+                if (!ec) {
+                    if (doc->links().is_document_in_transaction()) {
+                        debug("doc {} in transaction", *doc);
+                        couchbase::document_id doc_atr_id{ doc->links().atr_bucket_name().value(),
+                                                           doc->links().atr_scope_name().value(),
+                                                           doc->links().atr_collection_name().value(),
+                                                           doc->links().atr_id().value() };
+                        active_transaction_record::get_atr(
+                          cluster_ref(),
+                          doc_atr_id,
+                          [this, doc, cb = std::move(cb)](std::error_code ec, std::optional<active_transaction_record> atr) {
+                              if (!ec && atr) {
+                                  active_transaction_record& atr_doc = atr.value();
+                                  std::optional<atr_entry> entry;
+                                  for (auto& e : atr_doc.entries()) {
+                                      if (doc->links().staged_attempt_id().value() == e.attempt_id()) {
+                                          entry.emplace(e);
+                                          break;
+                                      }
+                                  }
+                                  bool ignore_doc = false;
+                                  auto content = doc->content<std::string>();
+                                  if (entry) {
+                                      if (doc->links().staged_attempt_id() && entry->attempt_id() == this->id()) {
+                                          // Attempt is reading its own writes
+                                          // This is here as backup, it should be returned from the in-memory cache instead
+                                          content = doc->links().staged_content();
+                                      } else {
+                                          forward_compat::check(forward_compat_stage::GETS_READING_ATR, entry->forward_compat());
+                                          switch (entry->state()) {
+                                              case attempt_state::COMMITTED:
+                                                  if (doc->links().is_document_being_removed()) {
+                                                      ignore_doc = true;
+                                                  } else {
+                                                      content = doc->links().staged_content();
+                                                  }
+                                                  break;
+                                              default:
+                                                  if (doc->content<nlohmann::json>().empty()) {
+                                                      // This document is being inserted, so should not be visible yet
+                                                      ignore_doc = true;
+                                                  }
+                                                  break;
+                                          }
+                                      }
+                                  } else {
+                                      // Don't know if transaction was committed or rolled back. Should not happen as ATR should stick
+                                      // around long enough
+                                      if (content.empty()) {
+                                          // This document is being inserted, so should not be visible yet
+                                          ignore_doc = true;
+                                      }
+                                  }
+                                  if (ignore_doc) {
+                                      return cb(std::nullopt, std::nullopt);
+                                  } else {
+                                      return cb(std::nullopt, transaction_get_result::create_from(*doc, content));
+                                  }
+                              } else {
+                                  // failed to get the ATR
+                                  if (doc->content<nlohmann::json>().empty()) {
+                                      // this document is being inserted, so should not be visible yet
+                                      return cb(std::nullopt, std::nullopt);
+                                  }
+                                  return cb(std::nullopt, doc);
+                              }
+                              return cb(std::nullopt, doc);
+                          });
                     } else {
-                        // Don't know if transaction was committed or rolled back. Should not happen as ATR should stick around long
-                        // enough
-                        if (content.empty()) {
-                            // This document is being inserted, so should not be visible yet
-                            ignore_doc = true;
+                        if (doc->links().is_deleted()) {
+                            debug("doc not in txn, and is_deleted, so not returning it.");
+                            // doc has been deleted, not in txn, so don't return it
+                            return cb(std::nullopt, std::nullopt);
                         }
-                    }
-                    if (ignore_doc) {
-                        return {};
-                    } else {
-                        return transaction_get_result::create_from(doc, content);
+                        return cb(std::nullopt, doc);
                     }
                 } else {
-                    // failed to get the ATR
-                    if (doc.content<nlohmann::json>().empty()) {
-                        // this document is being inserted, so should not be visible yet
-                        return {};
-                    } else {
-                        return doc;
-                    }
+                    return cb(ec, std::nullopt);
                 }
-            } else {
-                if (get_doc_res.is_deleted) {
-                    debug("doc not in txn, and is_deleted, so not returning it.");
-                    // doc has been deleted, not in txn, so don't return it
-                    return {};
-                }
-            }
-            return doc;
-        } catch (const client_error& e) {
-            error_class ec = e.ec();
-            switch (ec) {
-                case FAIL_EXPIRY:
-                    throw transaction_operation_failed(ec, e.what()).expired();
-                case FAIL_DOC_NOT_FOUND:
-                    return {};
-                case FAIL_TRANSIENT:
-                    throw transaction_operation_failed(ec, e.what()).retry();
-                case FAIL_HARD:
-                    throw transaction_operation_failed(ec, e.what()).no_rollback();
-                default: {
-                    std::ostringstream stream;
-                    stream << "got error while getting doc " << id.key() << ": " << e.what();
-                    throw transaction_operation_failed(FAIL_OTHER, stream.str());
-                }
-            }
+            });
+
+        } catch (const transaction_operation_failed& e) {
+            throw;
         } catch (const std::exception& ex) {
             std::ostringstream stream;
             stream << "got error while getting doc " << id.key() << ": " << ex.what();
@@ -931,164 +1059,192 @@ namespace transactions
         }
     }
 
-    std::optional<std::pair<transaction_get_result, result>> attempt_context_impl::get_doc(const couchbase::document_id& id)
+    void attempt_context_impl::get_doc(const couchbase::document_id& id,
+                                       std::function<void(std::optional<error_class>, std::optional<transaction_get_result>)>&& cb)
     {
+        couchbase::operations::lookup_in_request req{ id };
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_ID);
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, TRANSACTION_ID);
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, ATTEMPT_ID);
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, STAGED_DATA);
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_BUCKET_NAME);
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_COLL_NAME);
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, TRANSACTION_RESTORE_PREFIX_ONLY);
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, TYPE);
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, "$document");
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, CRC32_OF_STAGING);
+        req.specs.add_spec(protocol::subdoc_opcode::get, true, FORWARD_COMPAT);
+        req.specs.add_spec(protocol::subdoc_opcode::get_doc, false, "");
+        req.access_deleted = true;
+        wrap_request(req, config_);
         try {
-            couchbase::operations::lookup_in_request req{ id };
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_ID);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, TRANSACTION_ID);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATTEMPT_ID);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, STAGED_DATA);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_BUCKET_NAME);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_COLL_NAME);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, TRANSACTION_RESTORE_PREFIX_ONLY);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, TYPE);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, "$document");
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, CRC32_OF_STAGING);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, FORWARD_COMPAT);
-            req.specs.add_spec(protocol::subdoc_opcode::get_doc, false, "");
-            req.access_deleted = true;
-            wrap_request(req, config_);
-            auto barrier = std::make_shared<std::promise<result>>();
-            auto f = barrier->get_future();
-            parent_->cluster_ref().execute(req, [barrier](couchbase::operations::lookup_in_response resp) mutable {
-                barrier->set_value(result::create_from_subdoc_response(resp));
+            overall_.cluster_ref().execute(req, [id, cb = std::move(cb)](couchbase::operations::lookup_in_response resp) {
+                auto ec = error_class_from_response(resp);
+                if (ec) {
+                    switch (*ec) {
+                        case FAIL_PATH_NOT_FOUND:
+                            cb(*ec, transaction_get_result::create_from(resp));
+                        default:
+                            cb(*ec, std::nullopt);
+                    }
+                } else {
+                    cb({}, transaction_get_result::create_from(resp));
+                }
             });
-            auto res = wrap_operation_future(f);
-            return std::pair<transaction_get_result, result>(transaction_get_result::create_from(id, res), res);
-        } catch (const client_error& e) {
-            if (e.ec() == FAIL_DOC_NOT_FOUND) {
-                return std::nullopt;
-            }
-            if (e.ec() == FAIL_PATH_NOT_FOUND) {
-                return std::pair<transaction_get_result, result>(transaction_get_result::create_from(id, *e.res()), *e.res());
-            }
-            throw;
+        } catch (const std::exception& e) {
+            cb(FAIL_OTHER, std::nullopt);
         }
     }
-
-    transaction_get_result attempt_context_impl::create_staged_insert(const couchbase::document_id& id,
-                                                                      const std::string& content,
-                                                                      uint64_t& cas)
+    template<typename Handler>
+    void attempt_context_impl::create_staged_insert(const couchbase::document_id& id,
+                                                    const std::string& content,
+                                                    uint64_t cas,
+                                                    Handler&& cb)
     {
-        try {
-            error_if_expired_and_not_in_overtime(STAGE_CREATE_STAGED_INSERT, id.key());
-            hooks_.before_staged_insert(this, id.key());
-            debug("about to insert staged doc {} with cas {}", id, cas);
-            couchbase::operations::mutate_in_request req{ id };
-            req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, TRANSACTION_ID, jsonify(overall_.transaction_id()));
-            req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATTEMPT_ID, jsonify(this->id()));
-            req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_ID, jsonify(atr_id()));
-            req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, STAGED_DATA, content);
-            req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_BUCKET_NAME, jsonify(id.bucket()));
-            req.specs.add_spec(
-              protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_COLL_NAME, jsonify(collection_spec_from_id(id)));
-            req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, TYPE, jsonify("insert"));
-            req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, true, CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C);
-            req.access_deleted = true;
-            req.create_as_deleted = true;
-            req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::insert;
-            req.cas.value = cas;
-            wrap_durable_request(req, config_);
-            auto barrier = std::make_shared<std::promise<result>>();
-            auto f = barrier->get_future();
-            parent_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
-                barrier->set_value(result::create_from_subdoc_response(resp));
-            });
-            auto res = wrap_operation_future(f);
-            debug("inserted doc {} CAS={}, rc={}", id, res.cas, res.strerror());
-            hooks_.after_staged_insert_complete(this, id.key());
+        error_if_expired_and_not_in_overtime(STAGE_CREATE_STAGED_INSERT, id.key());
+        hooks_.before_staged_insert(this, id.key());
+        debug("about to insert staged doc {} with cas {}", id, cas);
+        couchbase::operations::mutate_in_request req{ id };
+        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, TRANSACTION_ID, jsonify(overall_.transaction_id()));
+        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATTEMPT_ID, jsonify(this->id()));
+        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_ID, jsonify(atr_id()));
+        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, STAGED_DATA, content);
+        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_BUCKET_NAME, jsonify(id.bucket()));
+        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_COLL_NAME, jsonify(collection_spec_from_id(id)));
+        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, TYPE, jsonify("insert"));
+        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, true, CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C);
+        req.access_deleted = true;
+        req.create_as_deleted = true;
+        req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::insert;
+        req.cas.value = cas;
+        wrap_durable_request(req, config_);
+        overall_.cluster_ref().execute(req, [this, id, content, cas, cb](couchbase::operations::mutate_in_response resp) {
+            if (!resp.ctx.ec) {
+                debug("inserted doc {} CAS={}, rc={}", id, resp.cas.value, resp.ctx.ec.message());
+                hooks_.after_staged_insert_complete(this, id.key());
 
-            // TODO: clean this up (do most of this in transactions_document(...))
-            transaction_links links(atr_id_->key(),
-                                    id.bucket(),
-                                    id.scope(),
-                                    id.collection(),
-                                    overall_.transaction_id(),
-                                    this->id(),
-                                    content,
-                                    std::nullopt,
-                                    std::nullopt,
-                                    std::nullopt,
-                                    std::nullopt,
-                                    std::string("insert"),
-                                    std::nullopt,
-                                    true);
-            transaction_get_result out(id, content, res.cas, links, std::nullopt);
-            staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::INSERT));
-            return out;
-        } catch (const client_error& e) {
-            error_class ec = e.ec();
-            if (expiry_overtime_mode_) {
-                throw transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired();
-            }
-            switch (ec) {
-                case FAIL_EXPIRY:
-                    expiry_overtime_mode_ = true;
-                    throw transaction_operation_failed(ec, "attempt timed-out").expired();
-                case FAIL_TRANSIENT:
-                    throw transaction_operation_failed(ec, "transient error in insert").retry();
-                case FAIL_AMBIGUOUS:
-                    throw retry_operation("FAIL_AMBIGUOUS in create_staged_insert");
-                case FAIL_DOC_ALREADY_EXISTS:
-                case FAIL_CAS_MISMATCH:
-                    // special handling for doc already existing
-                    try {
+                // TODO: clean this up (do most of this in transactions_document(...))
+                transaction_links links(atr_id_->key(),
+                                        id.bucket(),
+                                        id.scope(),
+                                        id.collection(),
+                                        overall_.transaction_id(),
+                                        this->id(),
+                                        content,
+                                        std::nullopt,
+                                        std::nullopt,
+                                        std::nullopt,
+                                        std::nullopt,
+                                        std::string("insert"),
+                                        std::nullopt,
+                                        true);
+                transaction_get_result out(id, content, resp.cas.value, links, std::nullopt);
+                staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::INSERT));
+                return op_completed_with_callback(cb, out);
+            } else {
+                auto ec = error_class_from_response(resp);
+
+                if (expiry_overtime_mode_) {
+                    return op_completed_with_error(cb, transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired());
+                }
+                switch (*ec) {
+                    case FAIL_EXPIRY:
+                        expiry_overtime_mode_ = true;
+                        return op_completed_with_error(cb, transaction_operation_failed(*ec, "attempt timed-out").expired());
+                    case FAIL_TRANSIENT:
+                        return op_completed_with_error(cb, transaction_operation_failed(*ec, "transient error in insert").retry());
+                    case FAIL_AMBIGUOUS:
+                        debug("FAIL_AMBIGUOUS in create_staged_insert, retrying");
+                        std::this_thread::sleep_for(DEFAULT_RETRY_OP_DELAY);
+                        return create_staged_insert(id, content, cas, std::move(cb));
+                    case FAIL_OTHER:
+                        return op_completed_with_error(cb, transaction_operation_failed(*ec, "error in create_staged_insert"));
+                    case FAIL_HARD:
+                        return op_completed_with_error(cb,
+                                                       transaction_operation_failed(*ec, "error in create_staged_insert").no_rollback());
+                    case FAIL_DOC_ALREADY_EXISTS:
+                    case FAIL_CAS_MISMATCH: {
+                        // special handling for doc already existing
                         debug("found existing doc {}, may still be able to insert", id);
                         hooks_.before_get_doc_in_exists_during_staged_insert(this, id.key());
-                        auto get_document = get_doc(id);
-                        if (get_document) {
-                            auto doc = get_document->first;
-                            auto get_res = get_document->second;
-                            debug("document {} exists, is_in_transaction {}, is_deleted {} ",
-                                  doc.id(),
-                                  doc.links().is_document_in_transaction(),
-                                  get_res.is_deleted);
-                            forward_compat::check(forward_compat_stage::WWC_INSERTING_GET, doc.links().forward_compat());
-                            if (!doc.links().is_document_in_transaction() && get_res.is_deleted) {
-                                // it is just a deleted doc, so we are ok.  Lets try again, but with the cas
-                                debug("doc was deleted, retrying with cas {}", doc.cas());
-                                cas = doc.cas();
-                                throw retry_operation("create staged insert found existing deleted doc, retrying");
+                        get_doc(id, [this, id, content, cb](std::optional<error_class> ec, std::optional<transaction_get_result> doc) {
+                            if (!ec) {
+                                if (doc) {
+                                    debug("document {} exists, is_in_transaction {}, is_deleted {} ",
+                                          doc->id(),
+                                          doc->links().is_document_in_transaction(),
+                                          doc->links().is_deleted());
+                                    forward_compat::check(forward_compat_stage::WWC_INSERTING_GET, doc->links().forward_compat());
+                                    if (!doc->links().is_document_in_transaction() && doc->links().is_deleted()) {
+                                        // it is just a deleted doc, so we are ok.  Let's try again, but with the cas
+                                        debug("create staged insert found existing deleted doc, retrying with cas {}", doc->cas());
+                                        std::this_thread::sleep_for(DEFAULT_RETRY_OP_DELAY);
+                                        return create_staged_insert(id, content, doc->cas(), std::move(cb));
+                                    }
+                                    if (!doc->links().is_document_in_transaction()) {
+                                        // doc was inserted outside txn elsewhere
+                                        return op_completed_with_error(
+                                          std::move(cb), transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, "document already exists"));
+                                    }
+                                    // CBD-3787 - Only a staged insert is ok to overwrite
+                                    if (doc->links().op() && *doc->links().op() != "insert") {
+                                        return op_completed_with_error(
+                                          std::move(cb),
+                                          transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, "doc exists, not a staged insert")
+                                            .cause(DOCUMENT_EXISTS_EXCEPTION));
+                                    }
+                                    check_and_handle_blocking_transactions(
+                                      *doc,
+                                      forward_compat_stage::WWC_INSERTING,
+                                      [this, id, content, doc, cb = std::move(cb)](std::optional<transaction_operation_failed> err) {
+                                          debug("doc ok to overwrite, retrying create_staged_insert with cas {}", doc->cas());
+                                          std::this_thread::sleep_for(DEFAULT_RETRY_OP_DELAY);
+                                          return create_staged_insert(id, content, doc->cas(), std::move(cb));
+                                      });
+                                } else {
+                                    // no doc now, just retry entire txn
+                                    return op_completed_with_error(
+                                      std::move(cb),
+                                      transaction_operation_failed(FAIL_DOC_NOT_FOUND,
+                                                                   "insert failed as the doc existed, but now seems to not exist")
+                                        .retry());
+                                }
+                            } else {
+                                if (expiry_overtime_mode_) {
+                                    return op_completed_with_error(
+                                      std::move(cb), transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired());
+                                }
+                                switch (*ec) {
+                                    case FAIL_EXPIRY:
+                                        expiry_overtime_mode_ = true;
+                                        return op_completed_with_error(std::move(cb),
+                                                                       transaction_operation_failed(*ec, "attempt timed-out").expired());
+                                    case FAIL_TRANSIENT:
+                                    case FAIL_PATH_NOT_FOUND:
+                                        debug("transient error trying to get doc in insert - retrying txn");
+                                        return op_completed_with_error(
+                                          std::move(cb), transaction_operation_failed(*ec, "error handling found doc in insert").retry());
+                                    case FAIL_OTHER:
+                                        return op_completed_with_error(
+                                          std::move(cb), transaction_operation_failed(*ec, "failed getting doc in create_staged_insert"));
+                                    case FAIL_HARD:
+                                        return op_completed_with_error(
+                                          std::move(cb),
+                                          transaction_operation_failed(*ec, "failed getting doc in create_staged_insert").no_rollback());
+                                    default:
+                                        return op_completed_with_error(
+                                          std::move(cb),
+                                          transaction_operation_failed(*ec, "failed getting doc in create_staged_insert").retry());
+                                }
                             }
-                            if (!doc.links().is_document_in_transaction()) {
-                                // doc was inserted outside txn elsewhere
-                                throw transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, "document already exists");
-                            }
-                            // CBD-3787 - Only a staged insert is ok to overwrite
-                            if (doc.links().op() && *doc.links().op() != "insert") {
-                                throw transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, "doc exists, not a staged insert")
-                                  .cause(DOCUMENT_EXISTS_EXCEPTION);
-                            }
-                            check_and_handle_blocking_transactions(doc, forward_compat_stage::WWC_INSERTING);
-                            // if the check didn't throw, we can retry staging with cas
-                            debug("doc ok to overwrite, retrying with cas {}", doc.cas());
-                            cas = doc.cas();
-                            throw retry_operation("create staged insert found existing non-blocking doc, retrying");
-                        } else {
-                            // no doc now, just retry entire txn
-                            throw transaction_operation_failed(FAIL_DOC_NOT_FOUND,
-                                                               "insert failed as the doc existed, but now seems to not exist")
-                              .retry();
-                        }
-                    } catch (const transaction_operation_failed& get_err) {
-                        switch (get_err.ec()) {
-                            case FAIL_TRANSIENT:
-                            case FAIL_PATH_NOT_FOUND:
-                                debug("transient error trying to get doc in insert - retrying txn");
-                                throw transaction_operation_failed(get_err.ec(), "error handling found doc in insert").retry();
-                            default:
-                                throw;
-                        }
+                        });
                     }
-                case FAIL_OTHER:
-                    throw transaction_operation_failed(ec, e.what());
-                case FAIL_HARD:
-                    throw transaction_operation_failed(ec, e.what()).no_rollback();
-                default:
-                    throw transaction_operation_failed(FAIL_OTHER, e.what()).retry();
+                    default:
+                        return op_completed_with_error(std::move(cb),
+                                                       transaction_operation_failed(*ec, "failed in create_staged_insert").retry());
+                }
             }
-        }
+        });
     }
 
 } // namespace transactions

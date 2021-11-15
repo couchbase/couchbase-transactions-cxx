@@ -15,10 +15,10 @@
  */
 
 #pragma once
+#include "../../src/transactions/result.hxx"
 #include "../../src/transactions/uid_generator.hxx"
 #include "../../src/transactions/utils.hxx"
 #include <couchbase/transactions.hxx>
-#include <couchbase/transactions/result.hxx>
 
 #include <couchbase/cluster.hxx>
 #include <couchbase/operations.hxx>
@@ -35,19 +35,26 @@
 // tests through make with proper working directory.
 #define CONFIG_FILE_NAME "../tests/config.json"
 #define ENV_CONNECTION_STRING "TXN_CONNECTION_STRING"
+static const uint32_t DEFAULT_IO_COMPLETION_THREADS = 4;
+static const size_t MAX_PINGS = 10;
+static const auto PING_INTERVAL = std::chrono::milliseconds(100);
 
 namespace tx = couchbase::transactions;
 
 struct conn {
     asio::io_context io;
-    std::thread io_thread;
+    std::list<std::thread> io_threads;
     couchbase::cluster c;
 
     conn(const nlohmann::json& conf)
       : io({})
       , c(io)
     {
-        io_thread = std::thread([this]() { io.run(); });
+        size_t num_threads = conf.contains("io_threads") ? conf["io_threads"].get<uint32_t>() : 4;
+        couchbase::transactions::txn_log->trace("using {} io completion threads", num_threads);
+        for (size_t i = 0; i < num_threads; i++) {
+            io_threads.emplace_back([this]() { io.run(); });
+        }
         connect(conf);
     }
     ~conn()
@@ -57,34 +64,68 @@ struct conn {
         auto f = barrier->get_future();
         c.close([barrier]() { barrier->set_value(); });
         f.get();
-        io_thread.join();
+        for (auto& t : io_threads) {
+            if (t.joinable()) {
+                t.join();
+            } else {
+                couchbase::transactions::txn_log->warn("io completion thread not joinable");
+            }
+        }
     }
 
     void connect(const nlohmann::json& conf)
     {
         couchbase::cluster_credentials auth{};
         {
+            couchbase::logger::create_console_logger();
+            if (auto env_val = spdlog::details::os::getenv("COUCHBASE_CXX_CLIENT_LOG_LEVEL"); !env_val.empty()) {
+                couchbase::logger::set_log_levels(spdlog::level::from_str(env_val));
+            }
             auto connstr = couchbase::utils::parse_connection_string(conf["connection_string"]);
             auth.username = "Administrator";
             auth.password = "password";
             auto barrier = std::make_shared<std::promise<std::error_code>>();
             auto f = barrier->get_future();
-            c.open(couchbase::origin(auth, connstr), [barrier](std::error_code ec) mutable { barrier->set_value(ec); });
+            c.open(couchbase::origin(auth, connstr), [barrier](std::error_code ec) { barrier->set_value(ec); });
             auto rc = f.get();
             if (rc) {
                 std::cout << "ERROR opening cluster: " << rc.message() << std::endl;
                 exit(-1);
             }
+            spdlog::trace("successfully opened connection to {}", connstr.bootstrap_nodes.front().address);
         }
         // now, open the `default` bucket
         {
             auto barrier = std::make_shared<std::promise<std::error_code>>();
             auto f = barrier->get_future();
-            c.open_bucket("default", [barrier](std::error_code ec) mutable { barrier->set_value(ec); });
+            c.open_bucket("default", [barrier](std::error_code ec) { barrier->set_value(ec); });
             auto rc = f.get();
             if (rc) {
                 std::cout << "ERROR opening bucket `default`: " << rc.message() << std::endl;
                 exit(-1);
+            }
+        }
+
+        // do a ping
+        {
+            bool ok = false;
+            size_t num_pings = 0;
+            auto sleep_time = PING_INTERVAL;
+            while (!ok && num_pings < MAX_PINGS) {
+                sleep_time *= ++num_pings;
+                spdlog::info("sleeping {}ms before pinging...", sleep_time.count());
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time));
+                auto barrier = std::make_shared<std::promise<couchbase::diag::ping_result>>();
+                auto f = barrier->get_future();
+                c.ping("tests_startup", "default", { couchbase::service_type::key_value }, [barrier](couchbase::diag::ping_result result) {
+                    barrier->set_value(result);
+                });
+                auto result = f.get();
+                ok = result.services[couchbase::service_type::key_value].size() > 0;
+                for (auto s : result.services[couchbase::service_type::key_value]) {
+                    ok = ok && !s.error && (s.state == couchbase::diag::ping_state::ok);
+                }
+                spdlog::info("ping after connect {}", ok ? "successful" : "unsuccessful");
             }
         }
     }
@@ -96,6 +137,10 @@ class TransactionsTestEnvironment : public ::testing::Environment
     void SetUp() override
     {
         // for tests, really chatty logs may be useful.
+        if (!couchbase::logger::isInitialized()) {
+            couchbase::logger::create_console_logger();
+        }
+        couchbase::logger::set_log_levels(spdlog::level::level_enum::trace);
         couchbase::transactions::set_transactions_log_level(couchbase::transactions::log_level::TRACE);
         get_cluster();
     }
@@ -129,8 +174,11 @@ class TransactionsTestEnvironment : public ::testing::Environment
         req.value = content;
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
-        c.execute(req, [barrier](couchbase::operations::upsert_response resp) mutable { barrier->set_value(resp.ctx.ec); });
+        c.execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp.ctx.ec); });
         auto ec = f.get();
+        if (ec) {
+            spdlog::error("upsert doc failed with {}", ec.message());
+        }
         return !ec;
     }
 
@@ -141,8 +189,11 @@ class TransactionsTestEnvironment : public ::testing::Environment
         req.value = content;
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
-        c.execute(req, [barrier](couchbase::operations::insert_response resp) mutable { barrier->set_value(resp.ctx.ec); });
+        c.execute(req, [barrier](couchbase::operations::insert_response resp) { barrier->set_value(resp.ctx.ec); });
         auto ec = f.get();
+        if (ec) {
+            spdlog::error("insert doc failed with {}", ec.message());
+        }
         return !ec;
     }
 
@@ -152,8 +203,7 @@ class TransactionsTestEnvironment : public ::testing::Environment
         couchbase::operations::get_request req{ id };
         auto barrier = std::make_shared<std::promise<tx::result>>();
         auto f = barrier->get_future();
-        c.execute(
-          req, [barrier](couchbase::operations::get_response resp) mutable { barrier->set_value(tx::result::create_from_response(resp)); });
+        c.execute(req, [barrier](couchbase::operations::get_response resp) { barrier->set_value(tx::result::create_from_response(resp)); });
         return tx::wrap_operation_future(f);
     }
 
@@ -167,5 +217,16 @@ class TransactionsTestEnvironment : public ::testing::Environment
     {
         std::string key = (id.empty() ? couchbase::transactions::uid_generator::next() : id);
         return { "default", "_default", "_default", key };
+    }
+
+    static couchbase::transactions::transactions get_transactions(couchbase::cluster& c = get_cluster(),
+                                                                  bool cleanup_client_attempts = false,
+                                                                  bool cleanup_lost_txns = false)
+    {
+        couchbase::transactions::transaction_config cfg;
+        cfg.cleanup_client_attempts(false);
+        cfg.cleanup_lost_attempts(false);
+        cfg.expiration_time(std::chrono::seconds(1));
+        return { c, cfg };
     }
 };

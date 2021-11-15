@@ -70,6 +70,7 @@ configure_file(
     ${PROJECT_SOURCE_DIR}/include/couchbase/internal/nlohmann/json.hpp
     COPYONLY)
 
+set(COUCHBASE_CXX_CLIENT_BUILD_TESTS OFF CACHE INTERNAL "")
 add_subdirectory(deps/couchbase-cxx-client)
 
 find_package(Threads)
@@ -83,7 +84,6 @@ file(GLOB_RECURSE transactions_src_FILES ${PROJECT_SOURCE_DIR}/src/transactions/
 add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions_src_FILES})
 target_link_libraries(transactions_cxx
                       ${CMAKE_THREAD_LIBS_INIT}
-                      spdlog::spdlog_header_only
                       couchbase_cxx_client)
 
 set_target_properties(transactions_cxx PROPERTIES VERSION ${CB_VERSION_STRING} SOVERSION ${CB_VERSION_MAJOR})

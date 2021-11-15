@@ -34,11 +34,12 @@ TEST(SimpleTransactions, ArbitraryRuntimeError)
     cfg.cleanup_lost_attempts(false);
     couchbase::transactions::transactions txn(cluster, cfg);
     auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, content.dump()));
     EXPECT_THROW(
       {
           try {
               txn.run([&](attempt_context& ctx) {
-                  ctx.insert(id, content);
+                  ctx.get(id);
                   throw std::runtime_error("Yo");
               });
           } catch (const transaction_failed& e) {

@@ -42,7 +42,7 @@ namespace transactions
         {
         }
 
-        bool has_value()
+        bool has_value() const
         {
             return !raw_value.empty();
         }
@@ -96,7 +96,7 @@ namespace transactions
         }
 
         template<typename T>
-        T content_as()
+        T content_as() const
         {
             // this will always be a json string.  To not have extraneous
             // "" when asked to return as a string, we parse it first.
@@ -259,7 +259,7 @@ namespace transactions
         }
 
         template<typename T>
-        T content_as()
+        T content_as() const
         {
             return default_json_serializer::deserialize<T>(raw_value);
         }

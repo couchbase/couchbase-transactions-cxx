@@ -49,6 +49,11 @@ struct retry_state {
         timings.push_back(chrono::steady_clock::now());
         throw retry_operation("try again");
     }
+    void function2()
+    {
+        timings.push_back(chrono::steady_clock::now());
+        return;
+    }
     template<typename R, typename P>
     void function_with_delay(chrono::duration<R, P> delay)
     {
@@ -97,7 +102,7 @@ TEST(ExpBackoffWithTimeout, RetryCountInRange)
     // So retries should be less than or equal 0.9+1.8+3.6+7.2+9+9.. = 13.5 + 9+...(9 times)+ 5.5 = 14
     // and greater than or equal 1.1+2.2+4.4+8.8+11+... = 16.5 + 11+11...(7 times)+ 6.5 = 12
     // the # times it will be called is one higher than this.  Also - since sleep_for can be _longer_
-    // than you ask for, we could be significantly under the 12 above.  Lets just make sure they are not
+    // than you ask for, we could be significantly under the 12 above.  Let's just make sure they are not
     // more frequent than the max
     ASSERT_LE(state.timings.size(), 15);
 }
@@ -166,5 +171,43 @@ TEST(ExpBackoffWithMaxAttempts, RetryTimingReasonable)
             ASSERT_GE(t.count(), min);
         }
         count++;
+    }
+}
+
+TEST(ExpDelay, CanCallTillTimeout)
+{
+    retry_state state;
+    exp_delay op(one_ms, ten_ms, hundred_ms);
+    try {
+        auto lambda = [&state, &op]() {
+            while (true) {
+                op();
+                state.function2();
+            }
+        };
+        lambda();
+        FAIL() << "expected exception";
+    } catch (retry_operation_timeout& e) {
+        cout << "elapsed: " << state.elapsed_ms().count() << endl;
+        ASSERT_GE(state.elapsed_ms(), hundred_ms);
+        ASSERT_LE(state.timings.size(), 15);
+    }
+}
+
+TEST(RetryableOp, CanHaveConstantDelay)
+{
+    retry_state state;
+    auto op = constant_delay(ten_ms, 10);
+    try {
+        auto lambda = [&state, &op]() {
+            while (true) {
+                op();
+                state.function2();
+            }
+        };
+        lambda();
+        FAIL() << "expected exception";
+    } catch (const retry_operation_retries_exhausted&) {
+        ASSERT_EQ(state.timings.size(), 10);
     }
 }

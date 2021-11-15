@@ -62,6 +62,11 @@ namespace transactions
         {
             return nlohmann::json::parse(json_string).get<T>();
         }
+        template<typename T>
+        T deserialize_from_json_string(const std::string& json_string)
+        {
+            return deserialize<nlohmann::json>(json_string).get<T>();
+        }
 
         template<typename T, typename std::enable_if<std::is_same<T, std::string>::value>::type* = nullptr>
         std::string serialize(const T& obj)

@@ -16,9 +16,9 @@
 
 #pragma once
 
+#include "result.hxx"
 #include "transaction_context.hxx"
 #include <couchbase/transactions/exceptions.hxx>
-#include <couchbase/transactions/result.hxx>
 
 namespace couchbase
 {
@@ -103,10 +103,6 @@ namespace transactions
         {
             return ec_;
         }
-        /*uint32_t rc() const
-        {
-            return rc_;
-        }*/
         std::optional<result> res() const
         {
             return res_;
@@ -148,6 +144,35 @@ namespace transactions
           , to_raise_(FAILED)
           , cause_(UNKNOWN)
         {
+        }
+
+        static transaction_operation_failed merge_errors(std::list<transaction_operation_failed> errors,
+                                                         std::optional<external_exception> cause = {})
+        {
+            // default would be to set retry false, rollback true.  If
+            // _all_ errors set retry to true, we set retry to true.  If _any_ errors
+            // set rollback to false, we set rollback to false.
+            // For now lets retain the ec, to_raise, and cause for the first of the
+            // retries (if they all are true), or the first of the rollbacks, if it
+            // is false.  Not rolling back takes precedence over retry.  Otherwise, we
+            // just retain the first.
+            assert(errors.size() > 0);
+            std::list<transaction_operation_failed>::iterator error_to_throw = errors.begin();
+            bool retry = false;
+            for (auto ex = errors.begin(); ex != errors.end(); ex++) {
+                retry = ex->retry_;
+                if (!ex->retry_) {
+                    error_to_throw = ex;
+                }
+                if (!ex->rollback_) {
+                    // this takes precedence, just throw this
+                    throw *ex;
+                }
+            }
+            if (cause) {
+                error_to_throw->cause(*cause);
+            }
+            throw *error_to_throw;
         }
         // Retry is false by default, this makes it true
         transaction_operation_failed& retry()

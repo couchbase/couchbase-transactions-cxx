@@ -22,10 +22,13 @@ namespace couchbase
 {
 namespace transactions
 {
-    transaction_context::transaction_context()
+    transaction_context::transaction_context(transactions& txns)
       : transaction_id_(uid_generator::next())
+      , transactions_(txns)
+      , config_(txns.config())
       , start_time_client_(std::chrono::steady_clock::now())
       , deferred_elapsed_(0)
+      , cleanup_(txns.cleanup())
     {
     }
 
@@ -53,11 +56,11 @@ namespace transactions
         return is_expired;
     }
 
-    void transaction_context::retry_delay(const transaction_config& config)
+    void transaction_context::retry_delay()
     {
         // when we retry an operation, we typically call that function recursively.  So, we need to
-        // limit total number of times we do it.  Later we can be more sophisticated perhaps.
-        auto delay = config.expiration_time() / 100; // the 100 is arbitrary
+        // limit total number of times we do it.  Later we can be more sophisticated, perhaps.
+        auto delay = config_.expiration_time() / 100; // the 100 is arbitrary
         txn_log->trace("about to sleep for {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(delay).count());
         std::this_thread::sleep_for(delay);
     }

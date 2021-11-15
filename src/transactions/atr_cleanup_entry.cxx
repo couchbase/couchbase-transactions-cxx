@@ -79,7 +79,7 @@ tx::atr_cleanup_entry::atr_cleanup_entry(attempt_context& ctx)
                 ctx_impl.atr_id_.value().collection(),
                 ctx_impl.atr_id_.value().key() };
     attempt_id_ = ctx_impl.id();
-    cleanup_ = &ctx_impl.parent_->cleanup();
+    cleanup_ = &ctx_impl.overall_.cleanup();
 }
 
 void
@@ -173,7 +173,7 @@ tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
             wrap_request(req, cleanup_->config());
             // now a blocking lookup_in...
             auto barrier = std::make_shared<std::promise<result>>();
-            cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::lookup_in_response resp) mutable {
+            cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::lookup_in_response resp) {
                 barrier->set_value(result::create_from_subdoc_response<>(resp));
             });
             auto f = barrier->get_future();
@@ -234,7 +234,7 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, std::
                     auto barrier = std::make_shared<std::promise<result>>();
                     auto f = barrier->get_future();
                     cleanup_->cluster_ref().execute(wrap_durable_request(req, cleanup_->config()),
-                                                    [barrier](couchbase::operations::insert_response resp) mutable {
+                                                    [barrier](couchbase::operations::insert_response resp) {
                                                         barrier->set_value(result::create_from_mutation_response(resp));
                                                     });
                     tx::wrap_operation_future(f);
@@ -247,7 +247,7 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, std::
                     wrap_durable_request(req, cleanup_->config());
                     auto barrier = std::make_shared<std::promise<result>>();
                     auto f = barrier->get_future();
-                    cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+                    cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
                         barrier->set_value(result::create_from_subdoc_response(resp));
                     });
                     tx::wrap_operation_future(f);
@@ -273,7 +273,7 @@ tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger, std::
                 wrap_durable_request(req, cleanup_->config());
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
-                cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+                cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
                     barrier->set_value(result::create_from_subdoc_response(resp));
                 });
                 tx::wrap_operation_future(f);
@@ -283,7 +283,7 @@ tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger, std::
                 wrap_durable_request(req, cleanup_->config());
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
-                cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::remove_response resp) mutable {
+                cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::remove_response resp) {
                     barrier->set_value(result::create_from_mutation_response(resp));
                 });
                 tx::wrap_operation_future(f);
@@ -306,7 +306,7 @@ tx::atr_cleanup_entry::remove_docs_staged_for_removal(std::shared_ptr<spdlog::lo
                 wrap_durable_request(req, cleanup_->config());
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
-                cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::remove_response resp) mutable {
+                cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::remove_response resp) {
                     barrier->set_value(result::create_from_mutation_response(resp));
                 });
                 tx::wrap_operation_future(f);
@@ -333,7 +333,7 @@ tx::atr_cleanup_entry::remove_txn_links(std::shared_ptr<spdlog::logger> logger, 
             wrap_durable_request(req, cleanup_->config());
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
-            cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+            cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
                 barrier->set_value(result::create_from_subdoc_response(resp));
             });
             tx::wrap_operation_future(f);
@@ -352,7 +352,7 @@ tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger)
         wrap_durable_request(req, cleanup_->config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
-        cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) mutable {
+        cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
             barrier->set_value(result::create_from_subdoc_response(resp));
         });
         tx::wrap_operation_future(f);

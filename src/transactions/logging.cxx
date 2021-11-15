@@ -15,13 +15,30 @@
  */
 
 #include "logging.hxx"
+#include <couchbase/transactions.hxx>
 
 namespace couchbase
 {
 namespace transactions
 {
-    // Repeated code as we don't want spdlog in public interface
-    spdlog::level::level_enum cb_to_spdlog_level(log_level level)
+    std::shared_ptr<spdlog::logger> init_txn_log()
+    {
+        static std::shared_ptr<spdlog::logger> txnlogger = spdlog::stdout_logger_mt(TXN_LOG);
+        return txnlogger;
+    }
+
+    std::shared_ptr<spdlog::logger> init_attempt_cleanup_log()
+    {
+        static auto txnlogger = spdlog::stdout_logger_mt(ATTEMPT_CLEANUP_LOG);
+        return txnlogger;
+    }
+    std::shared_ptr<spdlog::logger> init_lost_attempts_log()
+    {
+        static auto txnlogger = spdlog::stdout_logger_mt(LOST_ATTEMPT_CLEANUP_LOG);
+        return txnlogger;
+    }
+
+    spdlog::level::level_enum cb_to_spdlog_level(couchbase::transactions::log_level level)
     {
         switch (level) {
             case log_level::TRACE:

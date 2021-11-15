@@ -16,10 +16,12 @@
 
 #pragma once
 
+#include <couchbase/document_id.hxx>
 #include <couchbase/internal/nlohmann/json.hpp>
+#include <couchbase/operations.hxx>
 #include <couchbase/transactions/document_metadata.hxx>
-#include <couchbase/transactions/result.hxx>
 #include <couchbase/transactions/transaction_links.hxx>
+#include <couchbase/transactions/transcoder.hxx>
 #include <ostream>
 #include <utility>
 
@@ -27,6 +29,7 @@ namespace couchbase
 {
 namespace transactions
 {
+    class result;
     /**
      * @brief Encapsulates results of an individual transaction operation
      *
@@ -70,7 +73,7 @@ namespace transactions
 
         /** @internal */
         template<typename Content>
-        static transaction_get_result create_from(transaction_get_result& document, Content content)
+        static transaction_get_result create_from(const transaction_get_result& document, Content content)
         {
             transaction_links links(document.links().atr_id(),
                                     document.links().atr_bucket_name(),
@@ -91,103 +94,10 @@ namespace transactions
         }
 
         /** @internal */
-        static transaction_get_result create_from(const couchbase::document_id& id, result res)
-        {
-            std::optional<std::string> atr_id;
-            std::optional<std::string> transaction_id;
-            std::optional<std::string> attempt_id;
-            std::optional<std::string> staged_content;
-            std::optional<std::string> atr_bucket_name;
-            std::optional<std::string> atr_scope_name;
-            std::optional<std::string> atr_collection_name;
-            std::optional<nlohmann::json> forward_compat;
+        static transaction_get_result create_from(const couchbase::document_id& id, const result& res);
 
-            // read from xattrs.txn.restore
-            std::optional<std::string> cas_pre_txn;
-            std::optional<std::string> revid_pre_txn;
-            std::optional<uint32_t> exptime_pre_txn;
-            std::optional<std::string> crc32_of_staging;
-
-            // read from $document
-            std::optional<std::string> cas_from_doc;
-            std::optional<std::string> revid_from_doc;
-            std::optional<uint32_t> exptime_from_doc;
-            std::optional<std::string> crc32_from_doc;
-
-            std::optional<std::string> op;
-            std::string content;
-
-            if (res.values[0].has_value()) {
-                atr_id = res.values[0].content_as<std::string>();
-            }
-            if (res.values[1].has_value()) {
-                transaction_id = res.values[1].content_as<std::string>();
-            }
-            if (res.values[2].has_value()) {
-                attempt_id = res.values[2].content_as<std::string>();
-            }
-            if (res.values[3].has_value()) {
-                staged_content = res.values[3].content_as<nlohmann::json>().dump();
-            }
-            if (res.values[4].has_value()) {
-                atr_bucket_name = res.values[4].content_as<std::string>();
-            }
-            if (res.values[5].has_value()) {
-                auto name = res.values[5].content_as<std::string>();
-                auto splits = split_string(name, '.');
-                if (splits.size() < 2) {
-                    throw std::runtime_error("couldn't parse atr collection");
-                }
-                atr_scope_name = splits[0];
-                atr_collection_name = splits[1];
-            }
-            if (res.values[6].has_value()) {
-                auto restore = res.values[6].content_as<nlohmann::json>();
-                cas_pre_txn = restore["CAS"].get<std::string>();
-                // only present in 6.5+
-                revid_pre_txn = restore["revid"].get<std::string>();
-                exptime_pre_txn = restore["exptime"].get<uint32_t>();
-            }
-            if (res.values[7].has_value()) {
-                op = res.values[7].content_as<std::string>();
-            }
-            if (res.values[8].has_value()) {
-                auto doc = res.values[8].content_as<nlohmann::json>();
-                cas_from_doc = doc["CAS"].get<std::string>();
-                // only present in 6.5+
-                revid_from_doc = doc["revid"].get<std::string>();
-                exptime_from_doc = doc["exptime"].get<uint32_t>();
-                crc32_from_doc = doc["value_crc32c"].get<std::string>();
-            }
-            if (res.values[9].has_value()) {
-                crc32_of_staging = res.values[9].content_as<std::string>();
-            }
-            if (res.values[10].has_value()) {
-                forward_compat = res.values[10].content_as<nlohmann::json>();
-            } else {
-                forward_compat = nlohmann::json::object();
-            }
-            if (res.values[11].has_value()) {
-                content = res.values[11].content_as<nlohmann::json>().dump();
-            }
-
-            transaction_links links(atr_id,
-                                    atr_bucket_name,
-                                    atr_scope_name,
-                                    atr_collection_name,
-                                    transaction_id,
-                                    attempt_id,
-                                    staged_content,
-                                    cas_pre_txn,
-                                    revid_pre_txn,
-                                    exptime_pre_txn,
-                                    crc32_of_staging,
-                                    op,
-                                    forward_compat,
-                                    res.is_deleted);
-            document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc, crc32_from_doc);
-            return { id, content, res.cas, links, std::make_optional(md) };
-        }
+        /** @internal */
+        static transaction_get_result create_from(const couchbase::operations::lookup_in_response& resp);
 
         /** @internal */
         template<typename Content>

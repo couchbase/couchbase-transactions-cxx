@@ -18,15 +18,15 @@
 #include <cstdint>
 #include <string>
 #include <utility>
-
 #include <optional>
 
+#include "result.hxx"
 #include <couchbase/cluster.hxx>
 #include <couchbase/transactions/exceptions.hxx>
-#include <couchbase/transactions/result.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 
 #include "atr_entry.hxx"
+#include "utils.hxx"
 
 namespace couchbase
 {
@@ -35,8 +35,36 @@ namespace transactions
     class active_transaction_record
     {
       public:
-        static std::optional<active_transaction_record> get_atr(cluster& cluster, const couchbase::document_id& atr_id);
+        // TODO: we should get the kv_timeout and put it in the request (pass in the transaction_config)
+        template<typename Callback>
+        static void get_atr(cluster& cluster, const couchbase::document_id& atr_id, Callback&& cb)
+        {
+            couchbase::operations::lookup_in_request req{ atr_id };
+            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_FIELD_ATTEMPTS);
+            req.specs.add_spec(protocol::subdoc_opcode::get, true, "$vbucket");
+            cluster.execute(req, [atr_id, cb = std::move(cb)](couchbase::operations::lookup_in_response resp) {
+                auto ec = error_class_from_response(resp);
+                if (resp.ctx.ec == couchbase::error::key_value_errc::document_not_found) {
+                    // that's ok, just return an empty one.
+                    return cb({}, {});
+                }
+                if (!resp.ctx.ec) {
+                    // success
+                    auto attempts = nlohmann::json::parse(resp.fields[0].value);
+                    return cb(resp.ctx.ec, map_to_atr(resp));
+                }
+                // otherwise, raise an error.
+                cb(resp.ctx.ec, {});
+            });
+        }
 
+        static std::optional<active_transaction_record> get_atr(cluster& cluster, const couchbase::document_id& atr_id)
+        {
+            auto barrier = std::promise<std::optional<active_transaction_record>>();
+            auto f = barrier.get_future();
+            get_atr(cluster, atr_id, [&](std::error_code ec, std::optional<active_transaction_record> atr) { barrier.set_value(atr); });
+            return f.get();
+        }
         active_transaction_record(const couchbase::document_id& id, uint64_t, std::vector<atr_entry> entries)
           : id_(std::move(id))
           , entries_(std::move(entries))
@@ -52,9 +80,77 @@ namespace transactions
         const couchbase::document_id id_;
         const std::vector<atr_entry> entries_;
 
-        static inline uint64_t parse_mutation_cas(const std::string& cas);
-        static inline std::optional<std::vector<doc_record>> process_document_ids(nlohmann::json& entry, std::string key);
-        static inline active_transaction_record map_to_atr(const couchbase::document_id& atr_id, result& res, nlohmann::json& attempts);
+        /**
+         * ${Mutation.CAS} is written by kvengine with 'macroToString(htonll(info.cas))'.  Discussed this with KV team and, though there is
+         * consensus that this is off (htonll is definitely wrong, and a string is an odd choice), there are clients (SyncGateway) that
+         * consume the current string, so it can't be changed.  Note that only little-endian servers are supported for Couchbase, so the 8
+         * byte long inside the string will always be little-endian ordered.
+         *
+         * Looks like: "0x000058a71dd25c15"
+         * Want:        0x155CD21DA7580000   (1539336197457313792 in base10, an epoch time in millionths of a second)
+         *
+         * returns epoch time in ms
+         */
+        static inline uint64_t parse_mutation_cas(const std::string& cas)
+        {
+            if (cas.empty()) {
+                return 0;
+            }
+
+            uint64_t val = stoull(cas, nullptr, 16);
+            /* byteswap */
+            size_t ii;
+            uint64_t ret = 0;
+            for (ii = 0; ii < sizeof(uint64_t); ii++) {
+                ret <<= 8ull;
+                ret |= val & 0xffull;
+                val >>= 8ull;
+            }
+            return ret / 1000000;
+        }
+
+        static inline std::optional<std::vector<doc_record>> process_document_ids(nlohmann::json& entry, std::string key)
+        {
+            if (entry.count(key) == 0) {
+                return {};
+            }
+            std::vector<doc_record> records;
+            records.reserve(entry[key].size());
+            for (auto& record : entry[key]) {
+                records.push_back(doc_record::create_from(record));
+            }
+            return std::move(records);
+        }
+        static inline active_transaction_record map_to_atr(const couchbase::operations::lookup_in_response& resp)
+        {
+            auto attempts = nlohmann::json::parse(resp.fields[0].value);
+            auto vbucket = default_json_serializer::deserialize<nlohmann::json>(resp.fields[1].value);
+            auto now_ns = now_ns_from_vbucket(vbucket);
+            std::vector<atr_entry> entries;
+            entries.reserve(attempts.size());
+            for (auto& element : attempts.items()) {
+                auto& val = element.value();
+                entries.emplace_back(
+                  resp.ctx.id.bucket(),
+                  resp.ctx.id.key(),
+                  element.key(),
+                  attempt_state_value(val[ATR_FIELD_STATUS].get<std::string>()),
+                  parse_mutation_cas(val.value(ATR_FIELD_START_TIMESTAMP, "")),
+                  parse_mutation_cas(val.value(ATR_FIELD_START_COMMIT, "")),
+                  parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_COMPLETE, "")),
+                  parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_START, "")),
+                  parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "")),
+                  val.count(ATR_FIELD_EXPIRES_AFTER_MSECS) ? std::make_optional(val[ATR_FIELD_EXPIRES_AFTER_MSECS].get<std::uint32_t>())
+                                                           : std::optional<std::uint32_t>(),
+                  process_document_ids(val, ATR_FIELD_DOCS_INSERTED),
+                  process_document_ids(val, ATR_FIELD_DOCS_REPLACED),
+                  process_document_ids(val, ATR_FIELD_DOCS_REMOVED),
+                  val.contains(ATR_FIELD_FORWARD_COMPAT) ? std::make_optional(val[ATR_FIELD_FORWARD_COMPAT].get<nlohmann::json>())
+                                                         : std::nullopt,
+                  now_ns);
+            }
+            return active_transaction_record(resp.ctx.id, resp.cas.value, std::move(entries));
+        }
     };
 
 } // namespace transactions

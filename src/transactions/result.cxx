@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
+#include "result.hxx"
 #include <couchbase/errors.hxx>
-#include <couchbase/transactions/result.hxx>
 #include <couchbase/transactions/transcoder.hxx>
 #include <sstream>
 

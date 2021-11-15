@@ -19,7 +19,6 @@
 #include <string>
 
 #include "transaction_fields.hxx"
-#include "utils.hxx"
 #include <couchbase/document_id.hxx>
 #include <couchbase/internal/nlohmann/json.hpp>
 #include <couchbase/support.hxx>
@@ -68,7 +67,10 @@ namespace transactions
         friend OStream& operator<<(OStream& os, const doc_record& dr)
         {
             os << "doc_record{";
-            os << "id:" << dr.id_ << ",";
+            os << "bucket: " << dr.id_.bucket() << ",";
+            os << "scope: " << dr.id_.scope() << ",";
+            os << "collection: " << dr.id_.collection() << ",";
+            os << "key: " << dr.id_.key();
             os << "}";
             return os;
         }

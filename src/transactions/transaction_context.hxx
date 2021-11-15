@@ -22,6 +22,8 @@
 #include <vector>
 
 #include "transaction_attempt.hxx"
+#include "transactions_cleanup.hxx"
+#include <couchbase/transactions.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transaction_result.hxx>
 
@@ -32,7 +34,7 @@ namespace transactions
     class transaction_context
     {
       public:
-        transaction_context();
+        transaction_context(transactions& txns);
 
         CB_NODISCARD const std::string& transaction_id() const
         {
@@ -65,9 +67,24 @@ namespace transactions
 
         void add_attempt();
 
+        CB_NODISCARD couchbase::cluster& cluster_ref()
+        {
+            return transactions_.cluster_ref();
+        }
+
+        transaction_config& config()
+        {
+            return config_;
+        }
+
+        transactions_cleanup& cleanup()
+        {
+            return cleanup_;
+        }
+
         CB_NODISCARD bool has_expired_client_side(const transaction_config& config);
 
-        void retry_delay(const transaction_config& config);
+        void retry_delay();
 
         CB_NODISCARD std::chrono::time_point<std::chrono::steady_clock> start_time_client() const
         {
@@ -103,6 +120,10 @@ namespace transactions
         /** The time this overall transaction started */
         const std::chrono::time_point<std::chrono::steady_clock> start_time_client_;
 
+        transaction_config config_;
+
+        transactions& transactions_;
+
         /**
          * Will be non-zero only when resuming a deferred transaction. It records how much time has elapsed in total in the deferred
          * transaction, including the time spent in the original transaction plus any time spent while deferred.
@@ -110,10 +131,9 @@ namespace transactions
         const std::chrono::nanoseconds deferred_elapsed_;
 
         std::vector<transaction_attempt> attempts_;
-
         std::string atr_id_;
-
         std::string atr_collection_;
+        transactions_cleanup& cleanup_;
     };
 } // namespace transactions
 } // namespace couchbase

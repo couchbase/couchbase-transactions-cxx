@@ -21,6 +21,7 @@
 #include <thread>
 
 #include <couchbase/cluster.hxx>
+#include <couchbase/transactions/async_attempt_context.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
@@ -40,6 +41,9 @@ namespace transactions
 
     /** @brief Transaction logic should be contained in a lambda of this form */
     typedef std::function<void(attempt_context&)> logic;
+
+    /** @brief AsyncTransaction logic should be contained in a lambda of this form */
+    typedef std::function<void(async_attempt_context&)> async_logic;
 
     /**
      * @brief logging levels
@@ -141,7 +145,20 @@ namespace transactions
          * @throws @ref transaction_failed, @ref transaction_expired, @ref transaction_commit_ambiguous, all of which
          *         share a common base class @ref transaction_exception.
          */
-        transaction_result run(const logic& logic);
+        transaction_result run(logic&& logic);
+
+        /**
+         * @brief Run a transaction
+         *
+         * Expects a lambda, which it calls with an @ref async_attempt_context reference to be used in the lambda for
+         * the asynchronous transaction operations.
+         *
+         * @param logic The lambda containing the async transaction logic.
+         * @return A struct containing some internal state information about the transaction.
+         * @throws @ref transaction_failed, @ref transaction_expired, @ref transaction_commit_ambiguous, all of which
+         *         share a common base class @ref transaction_exception.
+         */
+        transaction_result run(async_logic&& logic);
 
         /**
          * @internal

@@ -17,9 +17,9 @@
 #include "attempt_context_impl.hxx"
 #include "exceptions_internal.hxx"
 #include "logging.hxx"
+#include "transaction_context.hxx"
 #include "transactions_cleanup.hxx"
 #include "utils.hxx"
-
 #include <couchbase/transactions.hxx>
 
 namespace tx = couchbase::transactions;
@@ -34,81 +34,95 @@ tx::transactions::transactions(cluster& cluster, const transaction_config& confi
 
 tx::transactions::~transactions() = default;
 
+template<typename Handler>
 tx::transaction_result
-tx::transactions::run(const logic& logic)
+wrap_run(tx::transactions& txns, Handler&& fn)
 {
-    tx::transaction_context overall;
+    tx::transaction_context overall(txns);
     // This will exponentially backoff, doubling the retry delay each time until the 8th time, and cap it at
     // 128*<initial retry delay>, and cap this at the max retries.  NOTE: this sets a maximum effective
     // duration of the transaction of something like max_retries_ * 128 * min_retry_delay.  We could do better
     // by making it exponential over the duration, at some point.
-    return retry_op_exponential_backoff<tx::transaction_result>(min_retry_delay_, max_attempts_, [&] {
-        tx::attempt_context_impl ctx(this, overall, config_);
-        txn_log->info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.id());
+    return tx::retry_op_exponential_backoff<tx::transaction_result>(std::chrono::milliseconds(1), 1000, [&] {
+        tx::attempt_context_impl ctx(overall);
+        tx::txn_log->info("starting attempt {}/{}/{}", overall.num_attempts(), overall.transaction_id(), ctx.id());
         try {
-            logic(ctx);
+            fn(ctx);
+            ctx.existing_error(false);
             if (!ctx.is_done()) {
                 ctx.commit();
             }
-            cleanup_->add_attempt(ctx);
-        } catch (const transaction_operation_failed& er) {
-            txn_log->error("got transaction_operation_failed {}", er.what());
+            overall.cleanup().add_attempt(ctx);
+        } catch (const tx::transaction_operation_failed& er) {
+            tx::txn_log->error("got transaction_operation_failed {}", er.what());
             if (er.should_rollback()) {
-                txn_log->trace("got rollback-able exception, rolling back");
+                tx::txn_log->trace("got rollback-able exception, rolling back");
                 try {
                     ctx.rollback();
                 } catch (const std::runtime_error& er_rollback) {
-                    cleanup_->add_attempt(ctx);
-                    txn_log->trace("got error {} while auto rolling back, throwing original error", er_rollback.what(), er.what());
+                    overall.cleanup().add_attempt(ctx);
+                    tx::txn_log->trace("got error {} while auto rolling back, throwing original error", er_rollback.what(), er.what());
                     er.do_throw(overall);
                     // if you get here, we didn't throw, yet we had an error.  Fall through in
                     // this case.  Note the current logic is such that rollback will not have a
                     // commit ambiguous error, so we should always throw.
                     assert(true);
                 }
-                if (er.should_retry() && overall.has_expired_client_side(config_)) {
-                    txn_log->trace("auto rollback succeeded, however we are expired so no retry");
+                if (er.should_retry() && overall.has_expired_client_side(overall.config())) {
+                    tx::txn_log->trace("auto rollback succeeded, however we are expired so no retry");
                     // this always throws
-                    transaction_operation_failed(FAIL_EXPIRY, "expired in auto rollback").no_rollback().expired().do_throw(overall);
+                    tx::transaction_operation_failed(tx::FAIL_EXPIRY, "expired in auto rollback").no_rollback().expired().do_throw(overall);
                 }
             }
             if (er.should_retry()) {
-                txn_log->trace("got retryable exception, retrying");
-                cleanup_->add_attempt(ctx);
+                tx::txn_log->trace("got retryable exception, retrying");
+                overall.cleanup().add_attempt(ctx);
                 throw tx::retry_operation("retry transaction");
             }
 
             // throw the expected exception here
-            cleanup_->add_attempt(ctx);
+            overall.cleanup().add_attempt(ctx);
             er.do_throw(overall);
             // if we don't throw, we will fall through and return.
         } catch (const std::exception& ex) {
-            txn_log->error("got runtime error {}", ex.what());
+            tx::txn_log->error("got runtime error {}", ex.what());
             try {
                 ctx.rollback();
             } catch (...) {
-                txn_log->error("got error rolling back {}", ex.what());
+                tx::txn_log->error("got error rolling back {}", ex.what());
             }
-            cleanup_->add_attempt(ctx);
+            overall.cleanup().add_attempt(ctx);
             // the assumption here is this must come from the logic, not
             // our operations (which only throw transaction_operation_failed),
-            auto op_failed = transaction_operation_failed(FAIL_OTHER, ex.what());
+            auto op_failed = tx::transaction_operation_failed(tx::FAIL_OTHER, ex.what());
             op_failed.do_throw(overall);
         } catch (...) {
-            txn_log->error("got unexpected error, rolling back");
+            tx::txn_log->error("got unexpected error, rolling back");
             try {
                 ctx.rollback();
             } catch (...) {
-                txn_log->error("got error rolling back unexpected error");
+                tx::txn_log->error("got error rolling back unexpected error");
             }
-            cleanup_->add_attempt(ctx);
+            overall.cleanup().add_attempt(ctx);
             // the assumption here is this must come from the logic, not
             // our operations (which only throw transaction_operation_failed),
-            auto op_failed = transaction_operation_failed(FAIL_OTHER, "Unexpected error");
+            auto op_failed = tx::transaction_operation_failed(tx::FAIL_OTHER, "Unexpected error");
             op_failed.do_throw(overall);
         }
         return overall.get_transaction_result();
     });
+}
+
+tx::transaction_result
+tx::transactions::run(logic&& logic)
+{
+    return wrap_run(*this, logic);
+}
+
+tx::transaction_result
+tx::transactions::run(async_logic&& logic)
+{
+    return wrap_run(*this, logic);
 }
 
 void

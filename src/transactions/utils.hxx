@@ -15,10 +15,10 @@
  */
 #pragma once
 #include "exceptions_internal.hxx"
+#include "result.hxx"
 #include <chrono>
 #include <couchbase/errors.hxx>
 #include <couchbase/operations.hxx>
-#include <couchbase/transactions/result.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <functional>
 #include <future>
@@ -149,6 +149,72 @@ namespace transactions
             }
         }
     }
+    template<typename Resp>
+    static bool is_error(const Resp& resp)
+    {
+        return !!resp.ctx.ec;
+    }
+    template<>
+    bool is_error(const couchbase::operations::mutate_in_response& resp)
+    {
+        return resp.ctx.ec || resp.first_error_index;
+    }
+
+    template<typename Resp>
+    static std::optional<error_class> error_class_from_response_extras(const Resp&)
+    {
+        return {};
+    }
+
+    template<>
+    std::optional<error_class> error_class_from_response_extras(const couchbase::operations::mutate_in_response& resp)
+    {
+        if (!resp.first_error_index) {
+            return {};
+        }
+        auto status = resp.fields.at(*resp.first_error_index).status;
+        if (status == couchbase::protocol::status::subdoc_path_not_found) {
+            return FAIL_PATH_NOT_FOUND;
+        }
+        if (status == couchbase::protocol::status::subdoc_path_exists) {
+            return FAIL_PATH_ALREADY_EXISTS;
+        }
+        return FAIL_OTHER;
+    }
+
+    template<typename Resp>
+    static std::optional<error_class> error_class_from_response(const Resp& resp)
+    {
+        if (!is_error(resp)) {
+            return {};
+        }
+        if (resp.ctx.ec == couchbase::error::key_value_errc::document_not_found) {
+            return FAIL_DOC_NOT_FOUND;
+        }
+        if (resp.ctx.ec == couchbase::error::key_value_errc::document_exists) {
+            return FAIL_DOC_ALREADY_EXISTS;
+        }
+        if (resp.ctx.ec == couchbase::error::common_errc::cas_mismatch) {
+            return FAIL_CAS_MISMATCH;
+        }
+        if (resp.ctx.ec == couchbase::error::key_value_errc::value_too_large) {
+            return FAIL_ATR_FULL;
+        }
+        if (resp.ctx.ec == couchbase::error::common_errc::unambiguous_timeout ||
+            resp.ctx.ec == couchbase::error::common_errc::temporary_failure ||
+            resp.ctx.ec == couchbase::error::key_value_errc::durable_write_in_progress) {
+            return FAIL_TRANSIENT;
+        }
+        if (resp.ctx.ec == couchbase::error::key_value_errc::durability_ambiguous ||
+            resp.ctx.ec == couchbase::error::common_errc::ambiguous_timeout ||
+            resp.ctx.ec == couchbase::error::common_errc::request_canceled) {
+            return FAIL_AMBIGUOUS;
+        }
+        if (resp.ctx.ec) {
+            return FAIL_OTHER;
+        }
+        return error_class_from_response_extras(resp);
+    }
 
     static const std::chrono::milliseconds DEFAULT_RETRY_OP_DELAY = std::chrono::milliseconds(3);
     static const std::chrono::milliseconds DEFAULT_RETRY_OP_EXP_DELAY = std::chrono::milliseconds(1);
@@ -232,5 +298,65 @@ namespace transactions
     {
         return retry_op_constant_delay<R>(DEFAULT_RETRY_OP_DELAY, std::numeric_limits<size_t>::max(), func);
     }
+
+    template<typename R1, typename P1, typename R2, typename P2, typename R3, typename P3>
+    struct exp_delay {
+        std::chrono::duration<R1, P1> initial_delay;
+        std::chrono::duration<R2, P2> max_delay;
+        std::chrono::duration<R3, P3> timeout;
+        uint32_t retries;
+        std::optional<std::chrono::time_point<std::chrono::steady_clock>> end_time;
+
+        exp_delay(std::chrono::duration<R1, P1> initial, std::chrono::duration<R2, P2> max, std::chrono::duration<R3, P3> limit)
+          : initial_delay(initial)
+          , max_delay(max)
+          , timeout(limit)
+          , retries(0)
+          , end_time()
+        {
+        }
+        void operator()()
+        {
+            auto now = std::chrono::steady_clock::now();
+            if (!end_time) {
+                end_time = std::chrono::steady_clock::now() + timeout;
+                return;
+            }
+            if (now > *end_time) {
+                throw retry_operation_timeout("timed out");
+            }
+            auto delay = initial_delay * (jitter() * pow(2, retries++));
+            if (delay > max_delay) {
+                delay = max_delay;
+            }
+            if (now + delay > *end_time) {
+                std::this_thread::sleep_for(*end_time - now);
+            } else {
+                std::this_thread::sleep_for(delay);
+            }
+        }
+    };
+
+    template<typename R, typename P>
+    struct constant_delay {
+        std::chrono::duration<R, P> delay;
+        size_t max_retries;
+        size_t retries;
+
+        constant_delay(std::chrono::duration<R, P> d = DEFAULT_RETRY_OP_DELAY, size_t max = DEFAULT_RETRY_OP_MAX_RETRIES)
+          : delay(d)
+          , max_retries(max)
+          , retries(0)
+        {
+        }
+        void operator()()
+        {
+            if (retries++ >= max_retries) {
+                throw retry_operation_retries_exhausted("retries exhausted");
+            }
+            std::this_thread::sleep_for(delay);
+        }
+    };
+
 } // namespace transactions
 } // namespace couchbase
