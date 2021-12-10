@@ -69,7 +69,6 @@ tx::atr_cleanup_entry::atr_cleanup_entry(attempt_context& ctx)
   : min_start_time_(std::chrono::steady_clock::now())
   , check_if_expired_(false)
   , atr_entry_(nullptr)
-  , atr_id_({ "", "", "", "" })
 {
     // NOTE: we create these entries externally, in fit_performer tests, hence the
     // use of attempt_context rather than attempt_context_impl

@@ -124,9 +124,9 @@ tx::transactions_cleanup::interruptable_wait(std::chrono::duration<R, P> delay)
 void
 tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucket_name)
 {
-    lost_attempts_cleanup_log->info("cleanup for {} starting", bucket_name);
+    lost_attempts_cleanup_log->info("{} cleanup for {} starting", static_cast<void*>(this), bucket_name);
     if (!running_.load()) {
-        lost_attempts_cleanup_log->info("cleanup of {} complete", bucket_name);
+        lost_attempts_cleanup_log->info("{} cleanup of {} complete", static_cast<void*>(this), bucket_name);
         return;
     }
     // FOR NOW: default scope and collection for atrs
@@ -138,15 +138,17 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
 
     auto delay =
       std::chrono::microseconds(1000 * config_.cleanup_window().count()) / std::max(1ul, all_atrs.size() / details.num_active_clients);
-    lost_attempts_cleanup_log->info("{} active clients (including this one), {} atrs to check {}us delay between checking each atr",
+    lost_attempts_cleanup_log->info("{} {} active clients (including this one), {} atrs to check {}us delay between checking each atr",
+                                    static_cast<void*>(this),
                                     details.num_active_clients,
                                     all_atrs.size(),
                                     delay.count());
+    auto start = std::chrono::system_clock::now();
     for (auto it = all_atrs.begin() + details.index_of_this_client; it < all_atrs.end(); it += details.num_active_clients) {
         // clean the ATR entry
         std::string atr_id = *it;
         if (!running_.load()) {
-            lost_attempts_cleanup_log->debug("cleanup of {} complete", bucket_name);
+            lost_attempts_cleanup_log->debug("{} cleanup of {} complete", static_cast<void*>(this), bucket_name);
             return;
         }
         try {
@@ -154,10 +156,12 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
             handle_atr_cleanup(id);
             std::this_thread::sleep_for(delay);
         } catch (const std::runtime_error& err) {
-            lost_attempts_cleanup_log->error("cleanup of atr {} failed with {}, moving on", atr_id, err.what());
+            lost_attempts_cleanup_log->error(
+              "{} cleanup of atr {} failed with {}, moving on", static_cast<void*>(this), atr_id, err.what());
         }
     }
-    lost_attempts_cleanup_log->info("cleanup of {} complete", bucket_name);
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - start);
+    lost_attempts_cleanup_log->info("{} cleanup of {} complete in {}s", static_cast<void*>(this), bucket_name, elapsed.count());
 }
 
 const tx::atr_cleanup_stats
@@ -190,7 +194,8 @@ tx::transactions_cleanup::handle_atr_cleanup(const couchbase::document_id& atr_i
                         results->back().success(true);
                     }
                 } catch (const std::runtime_error& e) {
-                    lost_attempts_cleanup_log->error("cleanup of {} failed: {}, moving on", cleanup_entry, e.what());
+                    lost_attempts_cleanup_log->error(
+                      "{} cleanup of {} failed: {}, moving on", static_cast<void*>(this), cleanup_entry, e.what());
                     if (results) {
                         results->back().success(false);
                     }
@@ -219,11 +224,11 @@ tx::transactions_cleanup::create_client_record(const std::string& bucket_name)
         wrap_operation_future(f);
         config_.cleanup_hooks().client_record_before_create(bucket_name);
     } catch (const tx::client_error& e) {
-        lost_attempts_cleanup_log->trace("create_client_record got error {}", e.what());
+        lost_attempts_cleanup_log->trace("{} create_client_record got error {}", static_cast<void*>(this), e.what());
         auto ec = e.ec();
         switch (ec) {
             case FAIL_DOC_ALREADY_EXISTS:
-                lost_attempts_cleanup_log->trace("client record already exists, moving on");
+                lost_attempts_cleanup_log->trace("{} client record already exists, moving on", static_cast<void*>(this));
                 return;
             default:
                 throw;
@@ -298,9 +303,9 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
             details.client_uuid = uuid;
             details.cas_now_nanos = now_ms * 1000000;
             details.override_active = (details.override_enabled && details.override_expires > details.cas_now_nanos);
-            lost_attempts_cleanup_log->trace("details {}", details);
+            lost_attempts_cleanup_log->trace("{} client details {}", static_cast<void*>(this), details);
             if (details.override_active) {
-                lost_attempts_cleanup_log->trace("override enabled, will not update record");
+                lost_attempts_cleanup_log->trace("{} override enabled, will not update record", static_cast<void*>(this));
                 return details;
             }
 
@@ -339,13 +344,13 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
 
             // just update the cas, and return the details
             details.cas_now_nanos = res.cas;
-            lost_attempts_cleanup_log->debug("get_active_clients found {}", details);
+            lost_attempts_cleanup_log->debug("{} get_active_clients found {}", static_cast<void*>(this), details);
             return details;
         } catch (const tx::client_error& e) {
             auto ec = e.ec();
             switch (ec) {
                 case FAIL_DOC_NOT_FOUND:
-                    lost_attempts_cleanup_log->debug("client record not found, creating new one");
+                    lost_attempts_cleanup_log->debug("{} client record not found, creating new one", static_cast<void*>(this));
                     create_client_record(bucket_name);
                     throw retry_operation("Client record didn't exist. Creating and retrying");
                 default:
@@ -378,16 +383,18 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
                           barrier->set_value(result::create_from_subdoc_response(resp));
                       });
                       wrap_operation_future(f);
-                      lost_attempts_cleanup_log->debug("removed {} from {}", uuid, bucket_name);
+                      lost_attempts_cleanup_log->debug("{} removed {} from {}", static_cast<void*>(this), uuid, bucket_name);
                   } catch (const tx::client_error& e) {
-                      lost_attempts_cleanup_log->debug("error removing client records {}", e.what());
+                      lost_attempts_cleanup_log->debug("{} error removing client records {}", static_cast<void*>(this), e.what());
                       auto ec = e.ec();
                       switch (ec) {
                           case FAIL_DOC_NOT_FOUND:
-                              lost_attempts_cleanup_log->debug("no client record in {}, ignoring", bucket_name);
+                              lost_attempts_cleanup_log->debug(
+                                "{} no client record in {}, ignoring", static_cast<void*>(this), bucket_name);
                               return;
                           case FAIL_PATH_NOT_FOUND:
-                              lost_attempts_cleanup_log->debug("client {} not in client record for {}, ignoring", uuid, bucket_name);
+                              lost_attempts_cleanup_log->debug(
+                                "{} client {} not in client record for {}, ignoring", static_cast<void*>(this), uuid, bucket_name);
                               return;
                           default:
                               throw retry_operation("retry remove until timeout");
@@ -395,7 +402,8 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
                   }
               });
         } catch (const std::exception& e) {
-            lost_attempts_cleanup_log->error("Error removing client record {} from bucket {}", uuid, bucket_name);
+            lost_attempts_cleanup_log->error(
+              "{} Error removing client record {} from bucket {}", static_cast<void*>(this), uuid, bucket_name);
         }
     }
 }
@@ -403,19 +411,20 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
 void
 tx::transactions_cleanup::lost_attempts_loop()
 {
-    lost_attempts_cleanup_log->info("starting lost attempts loop");
+    lost_attempts_cleanup_log->info("{} starting lost attempts loop", static_cast<void*>(this));
     while (running_.load()) {
         std::list<std::thread> workers;
         try {
             auto names = get_and_open_buckets(cluster_);
-            lost_attempts_cleanup_log->info("creating {} tasks to clean buckets", names.size());
+            lost_attempts_cleanup_log->info("{} creating {} tasks to clean buckets", static_cast<void*>(this), names.size());
             // TODO consider std::async here.
             for (const auto& name : names) {
                 workers.emplace_back([&]() {
                     try {
                         clean_lost_attempts_in_bucket(name);
                     } catch (const std::runtime_error& e) {
-                        lost_attempts_cleanup_log->error("got error {} attempting to clean {}", e.what(), name);
+                        lost_attempts_cleanup_log->error(
+                          "{} got error {} attempting to clean {}", static_cast<void*>(this), e.what(), name);
                     }
                 });
             }
@@ -425,7 +434,8 @@ tx::transactions_cleanup::lost_attempts_loop()
                 }
             }
         } catch (const std::exception& e) {
-            lost_attempts_cleanup_log->error("got error {}, rescheduling in {}ms", e.what(), config_.cleanup_window().count());
+            lost_attempts_cleanup_log->error(
+              "{} got error {}, rescheduling in {}ms", static_cast<void*>(this), e.what(), config_.cleanup_window().count());
             interruptable_wait(config_.cleanup_window());
         }
     }
@@ -435,7 +445,7 @@ tx::transactions_cleanup::lost_attempts_loop()
 const tx::atr_cleanup_stats
 tx::transactions_cleanup::force_cleanup_atr(const couchbase::document_id& atr_id, std::vector<transactions_cleanup_attempt>& results)
 {
-    lost_attempts_cleanup_log->trace("starting force_cleanup_atr: atr_id {}", atr_id);
+    lost_attempts_cleanup_log->trace("{} starting force_cleanup_atr: atr_id {}", static_cast<void*>(this), atr_id);
     return handle_atr_cleanup(atr_id, &results);
 }
 
@@ -534,7 +544,7 @@ tx::transactions_cleanup::close()
     }
     if (lost_attempts_thr_.joinable()) {
         lost_attempts_thr_.join();
-        lost_attempts_cleanup_log->info("lost attempts thread closed");
+        lost_attempts_cleanup_log->info("{} lost attempts thread closed", static_cast<void*>(this));
     }
 }
 

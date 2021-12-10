@@ -365,7 +365,7 @@ namespace transactions
         // don't wrap this one, as the kv timeout isn't appropriate here.
         std::mutex mtx;
         std::condition_variable cv;
-        std::atomic<size_t> count = 1; // non-zero so we know not to stop waiting immediately
+        size_t count = 1; // non-zero so we know not to stop waiting immediately
         std::list<std::string> bucket_names;
         c.execute(req, [&cv, &bucket_names, &c, &mtx, &count](couchbase::operations::management::bucket_get_all_response resp) {
             std::unique_lock<std::mutex> lock(mtx);
@@ -381,8 +381,9 @@ namespace transactions
                         bucket_names.push_back(name);
                     }
                     count--;
+                    bool should_notify = (count == 0);
                     lock.unlock();
-                    if (count.load() == 0) {
+                    if (should_notify) {
                         cv.notify_all();
                     }
                 });
