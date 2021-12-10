@@ -23,6 +23,8 @@
 #include <couchbase/transactions.hxx>
 #include <spdlog/spdlog.h>
 
+#include "../src/transactions/utils.hxx"
+
 using namespace std;
 using namespace couchbase;
 
@@ -184,14 +186,22 @@ class GameServer
 int
 main(int, const char*[])
 {
-    const int NUM_THREADS = 5;
+    const int NUM_THREADS = 4;
     couchbase::logger::set_log_levels(spdlog::level::trace);
     atomic<bool> monster_exists = true;
     string bucket_name = "default";
     couchbase::cluster_credentials auth{};
     asio::io_context io;
     couchbase::cluster cluster(io);
-    auto io_thread = std::thread([&io]() { io.run(); });
+    if (!couchbase::logger::isInitialized()) {
+        couchbase::logger::create_console_logger();
+    }
+    couchbase::logger::set_log_levels(spdlog::level::level_enum::trace);
+
+    std::list<std::thread> io_threads;
+    for (int i = 0; i < 2 * NUM_THREADS; i++) {
+        io_threads.emplace_back([&io]() { io.run(); });
+    }
 
     std::uniform_int_distribution<int> hit_distribution(1, 6);
     std::mt19937 random_number_engine; // pseudorandom number generator
@@ -200,7 +210,6 @@ main(int, const char*[])
     auto connstr = couchbase::utils::parse_connection_string("couchbase://127.0.0.1");
     auth.username = "Administrator";
     auth.password = "password";
-    // now let's connect to the cluster.
     // first, open it.
     {
         auto barrier = std::make_shared<std::promise<std::error_code>>();
@@ -228,7 +237,7 @@ main(int, const char*[])
     Player player_data{ 14248, 23832, "player", 141, true, "Jane", make_uuid() };
 
     couchbase::document_id monster_id = { "default", "_default", "_default", "a_grue" };
-    Monster monster_data{ 91, 4000, 0.19239324085462631, "monster", "Grue", make_uuid() };
+    Monster monster_data{ 91, 40000, 0.19239324085462631, "monster", "Grue", make_uuid() };
 
     // upsert a player document
     {
@@ -254,17 +263,19 @@ main(int, const char*[])
         auto resp = f.get();
         cout << "Upserted sample monster document: " << monster_id.key() << endl;
     }
+    transactions::get_and_open_buckets(cluster);
     transactions::transaction_config configuration;
     configuration.durability_level(transactions::durability_level::MAJORITY);
-    configuration.cleanup_client_attempts(false);
-    configuration.cleanup_lost_attempts(false);
+    configuration.cleanup_client_attempts(true);
+    configuration.cleanup_lost_attempts(true);
+    configuration.cleanup_window(std::chrono::seconds(5));
     transactions::transactions transactions(cluster, configuration);
     GameServer game_server(transactions);
     std::vector<std::thread> threads;
     for (int i = 0; i < NUM_THREADS; i++) {
-        threads.emplace_back([&, i]() {
+        threads.emplace_back([&rand, player_id, monster_id, &monster_exists, &game_server]() {
             while (monster_exists.load()) {
-                cout << "[thread " << i << "]Monster exists -- lets hit it!" << endl;
+                cout << "[thread " << this_thread::get_id() << "]Monster exists -- lets hit it!" << endl;
                 game_server.player_hits_monster(make_uuid(), rand() % 80, player_id, monster_id, monster_exists);
             }
         });
@@ -282,5 +293,9 @@ main(int, const char*[])
     auto f = barrier->get_future();
     cluster.close([barrier]() { barrier->set_value(); });
     f.get();
-    io_thread.join();
+    for (auto& t : io_threads) {
+        if (t.joinable()) {
+            t.join();
+        }
+    }
 }

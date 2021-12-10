@@ -150,8 +150,14 @@ tx::staged_mutation_queue::rollback_insert(attempt_context_impl& ctx, staged_mut
 {
     try {
         ctx.trace("rolling back staged insert for {} with cas {}", item.doc().id(), item.doc().cas());
-        ctx.error_if_expired_and_not_in_overtime(STAGE_DELETE_INSERTED, item.doc().id().key());
-        ctx.hooks_.before_rollback_delete_inserted(&ctx, item.doc().id().key());
+        auto ec = ctx.error_if_expired_and_not_in_overtime(STAGE_DELETE_INSERTED, item.doc().id().key());
+        if (ec) {
+            throw client_error(*ec, "expired in rollback and not in overtime mode");
+        }
+        ec = ctx.hooks_.before_rollback_delete_inserted(&ctx, item.doc().id().key());
+        if (ec) {
+            throw client_error(*ec, "before_rollback_delete_insert hook threw error");
+        }
         couchbase::operations::mutate_in_request req{ item.doc().id() };
         req.specs.add_spec(protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
         req.access_deleted = true;
@@ -164,10 +170,13 @@ tx::staged_mutation_queue::rollback_insert(attempt_context_impl& ctx, staged_mut
         });
         auto res = wrap_operation_future(f);
         ctx.trace("rollback result {}", res);
-        ctx.hooks_.after_rollback_delete_inserted(&ctx, item.doc().id().key());
+        ec = ctx.hooks_.after_rollback_delete_inserted(&ctx, item.doc().id().key());
+        if (ec) {
+            throw client_error(*ec, "after_rollback_delete_insert hook threw error");
+        }
     } catch (const client_error& e) {
         auto ec = e.ec();
-        if (ctx.expiry_overtime_mode_) {
+        if (ctx.expiry_overtime_mode_.load()) {
             ctx.trace("rollback_insert for {} error while in overtime mode {}", item.doc().id(), e.what());
             throw transaction_operation_failed(FAIL_EXPIRY, std::string("expired while rolling back insert with {} ") + e.what())
               .no_rollback()
@@ -196,8 +205,14 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx,
 {
     try {
         ctx.trace("rolling back staged remove/replace for {} with cas {}", item.doc().id(), item.doc().cas());
-        ctx.error_if_expired_and_not_in_overtime(STAGE_ROLLBACK_DOC, item.doc().id().key());
-        ctx.hooks_.before_doc_rolled_back(&ctx, item.doc().id().key());
+        auto ec = ctx.error_if_expired_and_not_in_overtime(STAGE_ROLLBACK_DOC, item.doc().id().key());
+        if (ec) {
+            throw client_error(*ec, "expired in rollback_remove_or_replace and not in expiry overtime");
+        }
+        ec = ctx.hooks_.before_doc_rolled_back(&ctx, item.doc().id().key());
+        if (ec) {
+            throw client_error(*ec, "before_doc_rolled_back hook threw error");
+        }
         couchbase::operations::mutate_in_request req{ item.doc().id() };
         req.specs.add_spec(protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
         req.cas.value = item.doc().cas();
@@ -209,11 +224,13 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx,
         });
         auto res = wrap_operation_future(f);
         ctx.trace("rollback result {}", res);
-        ctx.hooks_.after_rollback_replace_or_remove(&ctx, item.doc().id().key());
-
+        ec = ctx.hooks_.after_rollback_replace_or_remove(&ctx, item.doc().id().key());
+        if (ec) {
+            throw client_error(*ec, "after_rollback_replace_or_remove hook threw error");
+        }
     } catch (const client_error& e) {
         auto ec = e.ec();
-        if (ctx.expiry_overtime_mode_) {
+        if (ctx.expiry_overtime_mode_.load()) {
             throw transaction_operation_failed(FAIL_EXPIRY, std::string("expired while handling ") + e.what()).no_rollback();
         }
         switch (ec) {
@@ -241,7 +258,10 @@ tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation
           "commit doc {}, cas_zero_mode {}, ambiguity_resolution_mode {}", item.doc().id(), cas_zero_mode, ambiguity_resolution_mode);
         try {
             ctx.check_expiry_during_commit_or_rollback(STAGE_COMMIT_DOC, std::optional<const std::string>(item.doc().id().key()));
-            ctx.hooks_.before_doc_committed(&ctx, item.doc().id().key());
+            auto ec = ctx.hooks_.before_doc_committed(&ctx, item.doc().id().key());
+            if (ec) {
+                throw client_error(*ec, "before_doc_committed hook threw error");
+            }
 
             // move staged content into doc
             ctx.trace("commit doc id {}, content {}, cas {}", item.doc().id(), item.content(), item.doc().cas());
@@ -273,12 +293,18 @@ tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation
             }
             ctx.trace("commit doc result {}", res);
             // TODO: mutation tokens
-            ctx.hooks_.after_doc_committed_before_saving_cas(&ctx, item.doc().id().key());
+            ec = ctx.hooks_.after_doc_committed_before_saving_cas(&ctx, item.doc().id().key());
+            if (ec) {
+                throw client_error(*ec, "after_doc_committed_before_saving_cas threw error");
+            }
             item.doc().cas(res.cas);
-            ctx.hooks_.after_doc_committed(&ctx, item.doc().id().key());
+            ec = ctx.hooks_.after_doc_committed(&ctx, item.doc().id().key());
+            if (ec) {
+                throw client_error(*ec, "after_doc_committed threw error");
+            }
         } catch (const client_error& e) {
             error_class ec = e.ec();
-            if (ctx.expiry_overtime_mode_) {
+            if (ctx.expiry_overtime_mode_.load()) {
                 throw transaction_operation_failed(FAIL_EXPIRY, "expired during commit").no_rollback().failed_post_commit();
             }
             switch (ec) {
@@ -306,7 +332,10 @@ tx::staged_mutation_queue::remove_doc(attempt_context_impl& ctx, staged_mutation
     retry_op<void>([&] {
         try {
             ctx.check_expiry_during_commit_or_rollback(STAGE_REMOVE_DOC, std::optional<const std::string>(item.doc().id().key()));
-            ctx.hooks_.before_doc_removed(&ctx, item.doc().id().key());
+            auto ec = ctx.hooks_.before_doc_removed(&ctx, item.doc().id().key());
+            if (ec) {
+                throw client_error(*ec, "before_doc_removed hook threw error");
+            }
             couchbase::operations::remove_request req{ item.doc().id() };
             wrap_durable_request(req, ctx.config_);
             auto barrier = std::make_shared<std::promise<result>>();
@@ -315,10 +344,13 @@ tx::staged_mutation_queue::remove_doc(attempt_context_impl& ctx, staged_mutation
                 barrier->set_value(result::create_from_mutation_response(resp));
             });
             wrap_operation_future(f);
-            ctx.hooks_.after_doc_removed_pre_retry(&ctx, item.doc().id().key());
+            ec = ctx.hooks_.after_doc_removed_pre_retry(&ctx, item.doc().id().key());
+            if (ec) {
+                throw client_error(*ec, "after_doc_removed_pre_retry threw error");
+            }
         } catch (const client_error& e) {
             error_class ec = e.ec();
-            if (ctx.expiry_overtime_mode_) {
+            if (ctx.expiry_overtime_mode_.load()) {
                 throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
             }
             switch (ec) {

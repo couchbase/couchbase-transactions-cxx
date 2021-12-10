@@ -50,6 +50,12 @@ struct conn {
       : io({})
       , c(io)
     {
+        // for tests, really chatty logs may be useful.
+        if (!couchbase::logger::isInitialized()) {
+            couchbase::logger::create_console_logger();
+        }
+        couchbase::logger::set_log_levels(spdlog::level::level_enum::trace);
+        couchbase::transactions::set_transactions_log_level(couchbase::transactions::log_level::TRACE);
         size_t num_threads = conf.contains("io_threads") ? conf["io_threads"].get<uint32_t>() : 4;
         couchbase::transactions::txn_log->trace("using {} io completion threads", num_threads);
         for (size_t i = 0; i < num_threads; i++) {
@@ -136,12 +142,6 @@ class TransactionsTestEnvironment : public ::testing::Environment
   public:
     void SetUp() override
     {
-        // for tests, really chatty logs may be useful.
-        if (!couchbase::logger::isInitialized()) {
-            couchbase::logger::create_console_logger();
-        }
-        couchbase::logger::set_log_levels(spdlog::level::level_enum::trace);
-        couchbase::transactions::set_transactions_log_level(couchbase::transactions::log_level::TRACE);
         get_cluster();
     }
 
@@ -224,8 +224,8 @@ class TransactionsTestEnvironment : public ::testing::Environment
                                                                   bool cleanup_lost_txns = false)
     {
         couchbase::transactions::transaction_config cfg;
-        cfg.cleanup_client_attempts(false);
-        cfg.cleanup_lost_attempts(false);
+        cfg.cleanup_client_attempts(true);
+        cfg.cleanup_lost_attempts(true);
         cfg.expiration_time(std::chrono::seconds(1));
         return { c, cfg };
     }

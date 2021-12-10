@@ -58,11 +58,10 @@ namespace transactions
         std::optional<couchbase::document_id> atr_id_;
         bool is_done_;
         std::unique_ptr<staged_mutation_queue> staged_mutations_;
-        attempt_context_testing_hooks hooks_;
+        attempt_context_testing_hooks& hooks_;
         error_list errors_;
         std::mutex mutex_;
         waitable_op_list op_list_;
-        std::atomic<bool> blocking_mode_;
 
         // commit needs to access the hooks
         friend class staged_mutation_queue;
@@ -252,7 +251,7 @@ namespace transactions
         bool has_expired_client_side(std::string place, std::optional<const std::string> doc_id);
 
       private:
-        bool expiry_overtime_mode_{ false };
+        std::atomic<bool> expiry_overtime_mode_{ false };
 
         bool check_expiry_pre_commit(std::string stage, std::optional<const std::string> doc_id);
 
@@ -293,10 +292,21 @@ namespace transactions
         void get_doc(const couchbase::document_id& id,
                      std::function<void(std::optional<error_class>, std::optional<transaction_get_result>)>&& cb);
 
-        couchbase::operations::mutate_in_request create_staging_request(const transaction_get_result& document, const std::string type);
+        couchbase::operations::mutate_in_request create_staging_request(const transaction_get_result& document,
+                                                                        const std::string type,
+                                                                        std::optional<std::string> content = std::nullopt);
 
-        template<typename Handler>
-        void create_staged_insert(const couchbase::document_id& id, const std::string& content, uint64_t cas, Handler&& cb);
+        template<typename Handler, typename Delay>
+        void create_staged_insert(const couchbase::document_id& id, const std::string& content, uint64_t cas, Delay&& delay, Handler&& cb);
+
+        template<typename Handler, typename Delay>
+        void create_staged_insert_error_handler(const couchbase::document_id& id,
+                                                const std::string& content,
+                                                uint64_t cas,
+                                                Delay&& delay,
+                                                Handler&& cb,
+                                                error_class ec,
+                                                const std::string& message);
     };
 } // namespace transactions
 } // namespace couchbase

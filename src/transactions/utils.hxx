@@ -19,6 +19,7 @@
 #include <chrono>
 #include <couchbase/errors.hxx>
 #include <couchbase/operations.hxx>
+#include <couchbase/operations/management/bucket_get_all.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <functional>
 #include <future>
@@ -304,8 +305,8 @@ namespace transactions
         std::chrono::duration<R1, P1> initial_delay;
         std::chrono::duration<R2, P2> max_delay;
         std::chrono::duration<R3, P3> timeout;
-        uint32_t retries;
-        std::optional<std::chrono::time_point<std::chrono::steady_clock>> end_time;
+        mutable uint32_t retries;
+        mutable std::optional<std::chrono::time_point<std::chrono::steady_clock>> end_time;
 
         exp_delay(std::chrono::duration<R1, P1> initial, std::chrono::duration<R2, P2> max, std::chrono::duration<R3, P3> limit)
           : initial_delay(initial)
@@ -315,7 +316,7 @@ namespace transactions
           , end_time()
         {
         }
-        void operator()()
+        void operator()() const
         {
             auto now = std::chrono::steady_clock::now();
             if (!end_time) {
@@ -357,6 +358,40 @@ namespace transactions
             std::this_thread::sleep_for(delay);
         }
     };
+
+    static std::list<std::string> get_and_open_buckets(cluster& c)
+    {
+        couchbase::operations::management::bucket_get_all_request req{};
+        // don't wrap this one, as the kv timeout isn't appropriate here.
+        std::mutex mtx;
+        std::condition_variable cv;
+        std::atomic<size_t> count = 1; // non-zero so we know not to stop waiting immediately
+        std::list<std::string> bucket_names;
+        c.execute(req, [&cv, &bucket_names, &c, &mtx, &count](couchbase::operations::management::bucket_get_all_response resp) {
+            std::unique_lock<std::mutex> lock(mtx);
+            // now set count to correct # of buckets to try to open
+            count = resp.buckets.size();
+            lock.unlock();
+            for (auto& b : resp.buckets) {
+                // open the bucket
+                c.open_bucket(b.name, [&cv, name = b.name, &bucket_names, &mtx, &count](std::error_code ec) {
+                    std::unique_lock<std::mutex> lock(mtx);
+                    if (!ec) {
+                        // push bucket name into list only if we successfully opened it
+                        bucket_names.push_back(name);
+                    }
+                    count--;
+                    lock.unlock();
+                    if (count.load() == 0) {
+                        cv.notify_all();
+                    }
+                });
+            }
+        });
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.wait(lock, [&count]() { return count == 0; });
+        return bucket_names;
+    }
 
 } // namespace transactions
 } // namespace couchbase

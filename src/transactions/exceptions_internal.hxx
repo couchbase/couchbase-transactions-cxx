@@ -75,6 +75,52 @@ namespace transactions
         FAIL_EXPIRY
     };
 
+    template<typename OStream>
+    OStream& operator<<(OStream& os, const error_class& ec)
+    {
+        switch (ec) {
+            case FAIL_HARD:
+                os << "FAIL_HARD";
+                break;
+            case FAIL_OTHER:
+                os << "FAIL_OTHER";
+                break;
+            case FAIL_TRANSIENT:
+                os << "FAIL_TRANSIENT";
+                break;
+            case FAIL_AMBIGUOUS:
+                os << "FAIL_AMBIGUOUS";
+                break;
+            case FAIL_DOC_ALREADY_EXISTS:
+                os << "FAIL_DOC_ALREADY_EXISTS";
+                break;
+            case FAIL_DOC_NOT_FOUND:
+                os << "FAIL_DOC_NOT_FOUND";
+                break;
+            case FAIL_PATH_NOT_FOUND:
+                os << "FAIL_PATH_NOT_FOUND";
+                break;
+            case FAIL_CAS_MISMATCH:
+                os << "FAIL_CAS_MISMATCH";
+                break;
+            case FAIL_WRITE_WRITE_CONFLICT:
+                os << "FAIL_WRITE_WRITE_CONFLICT";
+                break;
+            case FAIL_ATR_FULL:
+                os << "FAIL_ATR_FULL";
+                break;
+            case FAIL_PATH_ALREADY_EXISTS:
+                os << "FAIL_PATH_ALREADY_EXISTS";
+                break;
+            case FAIL_EXPIRY:
+                os << "FAIL_EXPIRY";
+                break;
+            default:
+                os << "UNKNOWN ERROR CLASS";
+                break;
+        }
+        return os;
+    }
     enum final_error { FAILED, EXPIRED, FAILED_POST_COMMIT, AMBIGUOUS };
 
     error_class error_class_from_result(const result& res);

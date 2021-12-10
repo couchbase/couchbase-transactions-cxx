@@ -180,7 +180,7 @@ namespace transactions
         std::map<forward_compat_stage, std::list<forward_compat_requirement*>> compat_map_;
         nlohmann::json json_;
 
-        void check_internal(forward_compat_stage stage, forward_compat_supported supported)
+        std::optional<transaction_operation_failed> check_internal(forward_compat_stage stage, forward_compat_supported supported)
         {
             auto it = compat_map_.find(stage);
             if (it != compat_map_.end()) {
@@ -191,20 +191,21 @@ namespace transactions
                     switch (behavior.behavior) {
                         case forward_compat_behavior::FAIL_FAST_TXN:
                             txn_log->trace("forward compatiblity FAIL_FAST_TXN");
-                            throw ex;
+                            return ex;
                         case forward_compat_behavior::RETRY_TXN:
                             txn_log->trace("forward compatibility RETRY_TXN");
                             if (behavior.retry_delay) {
                                 txn_log->trace("delay {}ms before retrying", behavior.retry_delay->count());
                                 std::this_thread::sleep_for(*behavior.retry_delay);
                             }
-                            throw ex.retry();
+                            return ex.retry();
                         case forward_compat_behavior::CONTINUE:
                         default:
                             break;
                     }
                 }
             }
+            return std::nullopt;
         }
 
         forward_compat(nlohmann::json& json)
@@ -231,13 +232,14 @@ namespace transactions
         }
 
       public:
-        static void check(forward_compat_stage stage, std::optional<nlohmann::json> json)
+        static std::optional<transaction_operation_failed> check(forward_compat_stage stage, std::optional<nlohmann::json> json)
         {
             if (json) {
                 forward_compat_supported supported;
                 forward_compat fc(*json);
-                fc.check_internal(stage, supported);
+                return fc.check_internal(stage, supported);
             }
+            return std::nullopt;
         }
     };
 

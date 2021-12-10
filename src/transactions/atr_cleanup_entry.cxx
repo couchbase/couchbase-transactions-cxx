@@ -119,7 +119,10 @@ tx::atr_cleanup_entry::check_atr_and_cleanup(std::shared_ptr<spdlog::logger> log
     if (result) {
         result->state(atr_entry_->state());
     }
-    forward_compat::check(forward_compat_stage::CLEANUP_ENTRY, atr_entry_->forward_compat());
+    auto err = forward_compat::check(forward_compat_stage::CLEANUP_ENTRY, atr_entry_->forward_compat());
+    if (err) {
+        throw *err;
+    }
     cleanup_docs(logger);
     cleanup_->config().cleanup_hooks().on_cleanup_docs_completed();
     cleanup_entry(logger);
@@ -226,11 +229,11 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, std::
     if (docs) {
         do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, tx::transaction_get_result& doc, bool) {
             if (doc.links().has_staged_content()) {
-                nlohmann::json content = doc.links().staged_content();
+                auto content = doc.links().staged_content();
                 cleanup_->config().cleanup_hooks().before_commit_doc(doc.id().key());
                 if (doc.links().is_deleted()) {
                     couchbase::operations::insert_request req{ doc.id() };
-                    req.value = content.dump();
+                    req.value = content;
                     auto barrier = std::make_shared<std::promise<result>>();
                     auto f = barrier->get_future();
                     cleanup_->cluster_ref().execute(wrap_durable_request(req, cleanup_->config()),
@@ -241,7 +244,7 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, std::
                 } else {
                     couchbase::operations::mutate_in_request req{ doc.id() };
                     req.specs.add_spec(protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
-                    req.specs.add_spec(protocol::subdoc_opcode::set_doc, false, content.dump());
+                    req.specs.add_spec(protocol::subdoc_opcode::set_doc, false, false, false, {}, content);
                     req.cas.value = doc.cas();
                     req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::replace;
                     wrap_durable_request(req, cleanup_->config());
@@ -252,7 +255,7 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, std::
                     });
                     tx::wrap_operation_future(f);
                 }
-                logger->trace("commit_docs replaced content of doc {} with {}", doc.id(), content.dump());
+                logger->trace("commit_docs replaced content of doc {} with {}", doc.id(), content);
             } else {
                 logger->trace("commit_docs skipping document {}, no staged content", doc.id());
             }
@@ -348,7 +351,7 @@ tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger)
     try {
         cleanup_->config().cleanup_hooks().before_atr_remove();
         couchbase::operations::mutate_in_request req{ atr_id_ };
-        req.specs.add_spec(protocol::subdoc_opcode::remove, true, "attempts.");
+        req.specs.add_spec(protocol::subdoc_opcode::replace, true, false, false, "attempts", "{}");
         wrap_durable_request(req, cleanup_->config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();

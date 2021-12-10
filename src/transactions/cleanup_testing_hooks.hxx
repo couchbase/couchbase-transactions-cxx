@@ -22,20 +22,19 @@ namespace couchbase
 {
 namespace transactions
 {
+    using error_func3 = std::function<std::optional<error_class>(const std::string&)>;
+    using error_func4 = std::function<std::optional<error_class>(void)>;
     namespace
     {
-        int noop1(const std::string&)
+        std::optional<error_class> noop1(const std::string&)
         {
-            return 1;
+            return {};
         }
-        int noop2()
+        std::optional<error_class> noop2()
         {
-            return 1;
+            return {};
         }
-        void noop3()
-        {
-            return;
-        }
+
     } // namespace
 
     /**
@@ -43,22 +42,22 @@ namespace transactions
      * about your use-case: we are always open to adding good ideas into the transactions library.
      */
     struct cleanup_testing_hooks {
-        std::function<int(const std::string& id)> before_commit_doc = noop1;
-        std::function<int(const std::string& id)> before_doc_get = noop1;
-        std::function<int(const std::string& id)> before_remove_doc_staged_for_removal = noop1;
-        std::function<int(const std::string& id)> before_remove_doc = noop1;
-        std::function<int(const std::string& id)> before_atr_get = noop1;
-        std::function<int(const std::string& id)> before_remove_links = noop1;
+        error_func3 before_commit_doc = noop1;
+        error_func3 before_doc_get = noop1;
+        error_func3 before_remove_doc_staged_for_removal = noop1;
+        error_func3 before_remove_doc = noop1;
+        error_func3 before_atr_get = noop1;
+        error_func3 before_remove_links = noop1;
 
-        std::function<int(void)> before_atr_remove = noop2;
+        error_func4 before_atr_remove = noop2;
 
-        std::function<void(void)> on_cleanup_docs_completed = noop3;
-        std::function<void(void)> on_cleanup_completed = noop3;
+        error_func4 on_cleanup_docs_completed = noop2;
+        error_func4 on_cleanup_completed = noop2;
 
-        std::function<int(const std::string&)> client_record_before_create = noop1;
-        std::function<int(const std::string&)> client_record_before_get = noop1;
-        std::function<int(const std::string&)> client_record_before_update = noop1;
-        std::function<int(const std::string&)> client_record_before_remove_client = noop1;
+        error_func3 client_record_before_create = noop1;
+        error_func3 client_record_before_get = noop1;
+        error_func3 client_record_before_update = noop1;
+        error_func3 client_record_before_remove_client = noop1;
     };
 } // namespace transactions
 } // namespace couchbase

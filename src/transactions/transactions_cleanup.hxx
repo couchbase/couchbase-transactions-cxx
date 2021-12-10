@@ -146,8 +146,6 @@ namespace transactions
         void create_client_record(const std::string& bucket_name);
         const atr_cleanup_stats handle_atr_cleanup(const couchbase::document_id& atr_id,
                                                    std::vector<transactions_cleanup_attempt>* result = nullptr);
-        std::vector<std::string> get_buckets();
-
         std::atomic<bool> running_{ false };
     };
 } // namespace transactions

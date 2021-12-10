@@ -49,14 +49,14 @@ tx::transactions_cleanup::transactions_cleanup(couchbase::cluster& cluster, cons
   , client_uuid_(uid_generator::next())
   , running_(false)
 {
-    if (config_.cleanup_lost_attempts()) {
-        running_ = true;
-        lost_attempts_thr_ = std::thread(std::bind(&transactions_cleanup::lost_attempts_loop, this));
-    }
-
-    if (config_.cleanup_client_attempts()) {
+    auto buckets = get_and_open_buckets(cluster);
+    if (config.cleanup_client_attempts()) {
         running_ = true;
         cleanup_thr_ = std::thread(std::bind(&transactions_cleanup::attempts_loop, this));
+    }
+    if (config.cleanup_lost_attempts()) {
+        running_ = true;
+        lost_attempts_thr_ = std::thread(std::bind(&transactions_cleanup::lost_attempts_loop, this));
     }
 }
 
@@ -136,8 +136,9 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
     // we put a delay in between handling each atr, such that the delays add up to the total window time.  This
     // means this takes longer than the window.
 
-    auto delay = std::chrono::milliseconds(config_.cleanup_window().count()) / std::max(1ul, all_atrs.size() / details.num_active_clients);
-    lost_attempts_cleanup_log->info("{} active clients (including this one), {} atrs to check {}ms delay between checking each atr",
+    auto delay =
+      std::chrono::microseconds(1000 * config_.cleanup_window().count()) / std::max(1ul, all_atrs.size() / details.num_active_clients);
+    lost_attempts_cleanup_log->info("{} active clients (including this one), {} atrs to check {}us delay between checking each atr",
                                     details.num_active_clients,
                                     all_atrs.size(),
                                     delay.count());
@@ -167,7 +168,7 @@ tx::transactions_cleanup::handle_atr_cleanup(const couchbase::document_id& atr_i
     wrap_request(req, config_);
     auto barrier = std::make_shared<std::promise<bool>>();
     auto f = barrier->get_future();
-    cluster_.execute(req, [barrier](couchbase::operations::exists_response resp) { barrier->set_value(resp.cas.value != 0); });
+    cluster_.execute(req, [barrier](couchbase::operations::exists_response resp) { barrier->set_value(resp.exists()); });
 
     if (f.get()) {
         auto atr = active_transaction_record::get_atr(cluster_, atr_id);
@@ -197,7 +198,6 @@ tx::transactions_cleanup::handle_atr_cleanup(const couchbase::document_id& atr_i
             }
         }
     }
-    lost_attempts_cleanup_log->trace("handle_cleanup_atr {} stats: {}", atr_id, stats.exists, stats.num_entries);
     return stats;
 }
 
@@ -275,11 +275,6 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
                             auto expires_ms = cl[FIELD_EXPIRES].get<uint64_t>();
                             auto expired_period = static_cast<int64_t>(now_ms) - static_cast<int64_t>(heartbeat_ms);
                             bool has_expired = expired_period >= static_cast<int64_t>(expires_ms) && now_ms > heartbeat_ms;
-                            lost_attempts_cleanup_log->trace("heartbeat_ms: {}, expires_ms:{}, expired_period: {}, now_ms: {}",
-                                                             heartbeat_ms,
-                                                             expires_ms,
-                                                             expired_period,
-                                                             now_ms);
                             if (has_expired && other_client_uuid != uuid) {
                                 details.expired_client_ids.push_back(other_client_uuid);
                             } else {
@@ -360,47 +355,11 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
     });
 }
 
-std::vector<std::string>
-tx::transactions_cleanup::get_buckets()
-{
-    couchbase::operations::management::bucket_get_all_request req{};
-    // don't wrap this one, as the kv timeout isn't appropriate here.
-    auto barrier = std::make_shared<std::promise<std::vector<std::string>>>();
-    auto f = barrier->get_future();
-    cluster_.execute(req, [barrier](couchbase::operations::management::bucket_get_all_response resp) {
-        std::vector<std::string> bucket_names;
-        for (auto& b : resp.buckets) {
-            bucket_names.push_back(b.name);
-        }
-        barrier->set_value(bucket_names);
-    });
-    std::vector<std::string> buckets;
-    // open them (in parallel), just in case they are not, as we will look in them all...
-    std::vector<std::future<std::string>> futures;
-    for (auto& b : f.get()) {
-        auto barrier = std::make_shared<std::promise<std::string>>();
-        futures.push_back(std::move(barrier->get_future()));
-        cluster_.open_bucket(b, [barrier, b](std::error_code ec) {
-            if (ec) {
-                lost_attempts_cleanup_log->error("got error {} opening bucket `{}`", ec, b);
-            }
-            barrier->set_value(b);
-        });
-    }
-    for (auto& f : futures) {
-        auto bucket_name = f.get();
-        if (!bucket_name.empty()) {
-            buckets.push_back(bucket_name);
-        }
-    }
-    return buckets;
-}
-
 void
 tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::string& uuid)
 {
 
-    for (auto bucket_name : get_buckets()) {
+    for (auto bucket_name : get_and_open_buckets(cluster_)) {
         try {
             retry_op_exponential_backoff_timeout<void>(
               std::chrono::milliseconds(10), std::chrono::milliseconds(250), std::chrono::milliseconds(500), [&]() {
@@ -448,7 +407,7 @@ tx::transactions_cleanup::lost_attempts_loop()
     while (running_.load()) {
         std::list<std::thread> workers;
         try {
-            auto names = get_buckets();
+            auto names = get_and_open_buckets(cluster_);
             lost_attempts_cleanup_log->info("creating {} tasks to clean buckets", names.size());
             // TODO consider std::async here.
             for (const auto& name : names) {

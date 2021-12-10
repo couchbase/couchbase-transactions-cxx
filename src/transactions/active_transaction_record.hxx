@@ -43,18 +43,25 @@ namespace transactions
             req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_FIELD_ATTEMPTS);
             req.specs.add_spec(protocol::subdoc_opcode::get, true, "$vbucket");
             cluster.execute(req, [atr_id, cb = std::move(cb)](couchbase::operations::lookup_in_response resp) {
-                auto ec = error_class_from_response(resp);
-                if (resp.ctx.ec == couchbase::error::key_value_errc::document_not_found) {
-                    // that's ok, just return an empty one.
-                    return cb({}, {});
+                try {
+                    if (resp.ctx.ec == couchbase::error::key_value_errc::document_not_found) {
+                        // that's ok, just return an empty one.
+                        return cb({}, {});
+                    }
+                    if (!resp.ctx.ec) {
+                        // success
+                        return cb(resp.ctx.ec, map_to_atr(resp));
+                    }
+                    // otherwise, raise an error.
+                    cb(resp.ctx.ec, {});
+                } catch (const std::exception& e) {
+                    // ok - we have a corrupt ATR.  The question is:  what should we return for an error?
+                    // Turns out, we don't much care in the code what this error is.  Since we cannot parse
+                    // the atr, but there wasn't an error, lets select this one for now.
+                    // TODO: consider a different mechanism - not an error_code.  Or, perhaps we need txn-specific
+                    // error codes?
+                    cb(couchbase::error::key_value_errc::path_invalid, std::nullopt);
                 }
-                if (!resp.ctx.ec) {
-                    // success
-                    auto attempts = nlohmann::json::parse(resp.fields[0].value);
-                    return cb(resp.ctx.ec, map_to_atr(resp));
-                }
-                // otherwise, raise an error.
-                cb(resp.ctx.ec, {});
             });
         }
 
@@ -62,7 +69,12 @@ namespace transactions
         {
             auto barrier = std::promise<std::optional<active_transaction_record>>();
             auto f = barrier.get_future();
-            get_atr(cluster, atr_id, [&](std::error_code ec, std::optional<active_transaction_record> atr) { barrier.set_value(atr); });
+            get_atr(cluster, atr_id, [&](std::error_code ec, std::optional<active_transaction_record> atr) {
+                if (!ec) {
+                    return barrier.set_value(atr);
+                }
+                return barrier.set_exception(std::make_exception_ptr(std::runtime_error(ec.message())));
+            });
             return f.get();
         }
         active_transaction_record(const couchbase::document_id& id, uint64_t, std::vector<atr_entry> entries)
@@ -123,31 +135,33 @@ namespace transactions
         }
         static inline active_transaction_record map_to_atr(const couchbase::operations::lookup_in_response& resp)
         {
-            auto attempts = nlohmann::json::parse(resp.fields[0].value);
-            auto vbucket = default_json_serializer::deserialize<nlohmann::json>(resp.fields[1].value);
-            auto now_ns = now_ns_from_vbucket(vbucket);
             std::vector<atr_entry> entries;
-            entries.reserve(attempts.size());
-            for (auto& element : attempts.items()) {
-                auto& val = element.value();
-                entries.emplace_back(
-                  resp.ctx.id.bucket(),
-                  resp.ctx.id.key(),
-                  element.key(),
-                  attempt_state_value(val[ATR_FIELD_STATUS].get<std::string>()),
-                  parse_mutation_cas(val.value(ATR_FIELD_START_TIMESTAMP, "")),
-                  parse_mutation_cas(val.value(ATR_FIELD_START_COMMIT, "")),
-                  parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_COMPLETE, "")),
-                  parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_START, "")),
-                  parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "")),
-                  val.count(ATR_FIELD_EXPIRES_AFTER_MSECS) ? std::make_optional(val[ATR_FIELD_EXPIRES_AFTER_MSECS].get<std::uint32_t>())
-                                                           : std::optional<std::uint32_t>(),
-                  process_document_ids(val, ATR_FIELD_DOCS_INSERTED),
-                  process_document_ids(val, ATR_FIELD_DOCS_REPLACED),
-                  process_document_ids(val, ATR_FIELD_DOCS_REMOVED),
-                  val.contains(ATR_FIELD_FORWARD_COMPAT) ? std::make_optional(val[ATR_FIELD_FORWARD_COMPAT].get<nlohmann::json>())
-                                                         : std::nullopt,
-                  now_ns);
+            if (resp.fields[0].status == protocol::status::success) {
+                auto attempts = nlohmann::json::parse(resp.fields[0].value);
+                auto vbucket = default_json_serializer::deserialize<nlohmann::json>(resp.fields[1].value);
+                auto now_ns = now_ns_from_vbucket(vbucket);
+                entries.reserve(attempts.size());
+                for (auto& element : attempts.items()) {
+                    auto& val = element.value();
+                    entries.emplace_back(
+                      resp.ctx.id.bucket(),
+                      resp.ctx.id.key(),
+                      element.key(),
+                      attempt_state_value(val[ATR_FIELD_STATUS].get<std::string>()),
+                      parse_mutation_cas(val.value(ATR_FIELD_START_TIMESTAMP, "")),
+                      parse_mutation_cas(val.value(ATR_FIELD_START_COMMIT, "")),
+                      parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_COMPLETE, "")),
+                      parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_START, "")),
+                      parse_mutation_cas(val.value(ATR_FIELD_TIMESTAMP_ROLLBACK_COMPLETE, "")),
+                      val.count(ATR_FIELD_EXPIRES_AFTER_MSECS) ? std::make_optional(val[ATR_FIELD_EXPIRES_AFTER_MSECS].get<std::uint32_t>())
+                                                               : std::optional<std::uint32_t>(),
+                      process_document_ids(val, ATR_FIELD_DOCS_INSERTED),
+                      process_document_ids(val, ATR_FIELD_DOCS_REPLACED),
+                      process_document_ids(val, ATR_FIELD_DOCS_REMOVED),
+                      val.contains(ATR_FIELD_FORWARD_COMPAT) ? std::make_optional(val[ATR_FIELD_FORWARD_COMPAT].get<nlohmann::json>())
+                                                             : std::nullopt,
+                      now_ns);
+                }
             }
             return active_transaction_record(resp.ctx.id, resp.cas.value, std::move(entries));
         }

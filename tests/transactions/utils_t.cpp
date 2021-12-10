@@ -22,6 +22,7 @@
 
 #include "../../src/transactions/exceptions_internal.hxx"
 #include "../../src/transactions/utils.hxx"
+#include "transactions_env.h"
 
 using namespace couchbase::transactions;
 using namespace std;
@@ -210,4 +211,12 @@ TEST(RetryableOp, CanHaveConstantDelay)
     } catch (const retry_operation_retries_exhausted&) {
         ASSERT_EQ(state.timings.size(), 10);
     }
+}
+
+TEST(GetBuckets, CanGetBuckets)
+{
+    auto& c = TransactionsTestEnvironment::get_cluster();
+    std::list<std::string> buckets = get_and_open_buckets(c);
+    ASSERT_NE(buckets.end(), std::find(buckets.begin(), buckets.end(), std::string("default")));
+    ASSERT_NE(buckets.end(), std::find(buckets.begin(), buckets.end(), std::string("secBucket")));
 }
