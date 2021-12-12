@@ -123,9 +123,15 @@ tx::atr_cleanup_entry::check_atr_and_cleanup(std::shared_ptr<spdlog::logger> log
         throw *err;
     }
     cleanup_docs(logger);
-    cleanup_->config().cleanup_hooks().on_cleanup_docs_completed();
+    auto ec = cleanup_->config().cleanup_hooks().on_cleanup_docs_completed();
+    if (ec) {
+        throw client_error(*ec, "on_cleanup_docs_completed hook threw error");
+    }
     cleanup_entry(logger);
-    cleanup_->config().cleanup_hooks().on_cleanup_completed();
+    ec = cleanup_->config().cleanup_hooks().on_cleanup_completed();
+    if (ec) {
+        throw client_error(*ec, "on_cleanup_completed hook threw error");
+    }
     return;
 }
 
@@ -229,7 +235,10 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, std::
         do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, tx::transaction_get_result& doc, bool) {
             if (doc.links().has_staged_content()) {
                 auto content = doc.links().staged_content();
-                cleanup_->config().cleanup_hooks().before_commit_doc(doc.id().key());
+                auto ec = cleanup_->config().cleanup_hooks().before_commit_doc(doc.id().key());
+                if (ec) {
+                    throw client_error(*ec, "before_commit_doc hook threw error");
+                }
                 if (doc.links().is_deleted()) {
                     couchbase::operations::insert_request req{ doc.id() };
                     req.value = content;
@@ -266,7 +275,10 @@ tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger, std::
 {
     if (docs) {
         do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, transaction_get_result& doc, bool is_deleted) {
-            cleanup_->config().cleanup_hooks().before_remove_doc(doc.id().key());
+            auto ec = cleanup_->config().cleanup_hooks().before_remove_doc(doc.id().key());
+            if (ec) {
+                throw client_error(*ec, "before_remove_doc hook threw error");
+            }
             if (is_deleted) {
                 couchbase::operations::mutate_in_request req{ doc.id() };
                 req.specs.add_spec(couchbase::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
@@ -302,7 +314,10 @@ tx::atr_cleanup_entry::remove_docs_staged_for_removal(std::shared_ptr<spdlog::lo
     if (docs) {
         do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, transaction_get_result& doc, bool) {
             if (doc.links().is_document_being_removed()) {
-                cleanup_->config().cleanup_hooks().before_remove_doc_staged_for_removal(doc.id().key());
+                auto ec = cleanup_->config().cleanup_hooks().before_remove_doc_staged_for_removal(doc.id().key());
+                if (ec) {
+                    throw client_error(*ec, "before_remove_doc_staged_for_removal hook threw error");
+                }
                 couchbase::operations::remove_request req{ doc.id() };
                 req.cas.value = doc.cas();
                 wrap_durable_request(req, cleanup_->config());
@@ -327,7 +342,10 @@ tx::atr_cleanup_entry::remove_txn_links(std::shared_ptr<spdlog::logger> logger, 
 {
     if (docs) {
         do_per_doc(logger, *docs, false, [&](std::shared_ptr<spdlog::logger> logger, transaction_get_result& doc, bool) {
-            cleanup_->config().cleanup_hooks().before_remove_links(doc.id().key());
+            auto ec = cleanup_->config().cleanup_hooks().before_remove_links(doc.id().key());
+            if (ec) {
+                throw client_error(*ec, "before_remove_links hook threw error");
+            }
             couchbase::operations::mutate_in_request req{ doc.id() };
             req.specs.add_spec(protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
             req.access_deleted = true;
@@ -348,7 +366,10 @@ void
 tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger)
 {
     try {
-        cleanup_->config().cleanup_hooks().before_atr_remove();
+        auto ec = cleanup_->config().cleanup_hooks().before_atr_remove();
+        if (ec) {
+            throw client_error(*ec, "before_atr_remove hook threw error");
+        }
         couchbase::operations::mutate_in_request req{ atr_id_ };
         req.specs.add_spec(protocol::subdoc_opcode::replace, true, false, false, "attempts", "{}");
         wrap_durable_request(req, cleanup_->config());

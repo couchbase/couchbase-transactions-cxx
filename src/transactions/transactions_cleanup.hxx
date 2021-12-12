@@ -39,7 +39,7 @@ namespace transactions
     class transactions_cleanup_attempt
     {
       private:
-        const couchbase::document_id& atr_id_;
+        const couchbase::document_id atr_id_;
         const std::string attempt_id_;
         const std::string atr_bucket_name_;
         bool success_;

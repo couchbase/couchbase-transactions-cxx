@@ -36,7 +36,7 @@
 #define CONFIG_FILE_NAME "../tests/config.json"
 #define ENV_CONNECTION_STRING "TXN_CONNECTION_STRING"
 static const uint32_t DEFAULT_IO_COMPLETION_THREADS = 4;
-static const size_t MAX_PINGS = 10;
+static const size_t MAX_PINGS = 5;
 static const auto PING_INTERVAL = std::chrono::milliseconds(100);
 
 namespace tx = couchbase::transactions;
@@ -117,8 +117,7 @@ struct conn {
             bool ok = false;
             size_t num_pings = 0;
             auto sleep_time = PING_INTERVAL;
-            while (!ok && num_pings < MAX_PINGS) {
-                sleep_time *= ++num_pings;
+            while (!ok && num_pings++ < MAX_PINGS) {
                 spdlog::info("sleeping {}ms before pinging...", sleep_time.count());
                 std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time));
                 auto barrier = std::make_shared<std::promise<couchbase::diag::ping_result>>();
@@ -131,6 +130,7 @@ struct conn {
                 for (auto s : result.services[couchbase::service_type::key_value]) {
                     ok = ok && !s.error && (s.state == couchbase::diag::ping_state::ok);
                 }
+                sleep_time *= 2;
                 spdlog::info("ping after connect {}", ok ? "successful" : "unsuccessful");
             }
         }
