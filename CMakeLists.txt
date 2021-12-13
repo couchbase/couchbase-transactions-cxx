@@ -26,10 +26,10 @@ set(ALLOW_DUPLICATE_CUSTOM_TARGETS TRUE)
 # ============= END EXTERNAL DEPS ====================================
 # ============= BEGIN DEPS ===========================================
 project(transactions_cxx)
-set(CB_VERSION_MAJOR 1)
-set(CB_VERSION_MINOR 1)
+set(CB_VERSION_MAJOR 2)
+set(CB_VERSION_MINOR 0)
 set(CB_VERSION_PATCH 0)
-set(CB_VERSION_TWEAK "")
+set(CB_VERSION_TWEAK "beta.1")
 
 find_program(GIT_EXECUTABLE NAMES git git.exe)
 macro(RUNGIT outvar)
@@ -55,13 +55,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 
 
-option(BUILD_DOC "Build documentation" ON)
-option(BUILD_EXAMPLES "Build examples" ON)
-option(BUILD_TESTS "Build tests" ON)
+option(COUCHBASE_TXNS_CXX_BUILD_DOC "Build documentation" ON)
+option(COUCHBASE_TXNS_CXX_BUILD_EXAMPLES "Build examples" ON)
+option(COUCHBASE_TXNS_CXX_BUILD_TESTS "Build tests" ON)
 
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 
-if(BUILD_TESTS)
+if(COUCHBASE_TXNS_CXX_BUILD_TESTS)
     add_subdirectory(deps/gtest/)
 endif()
 
@@ -90,7 +90,7 @@ set_target_properties(transactions_cxx PROPERTIES VERSION ${CB_VERSION_STRING} S
 # =========== END TRANSACTIONS ================================================================
 
 # =========== BEGIN DOCS ======================================================================
-if(BUILD_DOC)
+if(COUCHBASE_TXNS_CXX_BUILD_DOC)
     find_package(Doxygen)
     if(DOXYGEN_FOUND)
         set(DOXYGEN_IN ${CMAKE_CURRENT_SOURCE_DIR}/docs/Doxyfile.in)
@@ -107,7 +107,7 @@ if(BUILD_DOC)
 endif()
 #=========== END DOCS ============================================================================
 #=========== BEGIN EXAMPLES ======================================================================
-if(BUILD_EXAMPLES)
+if(COUCHBASE_TXNS_CXX_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 #========== END EXAMPLES =========================================================================
@@ -140,7 +140,7 @@ install(DIRECTORY include/couchbase
 
 #========== BEGIN TESTS ==========================================================================
 
-if(BUILD_TESTS)
+if(COUCHBASE_TXNS_CXX_BUILD_TESTS)
     file(GLOB_RECURSE CLIENT_TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/transactions/*.cpp")
     include_directories(${CURRENT_CMAKE_BINARY_DIR}/deps/gtest)
     add_executable(client_tests ${CLIENT_TEST_SOURCES})
