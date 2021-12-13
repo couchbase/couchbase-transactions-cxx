@@ -91,8 +91,8 @@ TEST(SimpleAsyncTxns, AsyncRemoveFail)
                 }
             });
         });
-        FAIL() << "expected txn to fail until timeout";
-    } catch (const transaction_expired&) {
+        FAIL() << "expected txn to fail until timeout, or error out during rollback";
+    } catch (const transaction_exception&) {
         ASSERT_TRUE(done.load());
     }
 }
