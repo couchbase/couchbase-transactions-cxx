@@ -490,6 +490,9 @@ attempt_context_impl::remove(transaction_get_result& document, VoidCallback&& cb
               select_atr_if_needed_unlocked(
                 document.id(),
                 [document = std::move(document), cb = std::move(cb), this, error_handler](std::optional<transaction_operation_failed> err) {
+                    if (err) {
+                        return op_completed_with_error(cb, *err);
+                    }
                     if (auto ec = hooks_.before_staged_remove(this, document.id().key())) {
                         return error_handler(*ec, "before_staged_remove hook raised error");
                     }
