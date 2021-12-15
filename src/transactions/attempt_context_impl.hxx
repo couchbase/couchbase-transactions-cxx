@@ -142,7 +142,11 @@ namespace transactions
                 error("Attempted to perform txn operation after commit/rollback started");
                 op_completed_with_error(cb, transaction_operation_failed(FAIL_OTHER, e.what()));
             } catch (const transaction_operation_failed& e) {
-                // thrown only from call_func when previous error exists, so eat it.
+                // thrown only from call_func when previous error exists, so eat it, unless
+                // it has PREVIOUS_OP_FAILED cause
+                if (e.cause() == PREVIOUS_OPERATION_FAILED) {
+                    op_completed_with_error(cb, e);
+                }
             } catch (const std::exception& e) {
                 op_completed_with_error(cb, transaction_operation_failed(FAIL_OTHER, e.what()));
             }

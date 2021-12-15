@@ -203,22 +203,22 @@ namespace transactions
             // is false.  Not rolling back takes precedence over retry.  Otherwise, we
             // just retain the first.
             assert(errors.size() > 0);
-            std::list<transaction_operation_failed>::iterator error_to_throw = errors.begin();
+            auto error_to_throw = *errors.begin();
             bool retry = false;
-            for (auto ex = errors.begin(); ex != errors.end(); ex++) {
-                retry = ex->retry_;
-                if (!ex->retry_) {
+            for (auto& ex: errors) {
+                retry = ex.retry_;
+                if (!ex.retry_) {
                     error_to_throw = ex;
                 }
-                if (!ex->rollback_) {
+                if (!ex.rollback_) {
                     // this takes precedence, just throw this
-                    throw *ex;
+                    throw ex;
                 }
             }
             if (cause) {
-                error_to_throw->cause(*cause);
+                error_to_throw.cause(*cause);
             }
-            throw *error_to_throw;
+            throw error_to_throw;
         }
         // Retry is false by default, this makes it true
         transaction_operation_failed& retry()
