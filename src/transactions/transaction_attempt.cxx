@@ -14,7 +14,7 @@
  *   limitations under the License.
  */
 
-#include "transaction_attempt.hxx"
+#include "couchbase/transactions/internal/transaction_attempt.hxx"
 #include "uid_generator.hxx"
 
 namespace couchbase

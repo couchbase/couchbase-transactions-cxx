@@ -16,8 +16,8 @@
 
 #pragma once
 
+#include "couchbase/transactions/internal/transaction_context.hxx"
 #include "result.hxx"
-#include "transaction_context.hxx"
 #include <couchbase/transactions/exceptions.hxx>
 
 namespace couchbase

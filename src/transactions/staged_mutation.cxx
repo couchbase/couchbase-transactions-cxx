@@ -16,8 +16,8 @@
 
 #include "staged_mutation.hxx"
 #include "attempt_context_impl.hxx"
+#include "couchbase/transactions/internal/transaction_fields.hxx"
 #include "result.hxx"
-#include "transaction_fields.hxx"
 #include "utils.hxx"
 #include <utility>
 

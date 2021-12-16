@@ -14,7 +14,7 @@
  *   limitations under the License.
  */
 
-#include "logging.hxx"
+#include "couchbase/transactions/internal/logging.hxx"
 #include <couchbase/transactions.hxx>
 
 namespace couchbase

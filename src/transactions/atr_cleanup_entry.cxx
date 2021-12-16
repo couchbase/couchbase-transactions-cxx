@@ -14,14 +14,14 @@
  *   limitations under the License.
  */
 
-#include "atr_cleanup_entry.hxx"
+#include "couchbase/transactions/internal/atr_cleanup_entry.hxx"
 #include "active_transaction_record.hxx"
 #include "attempt_context_impl.hxx"
 #include "attempt_context_testing_hooks.hxx"
 #include "cleanup_testing_hooks.hxx"
+#include "couchbase/transactions/internal/logging.hxx"
+#include "couchbase/transactions/internal/transactions_cleanup.hxx"
 #include "forward_compat.hxx"
-#include "logging.hxx"
-#include "transactions_cleanup.hxx"
 #include "utils.hxx"
 
 #include <optional>

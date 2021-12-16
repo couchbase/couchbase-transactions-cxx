@@ -15,8 +15,8 @@
  */
 #pragma once
 
+#include "couchbase/transactions/internal/logging.hxx"
 #include "exceptions_internal.hxx"
-#include "logging.hxx"
 
 #include <chrono>
 #include <couchbase/internal/nlohmann/json.hpp>
@@ -236,7 +236,7 @@ namespace transactions
         {
             if (json) {
                 forward_compat_supported supported;
-                forward_compat fc(*json);
+                forward_compat fc(json.value());
                 return fc.check_internal(stage, supported);
             }
             return std::nullopt;

@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#include "transaction_context.hxx"
-#include "logging.hxx"
+#include "couchbase/transactions/internal/transaction_context.hxx"
+#include "couchbase/transactions/internal/logging.hxx"
 #include "uid_generator.hxx"
 
 namespace couchbase

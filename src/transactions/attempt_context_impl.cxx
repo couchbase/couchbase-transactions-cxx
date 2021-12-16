@@ -18,9 +18,9 @@
 #include "active_transaction_record.hxx"
 #include "atr_ids.hxx"
 #include "attempt_context_testing_hooks.hxx"
+#include "couchbase/transactions/internal/logging.hxx"
 #include "exceptions_internal.hxx"
 #include "forward_compat.hxx"
-#include "logging.hxx"
 #include "staged_mutation.hxx"
 #include "utils.hxx"
 

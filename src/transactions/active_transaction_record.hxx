@@ -25,7 +25,7 @@
 #include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 
-#include "atr_entry.hxx"
+#include "couchbase/transactions/internal/atr_entry.hxx"
 #include "utils.hxx"
 
 namespace couchbase

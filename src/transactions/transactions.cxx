@@ -15,10 +15,10 @@
  */
 
 #include "attempt_context_impl.hxx"
+#include "couchbase/transactions/internal/logging.hxx"
+#include "couchbase/transactions/internal/transaction_context.hxx"
+#include "couchbase/transactions/internal/transactions_cleanup.hxx"
 #include "exceptions_internal.hxx"
-#include "logging.hxx"
-#include "transaction_context.hxx"
-#include "transactions_cleanup.hxx"
 #include "utils.hxx"
 #include <couchbase/transactions.hxx>
 

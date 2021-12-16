@@ -15,7 +15,7 @@
  */
 
 #pragma once
-#include "logging.hxx"
+#include "couchbase/transactions/internal/logging.hxx"
 #include <condition_variable>
 #include <mutex>
 
