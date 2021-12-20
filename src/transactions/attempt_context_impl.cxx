@@ -43,7 +43,7 @@ attempt_context_impl::attempt_context_impl(transaction_context& transaction_ctx)
 {
     // put a new transaction_attempt in the context...
     overall_.add_attempt();
-    trace("added new attempt, state {}", state());
+    trace("added new attempt, state {}", attempt_state_name(state()));
 }
 
 attempt_context_impl::~attempt_context_impl() = default;
@@ -430,10 +430,10 @@ attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_ge
                       switch (it->state()) {
                           case attempt_state::COMPLETED:
                           case attempt_state::ROLLED_BACK:
-                              debug("existing atr entry can be ignored due to state {}", it->state());
+                              debug("existing atr entry can be ignored due to state {}", attempt_state_name(it->state()));
                               return cb(std::nullopt);
                           default:
-                              debug("existing atr entry found in state {}, retrying", it->state());
+                              debug("existing atr entry found in state {}, retrying", attempt_state_name(it->state()));
                       }
                       return check_atr_entry_for_blocking_document(doc, delay, cb);
                   } else {
@@ -449,7 +449,7 @@ attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_ge
     }
 }
 void
-attempt_context_impl::remove(transaction_get_result& document, VoidCallback&& cb)
+attempt_context_impl::remove(const transaction_get_result& document, VoidCallback&& cb)
 {
     return cache_error_async(std::move(cb), [&]() {
         check_if_done(cb);
@@ -524,7 +524,7 @@ attempt_context_impl::remove(transaction_get_result& document, VoidCallback&& cb
 }
 
 void
-attempt_context_impl::remove(transaction_get_result& document)
+attempt_context_impl::remove(const transaction_get_result& document)
 {
     auto barrier = std::make_shared<std::promise<void>>();
     auto f = barrier->get_future();
@@ -565,7 +565,7 @@ attempt_context_impl::atr_commit()
         overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
             barrier->set_value(result::create_from_subdoc_response(resp));
         });
-        auto res = wrap_operation_future(f);
+        auto res = wrap_operation_future(f, false);
         ec = hooks_.after_atr_commit(this);
         if (ec) {
             throw client_error(*ec, "after_atr_commit hook raised error");
@@ -588,6 +588,10 @@ attempt_context_impl::atr_commit()
             case FAIL_TRANSIENT:
                 throw transaction_operation_failed(ec, e.what()).retry();
             case FAIL_HARD:
+                throw transaction_operation_failed(ec, e.what()).no_rollback();
+            case FAIL_DOC_NOT_FOUND:
+            case FAIL_PATH_NOT_FOUND:
+            case FAIL_ATR_FULL:
                 throw transaction_operation_failed(ec, e.what()).no_rollback();
             default:
                 error("failed to commit transaction {}, attempt {}, with error {}", transaction_id(), id(), e.what());
@@ -686,6 +690,21 @@ attempt_context_impl::atr_complete()
                 info("ignoring error in atr_complete {}", er.what());
         }
     }
+}
+void
+attempt_context_impl::commit(VoidCallback&& cb)
+{
+    // for now, lets keep the blocking implementation
+    std::async(std::launch::async, [cb = std::move(cb), this] {
+        try {
+            commit();
+            return cb(std::nullopt);
+        } catch (const transaction_operation_failed& e) {
+            return cb(e);
+        } catch (const std::exception& e) {
+            return cb(transaction_operation_failed(FAIL_OTHER, e.what()));
+        }
+    });
 }
 
 void
@@ -836,6 +855,21 @@ attempt_context_impl::atr_rollback_complete()
         }
     }
 }
+void
+attempt_context_impl::rollback(VoidCallback&& cb)
+{
+    // for now, lets keep the blocking implementation
+    std::async(std::launch::async, [cb = std::move(cb), this] {
+        try {
+            rollback();
+            return cb(std::nullopt);
+        } catch (const transaction_operation_failed& e) {
+            return cb(e);
+        } catch (const std::exception& e) {
+            return cb(transaction_operation_failed(FAIL_OTHER, e.what()).no_rollback());
+        }
+    });
+}
 
 void
 attempt_context_impl::rollback()
@@ -845,8 +879,7 @@ attempt_context_impl::rollback()
     // check for expiry
     check_expiry_during_commit_or_rollback(STAGE_ROLLBACK, std::nullopt);
     if (!atr_id_ || atr_id_->key().empty() || state() == attempt_state::NOT_STARTED) {
-        // TODO: check this, but if we try to rollback an empty txn, we should
-        // prevent a subsequent commit
+        // TODO: check this, but if we try to rollback an empty txn, we should prevent a subsequent commit
         debug("rollback called on txn with no mutations");
         is_done_ = true;
         return;

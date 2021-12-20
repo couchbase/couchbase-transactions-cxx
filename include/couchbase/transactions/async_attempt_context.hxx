@@ -109,7 +109,7 @@ namespace transactions
          * @param document the document to be removed
          * @param cb callback function called with a @ref transaction_operation_failed when unsuccessful.
          */
-        virtual void remove(transaction_get_result& document, VoidCallback&& cb) = 0;
+        virtual void remove(const transaction_get_result& document, VoidCallback&& cb) = 0;
 
         /**
          * Commits the transaction.  All staged replaces, inserts and removals will be written.

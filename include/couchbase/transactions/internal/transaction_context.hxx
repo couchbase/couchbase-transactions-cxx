@@ -24,6 +24,7 @@
 #include "transaction_attempt.hxx"
 #include "transactions_cleanup.hxx"
 #include <couchbase/transactions.hxx>
+#include <couchbase/transactions/async_attempt_context.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transaction_result.hxx>
 
@@ -31,6 +32,8 @@ namespace couchbase
 {
 namespace transactions
 {
+    class attempt_context_impl;
+
     class transaction_context
     {
       public:
@@ -114,6 +117,27 @@ namespace transactions
             return transaction_result{ transaction_id(), current_attempt().state == attempt_state::COMPLETED };
         }
 
+        void new_attempt_context();
+
+        std::shared_ptr<attempt_context_impl> current_attempt_context();
+
+        // These functions just delegate to the current_attempt_context_
+        void get(const couchbase::document_id& id, async_attempt_context::Callback&& cb);
+
+        void get_optional(const couchbase::document_id& id, async_attempt_context::Callback&& cb);
+
+        void insert(const couchbase::document_id& id, const std::string& content, async_attempt_context::Callback&& cb);
+
+        void replace(const transaction_get_result& doc, const std::string& content, async_attempt_context::Callback&& cb);
+
+        void remove(const transaction_get_result& doc, async_attempt_context::VoidCallback&& cb);
+
+        void commit(async_attempt_context::VoidCallback&& cb);
+
+        void rollback(async_attempt_context::VoidCallback&& cb);
+
+        void existing_error();
+
       private:
         std::string transaction_id_;
 
@@ -134,6 +158,7 @@ namespace transactions
         std::string atr_id_;
         std::string atr_collection_;
         transactions_cleanup& cleanup_;
+        std::shared_ptr<attempt_context_impl> current_attempt_context_;
     };
 } // namespace transactions
 } // namespace couchbase

@@ -51,10 +51,10 @@ struct conn {
       , c(io)
     {
         // for tests, really chatty logs may be useful.
-        if (!couchbase::logger::isInitialized()) {
+        if (!couchbase::logger::is_initialized()) {
             couchbase::logger::create_console_logger();
         }
-        couchbase::logger::set_log_levels(spdlog::level::level_enum::trace);
+        couchbase::logger::set_log_levels(couchbase::logger::level::trace);
         couchbase::transactions::set_transactions_log_level(couchbase::transactions::log_level::TRACE);
         size_t num_threads = conf.contains("io_threads") ? conf["io_threads"].get<uint32_t>() : 4;
         couchbase::transactions::txn_log->trace("using {} io completion threads", num_threads);
@@ -84,8 +84,8 @@ struct conn {
         couchbase::cluster_credentials auth{};
         {
             couchbase::logger::create_console_logger();
-            if (auto env_val = spdlog::details::os::getenv("COUCHBASE_CXX_CLIENT_LOG_LEVEL"); !env_val.empty()) {
-                couchbase::logger::set_log_levels(spdlog::level::from_str(env_val));
+            if (auto env_val = std::getenv("COUCHBASE_CXX_CLIENT_LOG_LEVEL")) {
+                couchbase::logger::set_log_levels(couchbase::logger::level_from_str(env_val));
             }
             auto connstr = couchbase::utils::parse_connection_string(conf["connection_string"]);
             auth.username = "Administrator";

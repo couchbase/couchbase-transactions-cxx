@@ -67,6 +67,8 @@ namespace transactions
         friend class staged_mutation_queue;
         // entry needs access to private members
         friend class atr_cleanup_entry;
+        // transaction_context needs access to the two functions below
+        friend class transaction_context;
 
         virtual transaction_get_result insert_raw(const couchbase::document_id& id, const std::string& content);
         virtual void insert_raw(const couchbase::document_id& id, const std::string& content, Callback&& cb);
@@ -188,18 +190,13 @@ namespace transactions
         virtual std::optional<transaction_get_result> get_optional(const couchbase::document_id& id);
         virtual void get_optional(const couchbase::document_id& id, Callback&& cb);
 
-        virtual void remove(transaction_get_result& document);
-        virtual void remove(transaction_get_result& document, VoidCallback&& cb);
+        virtual void remove(const transaction_get_result& document);
+        virtual void remove(const transaction_get_result& document, VoidCallback&& cb);
         virtual void commit();
-        virtual void commit(VoidCallback&& cb)
-        {
-            // not implemented yet
-        }
+        virtual void commit(VoidCallback&& cb);
         virtual void rollback();
-        virtual void rollback(VoidCallback&& cb)
-        {
-            // not implemented yet
-        }
+        virtual void rollback(VoidCallback&& cb);
+
         void existing_error(bool prev_op_failed = true)
         {
             if (!errors_.empty()) {

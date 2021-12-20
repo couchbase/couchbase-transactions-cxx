@@ -31,23 +31,42 @@ using namespace couchbase::transactions;
 
 auto async_content = nlohmann::json::parse("{\"some\": \"thing\"}");
 
+void
+txn_completed(std::optional<transaction_exception> err,
+              std::optional<transaction_result> result,
+              std::shared_ptr<std::promise<void>> barrier)
+{
+    if (err) {
+        barrier->set_exception(std::make_exception_ptr(*err));
+    } else {
+        barrier->set_value();
+    }
+};
+
 TEST(SimpleAsyncTxns, AsyncGet)
 {
     auto& cluster = TransactionsTestEnvironment::get_cluster();
     auto txns = TransactionsTestEnvironment::get_transactions();
     auto id = TransactionsTestEnvironment::get_document_id();
-    std::atomic<bool> done = false;
+    std::atomic<bool> success = false;
     ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
-    auto result = txns.run([id, &done](async_attempt_context& ctx) {
-        ctx.get(id, [&](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
-            if (!err) {
-                done = true;
-            }
-            ASSERT_TRUE(res);
-            ASSERT_EQ(res->content<nlohmann::json>(), async_content);
-        });
-    });
-    ASSERT_TRUE(done.load());
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
+    txns.run(
+      [id, &success](async_attempt_context& ctx) {
+          ctx.get(id, [&](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+              if (!err) {
+                  success = true;
+              }
+              ASSERT_TRUE(res);
+              ASSERT_EQ(res->content<nlohmann::json>(), async_content);
+          });
+      },
+      [barrier, &success](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
+          txn_completed(std::move(err), res, barrier);
+          ASSERT_TRUE(success.load());
+      });
+    f.get();
 }
 TEST(SimpleAsyncTxns, AsyncGetFail)
 {
@@ -55,18 +74,29 @@ TEST(SimpleAsyncTxns, AsyncGetFail)
     auto txns = TransactionsTestEnvironment::get_transactions();
     auto id = TransactionsTestEnvironment::get_document_id();
     std::atomic<bool> cb_called = false;
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
     try {
-        txns.run([&cb_called, id](async_attempt_context& ctx) {
-            ctx.get(id, [&](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
-                // should be an error
-                ASSERT_TRUE(err);
-                cb_called = true;
-            });
-        });
-        FAIL() << "expected transaction_failed!";
-    } catch (const transaction_failed&) {
+        txns.run(
+          [&cb_called, id](async_attempt_context& ctx) {
+              ctx.get(id, [&](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+                  // should be an error
+                  ASSERT_TRUE(err);
+                  cb_called = true;
+              });
+          },
+          [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
+              txn_completed(std::move(err), res, barrier);
+              ASSERT_TRUE(cb_called.load());
+          });
+        f.get();
+        FAIL() << "expected transaction_exception!";
+    } catch (const transaction_exception& e) {
         // nothing to do here, but make sure
         ASSERT_TRUE(cb_called.load());
+        ASSERT_EQ(e.type(), failure_type::FAIL);
+    } catch (const std::exception&) {
+        FAIL() << "expected a transaction_failed exception, but got something else";
     }
 }
 
@@ -75,25 +105,33 @@ TEST(SimpleAsyncTxns, AsyncRemoveFail)
     auto& cluster = TransactionsTestEnvironment::get_cluster();
     auto txns = TransactionsTestEnvironment::get_transactions();
     auto id = TransactionsTestEnvironment::get_document_id();
-    std::atomic<bool> done = false;
+    std::atomic<bool> cb_called = false;
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
     ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
     try {
-        txns.run([&done, id](async_attempt_context& ctx) {
-            ctx.get(id, [&ctx, &done](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
-                // lets just change the cas to make it fail, which it should
-                // do until timeout
-                if (!err) {
-                    res->cas(100);
-                    ctx.remove(*res, [&done](std::optional<transaction_operation_failed> err) {
-                        ASSERT_TRUE(err);
-                        done = true;
-                    });
-                }
-            });
-        });
+        txns.run(
+          [&cb_called, id](async_attempt_context& ctx) {
+              ctx.get(id, [&ctx, &cb_called](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+                  // lets just change the cas to make it fail, which it should
+                  // do until timeout
+                  if (!err) {
+                      res->cas(100);
+                      ctx.remove(*res, [&cb_called](std::optional<transaction_operation_failed> err) {
+                          ASSERT_TRUE(err);
+                          cb_called = true;
+                      });
+                  }
+              });
+          },
+          [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
+              txn_completed(err, res, barrier);
+              ASSERT_TRUE(cb_called.load());
+          });
+        f.get();
         FAIL() << "expected txn to fail until timeout, or error out during rollback";
     } catch (const transaction_exception&) {
-        ASSERT_TRUE(done.load());
+        ASSERT_TRUE(cb_called.load());
     }
 }
 
@@ -102,18 +140,26 @@ TEST(SimpleAsyncTxns, AsyncRemove)
     auto& cluster = TransactionsTestEnvironment::get_cluster();
     auto txns = TransactionsTestEnvironment::get_transactions();
     auto id = TransactionsTestEnvironment::get_document_id();
-    std::atomic<bool> done = false;
+    std::atomic<bool> cb_called = false;
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
     ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
-    txns.run([&done, id](async_attempt_context& ctx) {
-        ctx.get(id, [&ctx, &done](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
-            ASSERT_FALSE(err);
-            ctx.remove(*res, [&done](std::optional<transaction_operation_failed> err) {
-                ASSERT_FALSE(err);
-                done = true;
-            });
-        });
-    });
-    ASSERT_TRUE(done.load());
+    txns.run(
+      [&cb_called, id](async_attempt_context& ctx) {
+          ctx.get(id, [&ctx, &cb_called](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+              ASSERT_FALSE(err);
+              ctx.remove(*res, [&cb_called](std::optional<transaction_operation_failed> err) {
+                  ASSERT_FALSE(err);
+                  cb_called = true;
+              });
+          });
+      },
+      [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
+          txn_completed(std::move(err), res, barrier);
+          ASSERT_TRUE(cb_called.load());
+      });
+    f.get();
+    ASSERT_TRUE(cb_called.load());
     try {
         TransactionsTestEnvironment::get_doc(id);
         FAIL() << "expected get_doc to raise client exception";
@@ -121,31 +167,41 @@ TEST(SimpleAsyncTxns, AsyncRemove)
         ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
     }
 }
+
 TEST(SimpleAsyncTxns, AsyncReplace)
 {
     auto& cluster = TransactionsTestEnvironment::get_cluster();
     auto txns = TransactionsTestEnvironment::get_transactions();
     auto id = TransactionsTestEnvironment::get_document_id();
     auto new_content = nlohmann::json::parse("{\"shiny\":\"and new\"}");
-    std::atomic<bool> done = false;
+    std::atomic<bool> cb_called = false;
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
     ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
-    txns.run([&done, &new_content, id](async_attempt_context& ctx) {
-        ctx.get(id,
-                [&ctx, &new_content, &done](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
-                    ASSERT_FALSE(err);
-                    ctx.replace(*res,
-                                new_content,
-                                [old_cas = res->cas(), &done](std::optional<transaction_operation_failed> err,
-                                                              std::optional<transaction_get_result> result) {
-                                    // replace doesn't actually put the new content in the
-                                    // result, but it does change the cas, so...
-                                    ASSERT_FALSE(err);
-                                    ASSERT_NE(result->cas(), old_cas);
-                                    done = true;
-                                });
-                });
-    });
-    ASSERT_TRUE(done.load());
+    txns.run(
+      [&cb_called, &new_content, id](async_attempt_context& ctx) {
+          ctx.get(
+            id,
+            [&ctx, &new_content, &cb_called](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+                ASSERT_FALSE(err);
+                ctx.replace(*res,
+                            new_content,
+                            [old_cas = res->cas(), &cb_called](std::optional<transaction_operation_failed> err,
+                                                               std::optional<transaction_get_result> result) {
+                                // replace doesn't actually put the new content in the
+                                // result, but it does change the cas, so...
+                                ASSERT_FALSE(err);
+                                ASSERT_NE(result->cas(), old_cas);
+                                cb_called = true;
+                            });
+            });
+      },
+      [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
+          txn_completed(std::move(err), res, barrier);
+          ASSERT_TRUE(cb_called.load());
+      });
+    f.get();
+    ASSERT_TRUE(cb_called.load());
     auto content = TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>();
     ASSERT_EQ(content, new_content);
 }
@@ -156,63 +212,95 @@ TEST(SimpleAsyncTxns, AsyncReplaceFail)
     auto txns = TransactionsTestEnvironment::get_transactions();
     auto id = TransactionsTestEnvironment::get_document_id();
     auto new_content = nlohmann::json::parse("{\"shiny\":\"and new\"}");
-    std::atomic<bool> done = false;
+    std::atomic<bool> cb_called = false;
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
     ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
     try {
-        txns.run([&done, &new_content, id](async_attempt_context& ctx) {
-            ctx.get(
-              id, [&ctx, &new_content, &done](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
-                  ASSERT_FALSE(err);
-                  ctx.replace(*res,
-                              new_content,
-                              [&done](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> result) {
-                                  ASSERT_FALSE(err);
-                                  done = true;
-                                  throw std::runtime_error("I wanna roll back");
-                              });
-              });
-        });
+        txns.run(
+          [&cb_called, &new_content, id](async_attempt_context& ctx) {
+              ctx.get(id,
+                      [&ctx, &new_content, &cb_called](std::optional<transaction_operation_failed> err,
+                                                       std::optional<transaction_get_result> res) {
+                          ASSERT_FALSE(err);
+                          ctx.replace(
+                            *res,
+                            new_content,
+                            [&cb_called](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> result) {
+                                ASSERT_FALSE(err);
+                                cb_called = true;
+                                throw std::runtime_error("I wanna roll back");
+                            });
+                      });
+          },
+          [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
+              txn_completed(std::move(err), res, barrier);
+              ASSERT_TRUE(cb_called.load());
+          });
+        f.get();
         FAIL() << "expected exception";
-    } catch (const transaction_failed&) {
-        ASSERT_TRUE(done.load());
+    } catch (const transaction_exception& e) {
+        ASSERT_TRUE(cb_called.load());
         auto content = TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>();
         ASSERT_EQ(content, async_content);
+        ASSERT_EQ(e.type(), failure_type::FAIL);
     };
 }
+
 TEST(SimpleAsyncTxns, AsyncInsert)
 {
     auto& cluster = TransactionsTestEnvironment::get_cluster();
     auto txns = TransactionsTestEnvironment::get_transactions();
     auto id = TransactionsTestEnvironment::get_document_id();
-    std::atomic<bool> done = false;
-    txns.run([&done, id](async_attempt_context& ctx) {
-        ctx.insert(id, async_content, [&done](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
-            ASSERT_FALSE(err);
-            ASSERT_NE(0, res->cas());
-            done = true;
-        });
-    });
-    ASSERT_TRUE(done.load());
+    std::atomic<bool> cb_called = false;
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
+    txns.run(
+      [&cb_called, id](async_attempt_context& ctx) {
+          ctx.insert(
+            id, async_content, [&cb_called](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+                ASSERT_FALSE(err);
+                ASSERT_NE(0, res->cas());
+                cb_called = true;
+            });
+      },
+      [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
+          txn_completed(std::move(err), res, barrier);
+          ASSERT_TRUE(cb_called.load());
+      });
+    f.get();
+    ASSERT_TRUE(cb_called.load());
     ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), async_content);
 }
+
 TEST(SimpleAsyncTxns, AsyncInsertFail)
 {
     auto& cluster = TransactionsTestEnvironment::get_cluster();
     auto txns = TransactionsTestEnvironment::get_transactions();
     auto id = TransactionsTestEnvironment::get_document_id();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
     std::atomic<bool> done = false;
     try {
-        txns.run([&done, id](async_attempt_context& ctx) {
-            ctx.insert(
-              id, async_content, [&done](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
-                  ASSERT_FALSE(err);
-                  done = true;
-                  throw std::runtime_error("I wanna rollback");
-              });
-        });
+        txns.run(
+          [&done, id, barrier](async_attempt_context& ctx) {
+              ctx.insert(
+                id, async_content, [&done](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+                    ASSERT_FALSE(err);
+                    done = true;
+                    throw std::runtime_error("I wanna rollback");
+                });
+          },
+          [barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+              txn_completed(err, result, barrier);
+              ASSERT_TRUE(err);
+              ASSERT_EQ(err->type(), failure_type::FAIL);
+          });
+        f.get();
         FAIL() << "Expected exception";
-    } catch (const transaction_failed&) {
+    } catch (const transaction_exception& e) {
         ASSERT_TRUE(done.load());
+        ASSERT_EQ(e.type(), failure_type::FAIL);
         try {
             TransactionsTestEnvironment::get_doc(id);
             FAIL() << "expected get_doc to raise client exception";
@@ -234,11 +322,13 @@ TEST(ThreadedAsyncTxns, AsyncGetReplace)
     std::list<std::future<void>> txn_futures;
     std::atomic<uint32_t> attempts{ 0 };
     std::atomic<uint32_t> errors{ 0 };
+    std::atomic<uint32_t> txns{ 0 };
     std::atomic<bool> done = false;
     txn_futures.emplace_back(std::async(std::launch::async, [&] {
         while (!done.load()) {
-            try {
-                txn.run([&](async_attempt_context& ctx) {
+            txn
+              .run(
+                [&](async_attempt_context& ctx) {
                     attempts++;
                     auto b1 = std::make_shared<std::promise<void>>();
                     auto b2 = std::make_shared<std::promise<void>>();
@@ -281,11 +371,13 @@ TEST(ThreadedAsyncTxns, AsyncGetReplace)
                     // wait on the barriers before commit.
                     b1->get_future().get();
                     b2->get_future().get();
+                },
+                [&txns, &errors](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+                    txns++;
+                    if (err) {
+                        errors++;
+                    }
                 });
-            } catch (const transaction_exception& e) {
-                txn_log->trace("got transaction exception {}", e.what());
-                errors++;
-            }
         }
     }));
     for (auto& f : txn_futures) {
@@ -296,4 +388,9 @@ TEST(ThreadedAsyncTxns, AsyncGetReplace)
     auto doc2 = TransactionsTestEnvironment::get_doc(id2);
     ASSERT_EQ(0, doc2.content_as<nlohmann::json>()["number"].get<uint32_t>());
     ASSERT_EQ(200, doc1.content_as<nlohmann::json>()["number"].get<uint32_t>());
+    // could be we have some txns that are successful, but did nothing as they noticed the count
+    // is at limits.  So at least 200 txns.
+    ASSERT_GE(txns.load() - errors.load(), 200);
+    // No way we don't have at least one conflict, so attempts should be much larger than txns.
+    ASSERT_GT(attempts.load(), 200);
 }

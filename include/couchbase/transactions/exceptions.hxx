@@ -29,6 +29,8 @@ namespace transactions
      */
     class transaction_context;
 
+    enum class failure_type { FAIL, EXPIRY, COMMIT_AMBIGUOUS };
+
     enum external_exception {
         UNKNOWN = 0,
         ACTIVE_TRANSACTION_RECORD_ENTRY_NOT_FOUND,
@@ -54,6 +56,7 @@ namespace transactions
       private:
         const transaction_result result_;
         external_exception cause_;
+        failure_type type_;
 
       public:
         /**
@@ -62,7 +65,7 @@ namespace transactions
          * @param cause Underlying cause for this exception.
          * @param context The internal state of the transaction at the time of the exception.
          */
-        explicit transaction_exception(const std::runtime_error& cause, const transaction_context& context);
+        explicit transaction_exception(const std::runtime_error& cause, const transaction_context& context, failure_type type);
 
         /**
          * @brief Internal state of transaction at time of exception
@@ -83,53 +86,14 @@ namespace transactions
         {
             return cause_;
         }
-    };
-
-    /**
-     * @brief Transaction failed
-     *
-     * This is raised when the transaction doesn't time out, but fails for some other reason.
-     */
-    class transaction_failed : public transaction_exception
-    {
-      public:
-        explicit transaction_failed(const std::runtime_error& cause, const transaction_context& context)
-          : transaction_exception(cause, context)
+        /**
+         * @brief The type of the exception - see @ref failure_type
+         * @return The failure type.
+         */
+        failure_type type() const
         {
+            return type_;
         }
     };
-
-    /**
-     * @brief Transaction expired.
-     *
-     * A transaction can expire if, for instance, a document in the transaction is also being mutated
-     * in other transactions (or outside transactions).  The transaction will rollback and retry in this
-     * situation, however if the conflicts persist it can expire before being successful.
-     */
-    class transaction_expired : public transaction_exception
-    {
-      public:
-        explicit transaction_expired(const std::runtime_error& cause, const transaction_context& context)
-          : transaction_exception(cause, context)
-        {
-        }
-    };
-
-    /**
-     * @brief Transaction commit ambiguous.
-     *
-     * A transaction can, rarely, run into an error during the commit phase that is ambiguous.  For instance, a
-     * write operation may timeout where we cannot be sure if the server performed the write or not.  If this happens
-     * at other points in the transaction, we can retry but at the end of the commit phase, we raise this.
-     */
-    class transaction_commit_ambiguous : public transaction_exception
-    {
-      public:
-        explicit transaction_commit_ambiguous(const std::runtime_error& cause, const transaction_context& context)
-          : transaction_exception(cause, context)
-        {
-        }
-    };
-
 } // namespace transactions
 } // namespace couchbase

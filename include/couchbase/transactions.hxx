@@ -40,10 +40,13 @@ namespace transactions
     class transactions_cleanup;
 
     /** @brief Transaction logic should be contained in a lambda of this form */
-    typedef std::function<void(attempt_context&)> logic;
+    using logic = std::function<void(attempt_context&)>;
 
     /** @brief AsyncTransaction logic should be contained in a lambda of this form */
-    typedef std::function<void(async_attempt_context&)> async_logic;
+    using async_logic = std::function<void(async_attempt_context&)>;
+
+    /** @brief AsyncTransaction callback when transaction has completed */
+    using txn_complete_callback = std::function<void(std::optional<transaction_exception>, std::optional<transaction_result>)>;
 
     /**
      * @brief logging levels
@@ -151,14 +154,15 @@ namespace transactions
          * @brief Run a transaction
          *
          * Expects a lambda, which it calls with an @ref async_attempt_context reference to be used in the lambda for
-         * the asynchronous transaction operations.
+         * the asynchronous transaction operations. Upon completion, calls the callback.
          *
          * @param logic The lambda containing the async transaction logic.
+         * @param cb Called when the transaction is complete.
          * @return A struct containing some internal state information about the transaction.
          * @throws @ref transaction_failed, @ref transaction_expired, @ref transaction_commit_ambiguous, all of which
          *         share a common base class @ref transaction_exception.
          */
-        transaction_result run(async_logic&& logic);
+        void run(async_logic&& logic, txn_complete_callback&& cb);
 
         /**
          * @internal

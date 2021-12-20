@@ -167,7 +167,7 @@ namespace transactions
 
     /**
      * All exceptions within a transaction are, or are converted to, an exception
-     * derived from this.  The transaciton logic then consumes them to decide to
+     * derived from this.  The transaction logic then consumes them to decide to
      * retry, or rollback the transaction.
      */
     class transaction_operation_failed : public std::runtime_error
@@ -193,7 +193,8 @@ namespace transactions
         }
 
         static transaction_operation_failed merge_errors(std::list<transaction_operation_failed> errors,
-                                                         std::optional<external_exception> cause = {})
+                                                         std::optional<external_exception> cause = {},
+                                                         bool do_throw = true)
         {
             // default would be to set retry false, rollback true.  If
             // _all_ errors set retry to true, we set retry to true.  If _any_ errors
@@ -204,21 +205,23 @@ namespace transactions
             // just retain the first.
             assert(errors.size() > 0);
             auto error_to_throw = *errors.begin();
-            bool retry = false;
             for (auto& ex: errors) {
-                retry = ex.retry_;
                 if (!ex.retry_) {
                     error_to_throw = ex;
                 }
                 if (!ex.rollback_) {
-                    // this takes precedence, just throw this
-                    throw ex;
+                    // this takes precedence, (no_rollback means no_retry as well), so just throw this
+                    error_to_throw = ex;
+                    break;
                 }
             }
             if (cause) {
                 error_to_throw.cause(*cause);
             }
-            throw error_to_throw;
+            if (do_throw) {
+                throw error_to_throw;
+            }
+            return error_to_throw;
         }
         // Retry is false by default, this makes it true
         transaction_operation_failed& retry()
@@ -294,11 +297,11 @@ namespace transactions
             }
             switch (to_raise_) {
                 case EXPIRED:
-                    throw transaction_expired(*this, context);
+                    throw transaction_exception(*this, context, failure_type::EXPIRY);
                 case AMBIGUOUS:
-                    throw transaction_commit_ambiguous(*this, context);
+                    throw transaction_exception(*this, context, failure_type::COMMIT_AMBIGUOUS);
                 default:
-                    throw transaction_failed(*this, context);
+                    throw transaction_exception(*this, context, failure_type::FAIL);
             }
         }
 

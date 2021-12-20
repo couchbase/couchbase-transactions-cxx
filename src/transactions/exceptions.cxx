@@ -74,10 +74,11 @@ namespace transactions
         }
     }
 
-    transaction_exception::transaction_exception(const std::runtime_error& cause, const transaction_context& context)
+    transaction_exception::transaction_exception(const std::runtime_error& cause, const transaction_context& context, failure_type type)
       : std::runtime_error(cause)
       , result_(context.get_transaction_result())
       , cause_(UNKNOWN)
+      , type_(type)
     {
         auto txn_op = dynamic_cast<const transaction_operation_failed*>(&cause);
         if (nullptr != txn_op) {

@@ -42,13 +42,14 @@ TEST(SimpleTransactions, ArbitraryRuntimeError)
                   ctx.get(id);
                   throw std::runtime_error("Yo");
               });
-          } catch (const transaction_failed& e) {
+          } catch (const transaction_exception& e) {
               EXPECT_EQ(e.cause(), external_exception::UNKNOWN);
+              EXPECT_EQ(e.type(), failure_type::FAIL);
               EXPECT_STREQ("Yo", e.what());
               throw;
           }
       },
-      transaction_failed);
+      transaction_exception);
 }
 
 TEST(SimpleTransactions, ArbitraryException)
@@ -66,13 +67,14 @@ TEST(SimpleTransactions, ArbitraryException)
                   ctx.insert(id, content);
                   throw 3;
               });
-          } catch (const transaction_failed& e) {
+          } catch (const transaction_exception& e) {
               EXPECT_EQ(e.cause(), external_exception::UNKNOWN);
               EXPECT_STREQ("Unexpected error", e.what());
+              EXPECT_EQ(e.type(), failure_type::FAIL);
               throw;
           }
       },
-      transaction_failed);
+      transaction_exception);
 }
 
 TEST(SimpleTransactions, CanGetReplace)
@@ -180,7 +182,7 @@ TEST(SimpleTransactions, CanRollbackInsert)
               throw 3; // some arbitrary exception...
           });
       },
-      transaction_failed);
+      transaction_exception);
     try {
         auto res = TransactionsTestEnvironment::get_doc(id);
         FAIL() << "expect a client_error with document_not_found, got result instead";
@@ -210,7 +212,7 @@ TEST(SimpleTransactions, CanRollbackRemove)
               throw 3; // just throw some arbitrary exception to get rollback
           });
       },
-      transaction_failed);
+      transaction_exception);
     ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), c);
 }
 
@@ -234,7 +236,7 @@ TEST(SimpleTransactions, CanRollbackReplace)
               throw 3; // just throw some arbitrary exception to get rollback
           });
       },
-      transaction_failed);
+      transaction_exception);
     ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), c);
 }
 

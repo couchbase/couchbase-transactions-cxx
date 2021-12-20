@@ -122,7 +122,7 @@ namespace transactions
          * @throws transaction_operation_failed which either should not be caught by the lambda, or
          *         rethrown if it is caught.
          */
-        virtual void remove(transaction_get_result& document) = 0;
+        virtual void remove(const transaction_get_result& document) = 0;
 
         /**
          * Commits the transaction.  All staged replaces, inserts and removals will be written.

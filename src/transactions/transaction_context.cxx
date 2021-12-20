@@ -14,9 +14,10 @@
  *   limitations under the License.
  */
 
-#include "couchbase/transactions/internal/transaction_context.hxx"
-#include "couchbase/transactions/internal/logging.hxx"
+#include "attempt_context_impl.hxx"
 #include "uid_generator.hxx"
+#include <couchbase/transactions/internal/logging.hxx>
+#include <couchbase/transactions/internal/transaction_context.hxx>
 
 namespace couchbase
 {
@@ -63,6 +64,80 @@ namespace transactions
         auto delay = config_.expiration_time() / 100; // the 100 is arbitrary
         txn_log->trace("about to sleep for {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(delay).count());
         std::this_thread::sleep_for(delay);
+    }
+
+    void transaction_context::new_attempt_context()
+    {
+        current_attempt_context_ = std::make_shared<attempt_context_impl>(*this);
+    }
+
+    std::shared_ptr<attempt_context_impl> transaction_context::current_attempt_context()
+    {
+        return current_attempt_context_;
+    }
+
+    void transaction_context::get(const couchbase::document_id& id, async_attempt_context::Callback&& cb)
+    {
+        if (current_attempt_context_) {
+            return current_attempt_context_->get(id, std::move(cb));
+        }
+        throw transaction_operation_failed(FAIL_OTHER, "no current attempt context");
+    }
+
+    void transaction_context::get_optional(const couchbase::document_id& id, async_attempt_context::Callback&& cb)
+    {
+        if (current_attempt_context_) {
+            return current_attempt_context_->get_optional(id, std::move(cb));
+        }
+        throw transaction_operation_failed(FAIL_OTHER, "no current attempt context");
+    }
+
+    void transaction_context::insert(const couchbase::document_id& id, const std::string& content, async_attempt_context::Callback&& cb)
+    {
+        if (current_attempt_context_) {
+            return current_attempt_context_->insert_raw(id, content, std::move(cb));
+        }
+        throw transaction_operation_failed(FAIL_OTHER, "no current attempt context");
+    }
+
+    void transaction_context::replace(const transaction_get_result& doc, const std::string& content, async_attempt_context::Callback&& cb)
+    {
+        if (current_attempt_context_) {
+            return current_attempt_context_->replace_raw(doc, content, std::move(cb));
+        }
+        throw transaction_operation_failed(FAIL_OTHER, "no current attempt context");
+    }
+
+    void transaction_context::remove(const transaction_get_result& doc, async_attempt_context::VoidCallback&& cb)
+    {
+        if (current_attempt_context_) {
+            return current_attempt_context_->remove(doc, std::move(cb));
+        }
+        throw transaction_operation_failed(FAIL_OTHER, "no current attempt context");
+    }
+
+    void transaction_context::commit(async_attempt_context::VoidCallback&& cb)
+    {
+        if (current_attempt_context_) {
+            return current_attempt_context_->commit(std::move(cb));
+        }
+        throw transaction_operation_failed(FAIL_OTHER, "no current attempt context").no_rollback();
+    }
+
+    void transaction_context::rollback(async_attempt_context::VoidCallback&& cb)
+    {
+        if (current_attempt_context_) {
+            return current_attempt_context_->rollback(std::move(cb));
+        }
+        throw transaction_operation_failed(FAIL_OTHER, "no current attempt context").no_rollback();
+    }
+
+    void transaction_context::existing_error()
+    {
+        if (current_attempt_context_) {
+            return current_attempt_context_->existing_error();
+        }
+        throw transaction_operation_failed(FAIL_OTHER, "no current attempt context").no_rollback();
     }
 
 } // namespace transactions

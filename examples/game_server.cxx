@@ -191,16 +191,16 @@ int
 main(int, const char*[])
 {
     const int NUM_THREADS = 4;
-    couchbase::logger::set_log_levels(spdlog::level::trace);
+    couchbase::logger::set_log_levels(couchbase::logger::level::trace);
     atomic<bool> monster_exists = true;
     string bucket_name = "default";
     couchbase::cluster_credentials auth{};
     asio::io_context io;
     couchbase::cluster cluster(io);
-    if (!couchbase::logger::isInitialized()) {
+    if (!couchbase::logger::is_initialized()) {
         couchbase::logger::create_console_logger();
     }
-    couchbase::logger::set_log_levels(spdlog::level::level_enum::trace);
+    couchbase::logger::set_log_levels(couchbase::logger::level::trace);
 
     std::list<std::thread> io_threads;
     for (int i = 0; i < 2 * NUM_THREADS; i++) {

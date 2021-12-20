@@ -119,10 +119,17 @@ tx::transactions::run(logic&& logic)
     return wrap_run(*this, logic);
 }
 
-tx::transaction_result
-tx::transactions::run(async_logic&& logic)
+void
+tx::transactions::run(async_logic&& logic, txn_complete_callback&& cb)
 {
-    return wrap_run(*this, logic);
+    std::async(std::launch::async, [this, logic = std::move(logic), cb = std::move(cb)] {
+        try {
+            auto result = wrap_run(*this, logic);
+            return cb({}, result);
+        } catch (const transaction_exception& e) {
+            return cb(e, std::nullopt);
+        }
+    });
 }
 
 void
