@@ -54,7 +54,7 @@ TEST(SimpleAsyncTxns, AsyncGet)
     auto f = barrier->get_future();
     txns.run(
       [id, &success](async_attempt_context& ctx) {
-          ctx.get(id, [&](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+          ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> res) {
               if (!err) {
                   success = true;
               }
@@ -79,7 +79,7 @@ TEST(SimpleAsyncTxns, AsyncGetFail)
     try {
         txns.run(
           [&cb_called, id](async_attempt_context& ctx) {
-              ctx.get(id, [&](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+              ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> res) {
                   // should be an error
                   ASSERT_TRUE(err);
                   cb_called = true;
@@ -112,12 +112,12 @@ TEST(SimpleAsyncTxns, AsyncRemoveFail)
     try {
         txns.run(
           [&cb_called, id](async_attempt_context& ctx) {
-              ctx.get(id, [&ctx, &cb_called](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+              ctx.get(id, [&ctx, &cb_called](std::exception_ptr err, std::optional<transaction_get_result> res) {
                   // lets just change the cas to make it fail, which it should
                   // do until timeout
                   if (!err) {
                       res->cas(100);
-                      ctx.remove(*res, [&cb_called](std::optional<transaction_operation_failed> err) {
+                      ctx.remove(*res, [&cb_called](std::exception_ptr err) {
                           ASSERT_TRUE(err);
                           cb_called = true;
                       });
@@ -146,9 +146,9 @@ TEST(SimpleAsyncTxns, AsyncRemove)
     ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
     txns.run(
       [&cb_called, id](async_attempt_context& ctx) {
-          ctx.get(id, [&ctx, &cb_called](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
+          ctx.get(id, [&ctx, &cb_called](std::exception_ptr err, std::optional<transaction_get_result> res) {
               ASSERT_FALSE(err);
-              ctx.remove(*res, [&cb_called](std::optional<transaction_operation_failed> err) {
+              ctx.remove(*res, [&cb_called](std::exception_ptr err) {
                   ASSERT_FALSE(err);
                   cb_called = true;
               });
@@ -180,21 +180,18 @@ TEST(SimpleAsyncTxns, AsyncReplace)
     ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
     txns.run(
       [&cb_called, &new_content, id](async_attempt_context& ctx) {
-          ctx.get(
-            id,
-            [&ctx, &new_content, &cb_called](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
-                ASSERT_FALSE(err);
-                ctx.replace(*res,
-                            new_content,
-                            [old_cas = res->cas(), &cb_called](std::optional<transaction_operation_failed> err,
-                                                               std::optional<transaction_get_result> result) {
-                                // replace doesn't actually put the new content in the
-                                // result, but it does change the cas, so...
-                                ASSERT_FALSE(err);
-                                ASSERT_NE(result->cas(), old_cas);
-                                cb_called = true;
-                            });
-            });
+          ctx.get(id, [&ctx, &new_content, &cb_called](std::exception_ptr err, std::optional<transaction_get_result> res) {
+              ASSERT_FALSE(err);
+              ctx.replace(*res,
+                          new_content,
+                          [old_cas = res->cas(), &cb_called](std::exception_ptr err, std::optional<transaction_get_result> result) {
+                              // replace doesn't actually put the new content in the
+                              // result, but it does change the cas, so...
+                              ASSERT_FALSE(err);
+                              ASSERT_NE(result->cas(), old_cas);
+                              cb_called = true;
+                          });
+          });
       },
       [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
           txn_completed(std::move(err), res, barrier);
@@ -219,19 +216,14 @@ TEST(SimpleAsyncTxns, AsyncReplaceFail)
     try {
         txns.run(
           [&cb_called, &new_content, id](async_attempt_context& ctx) {
-              ctx.get(id,
-                      [&ctx, &new_content, &cb_called](std::optional<transaction_operation_failed> err,
-                                                       std::optional<transaction_get_result> res) {
-                          ASSERT_FALSE(err);
-                          ctx.replace(
-                            *res,
-                            new_content,
-                            [&cb_called](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> result) {
-                                ASSERT_FALSE(err);
-                                cb_called = true;
-                                throw std::runtime_error("I wanna roll back");
-                            });
-                      });
+              ctx.get(id, [&ctx, &new_content, &cb_called](std::exception_ptr err, std::optional<transaction_get_result> res) {
+                  ASSERT_FALSE(err);
+                  ctx.replace(*res, new_content, [&cb_called](std::exception_ptr err, std::optional<transaction_get_result> result) {
+                      ASSERT_FALSE(err);
+                      cb_called = true;
+                      throw std::runtime_error("I wanna roll back");
+                  });
+              });
           },
           [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
               txn_completed(std::move(err), res, barrier);
@@ -257,12 +249,11 @@ TEST(SimpleAsyncTxns, AsyncInsert)
     auto f = barrier->get_future();
     txns.run(
       [&cb_called, id](async_attempt_context& ctx) {
-          ctx.insert(
-            id, async_content, [&cb_called](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
-                ASSERT_FALSE(err);
-                ASSERT_NE(0, res->cas());
-                cb_called = true;
-            });
+          ctx.insert(id, async_content, [&cb_called](std::exception_ptr err, std::optional<transaction_get_result> res) {
+              ASSERT_FALSE(err);
+              ASSERT_NE(0, res->cas());
+              cb_called = true;
+          });
       },
       [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
           txn_completed(std::move(err), res, barrier);
@@ -284,12 +275,11 @@ TEST(SimpleAsyncTxns, AsyncInsertFail)
     try {
         txns.run(
           [&done, id, barrier](async_attempt_context& ctx) {
-              ctx.insert(
-                id, async_content, [&done](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> res) {
-                    ASSERT_FALSE(err);
-                    done = true;
-                    throw std::runtime_error("I wanna rollback");
-                });
+              ctx.insert(id, async_content, [&done](std::exception_ptr err, std::optional<transaction_get_result> res) {
+                  ASSERT_FALSE(err);
+                  done = true;
+                  throw std::runtime_error("I wanna rollback");
+              });
           },
           [barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
               txn_completed(err, result, barrier);
@@ -309,6 +299,304 @@ TEST(SimpleAsyncTxns, AsyncInsertFail)
         }
     }
 }
+
+TEST(SimpleQueryAsyncTxns, AsyncQuery)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
+    auto f = barrier->get_future();
+    auto query = fmt::format("UPDATE `{}` USE KEYS '{}' SET `some` = 'thing else'", id.bucket(), id.key());
+    std::atomic<bool> query_called = false;
+    txns.run(
+      [&query_called, &query](async_attempt_context& ctx) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+              ASSERT_FALSE(err);
+              query_called = true;
+          });
+      },
+      [&query_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+          txn_completed(err, result, barrier);
+          ASSERT_TRUE(query_called.load());
+          ASSERT_FALSE(err);
+      });
+    f.get();
+    ASSERT_TRUE(query_called.load());
+    auto content = TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>();
+    ASSERT_EQ(content["some"].get<std::string>(), std::string("thing else"));
+}
+
+TEST(SimpleQueryAsyncTxns, MultipleRacingQueries)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
+    auto f = barrier->get_future();
+    auto query = fmt::format("UPDATE `{}` USE KEYS '{}' SET `some` = 'thing else'", id.bucket(), id.key());
+    std::atomic<int> query_called = 0;
+    txns.run(
+      [&query_called, &query](async_attempt_context& ctx) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+              ASSERT_FALSE(err);
+              query_called++;
+          });
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+              ASSERT_FALSE(err);
+              query_called++;
+          });
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+              ASSERT_FALSE(err);
+              query_called++;
+          });
+      },
+      [&query_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+          txn_completed(err, result, barrier);
+          ASSERT_EQ(3, query_called.load());
+          ASSERT_FALSE(err);
+      });
+    f.get();
+    ASSERT_TRUE(query_called.load());
+    auto content = TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>();
+    ASSERT_EQ(content["some"].get<std::string>(), std::string("thing else"));
+}
+
+TEST(SimpleQueryAsyncTxns, RollbackAsyncQuery)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
+    auto f = barrier->get_future();
+    auto query = fmt::format("UPDATE `{}` USE KEYS '{}' SET `some` = 'thing else'", id.bucket(), id.key());
+    std::atomic<bool> query_called = false;
+    txns.run(
+      [&query_called, &query](async_attempt_context& ctx) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+              ASSERT_FALSE(err);
+              query_called = true;
+              // now rollback by throwing arbitrary exception
+              throw 3;
+          });
+      },
+      [&query_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+          txn_completed(err, result, barrier);
+          ASSERT_TRUE(query_called.load());
+          ASSERT_TRUE(err);
+      });
+    EXPECT_THROW({ f.get(); }, transaction_exception);
+    ASSERT_TRUE(query_called.load());
+    ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), async_content);
+}
+
+TEST(SimpleQueryAsyncTxns, AsyncKVGet)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    auto f = barrier->get_future();
+    auto query = fmt::format("UPDATE `{}` USE KEYS '{}' SET `some` = 'thing else'", id.bucket(), id.key());
+    std::atomic<bool> get_called = false;
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
+    txns.run(
+      [&get_called, &query, &id](async_attempt_context& ctx) {
+          ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+              ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                  ASSERT_FALSE(err);
+                  ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+                      ASSERT_FALSE(err);
+                      ASSERT_EQ(result->content<nlohmann::json>()["some"].get<std::string>(), std::string("thing else"));
+                      get_called = true;
+                  });
+              });
+          });
+      },
+      [&get_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+          txn_completed(err, result, barrier);
+          ASSERT_TRUE(get_called.load());
+          ASSERT_FALSE(err);
+      });
+    f.get();
+    ASSERT_TRUE(get_called.load());
+    ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>()["some"].get<std::string>(), "thing else");
+}
+TEST(SimpleQueryAsyncTxns, RollbackAsyncKVGet)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    auto f = barrier->get_future();
+    auto query = fmt::format("UPDATE `{}` USE KEYS '{}' SET `some` = 'thing else'", id.bucket(), id.key());
+    std::atomic<bool> get_called = false;
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
+    txns.run(
+      [&get_called, &query, &id](async_attempt_context& ctx) {
+          ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+              ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                  ASSERT_FALSE(err);
+                  ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+                      ASSERT_FALSE(err);
+                      ASSERT_EQ(result->content<nlohmann::json>()["some"].get<std::string>(), std::string("thing else"));
+                      get_called = true;
+                      throw 3;
+                  });
+              });
+          });
+      },
+      [&get_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+          txn_completed(err, result, barrier);
+          ASSERT_TRUE(get_called.load());
+          ASSERT_TRUE(err);
+      });
+    ASSERT_THROW(f.get(), transaction_exception);
+    ASSERT_TRUE(get_called.load());
+    ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>()["some"].get<std::string>(), "thing");
+}
+
+TEST(SimpleQueryAsyncTxns, AsyncKVReplace)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    auto f = barrier->get_future();
+    auto query = fmt::format("SELECT * FROM `{}` USE KEYS '{}'", id.bucket(), id.key());
+    auto new_content = nlohmann::json::parse("{\"some\": \"thing else\"}");
+    std::atomic<bool> replace_called = false;
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
+    txns.run(
+      [&replace_called, &query, &id, &new_content](async_attempt_context& ctx) {
+          ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+              // do a query just to move into query mode.
+              ASSERT_TRUE(result);
+              ctx.query(query,
+                        [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                            ASSERT_FALSE(err);
+                            ctx.replace(doc, new_content, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+                                ASSERT_FALSE(err);
+                                replace_called = true;
+                            });
+                        });
+          });
+      },
+      [&replace_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+          txn_completed(err, result, barrier);
+          ASSERT_TRUE(replace_called.load());
+          ASSERT_FALSE(err);
+      });
+    f.get();
+    ASSERT_TRUE(replace_called.load());
+    ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), new_content);
+}
+
+TEST(SimpleQueryAsyncTxns, RollbackAsyncKVReplace)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    auto f = barrier->get_future();
+    auto query = fmt::format("SELECT * FROM `{}` USE KEYS '{}'", id.bucket(), id.key());
+    auto new_content = nlohmann::json::parse("{\"some\": \"thing else\"}");
+    std::atomic<bool> replace_called = false;
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
+    txns.run(
+      [&replace_called, &query, &id, &new_content](async_attempt_context& ctx) {
+          ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+              // do a query just to move into query mode.
+              ASSERT_TRUE(result);
+              ctx.query(query,
+                        [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                            ASSERT_FALSE(err);
+                            ctx.replace(doc, new_content, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+                                ASSERT_FALSE(err);
+                                replace_called = true;
+                                throw 3;
+                            });
+                        });
+          });
+      },
+      [&replace_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+          txn_completed(err, result, barrier);
+          ASSERT_TRUE(replace_called.load());
+          ASSERT_TRUE(err);
+      });
+    ASSERT_THROW(f.get(), transaction_exception);
+    ASSERT_TRUE(replace_called.load());
+    ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), async_content);
+}
+
+TEST(SimpleQueryAsyncTxns, AsyncKVRemove)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    auto f = barrier->get_future();
+    auto query = fmt::format("SELECT * FROM `{}` USE KEYS '{}'", id.bucket(), id.key());
+    std::atomic<bool> remove_called = false;
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
+    txns.run(
+      [&remove_called, &query, &id](async_attempt_context& ctx) {
+          ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+              // do a query just to move into query mode.
+              ASSERT_TRUE(result);
+              ctx.query(query,
+                        [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                            ASSERT_FALSE(err);
+                            ctx.remove(doc, [&](std::exception_ptr err) {
+                                ASSERT_FALSE(err);
+                                remove_called = true;
+                            });
+                        });
+          });
+      },
+      [&remove_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+          txn_completed(err, result, barrier);
+          ASSERT_TRUE(remove_called.load());
+          ASSERT_FALSE(err);
+      });
+    f.get();
+    ASSERT_TRUE(remove_called.load());
+    try {
+        TransactionsTestEnvironment::get_doc(id);
+    } catch (const client_error& e) {
+        ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+    }
+}
+TEST(SimpleQueryAsyncTxns, RollbackAsyncKVRemove)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    auto f = barrier->get_future();
+    auto query = fmt::format("SELECT * FROM `{}` USE KEYS '{}'", id.bucket(), id.key());
+    std::atomic<bool> remove_called = false;
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, async_content.dump()));
+    txns.run(
+      [&remove_called, &query, &id](async_attempt_context& ctx) {
+          ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+              // do a query just to move into query mode.
+              ASSERT_TRUE(result);
+              ctx.query(query,
+                        [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                            ASSERT_FALSE(err);
+                            ctx.remove(doc, [&](std::exception_ptr err) {
+                                ASSERT_FALSE(err);
+                                remove_called = true;
+                                throw 3;
+                            });
+                        });
+          });
+      },
+      [&remove_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+          txn_completed(err, result, barrier);
+          ASSERT_TRUE(remove_called.load());
+          ASSERT_TRUE(err);
+      });
+    ASSERT_THROW(f.get(), transaction_exception);
+    ASSERT_TRUE(remove_called.load());
+    ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), async_content);
+}
+
 TEST(ThreadedAsyncTxns, AsyncGetReplace)
 {
     const size_t NUM_TXNS{ 5 };
@@ -332,42 +620,34 @@ TEST(ThreadedAsyncTxns, AsyncGetReplace)
                     attempts++;
                     auto b1 = std::make_shared<std::promise<void>>();
                     auto b2 = std::make_shared<std::promise<void>>();
-                    ctx.get(id1,
-                            [&done, &ctx, b1](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> doc1) {
-                                auto content = doc1->content<nlohmann::json>();
-                                auto count = content["number"].get<uint32_t>();
-                                if (count >= 200) {
-                                    done = true;
-                                    b1->set_value();
-                                    return;
-                                }
-                                content["number"] = ++count;
-                                ctx.replace(*doc1,
-                                            content,
-                                            [doc1, b1](std::optional<transaction_operation_failed> err,
-                                                       std::optional<transaction_get_result> doc1_updated) {
-                                                ASSERT_NE(doc1->cas(), doc1_updated->cas());
-                                                b1->set_value();
-                                            });
-                            });
-                    ctx.get(id2,
-                            [&done, b2, &ctx](std::optional<transaction_operation_failed> err, std::optional<transaction_get_result> doc2) {
-                                auto content = doc2->content<nlohmann::json>();
-                                auto count = content["number"].get<uint32_t>();
-                                if (count <= 0) {
-                                    done = true;
-                                    b2->set_value();
-                                    return;
-                                }
-                                content["number"] = --count;
-                                ctx.replace(*doc2,
-                                            content,
-                                            [doc2, b2](std::optional<transaction_operation_failed> err,
-                                                       std::optional<transaction_get_result> doc2_updated) {
-                                                ASSERT_NE(doc2->cas(), doc2_updated->cas());
-                                                b2->set_value();
-                                            });
-                            });
+                    ctx.get(id1, [&done, &ctx, b1](std::exception_ptr err, std::optional<transaction_get_result> doc1) {
+                        auto content = doc1->content<nlohmann::json>();
+                        auto count = content["number"].get<uint32_t>();
+                        if (count >= 200) {
+                            done = true;
+                            b1->set_value();
+                            return;
+                        }
+                        content["number"] = ++count;
+                        ctx.replace(*doc1, content, [doc1, b1](std::exception_ptr err, std::optional<transaction_get_result> doc1_updated) {
+                            ASSERT_NE(doc1->cas(), doc1_updated->cas());
+                            b1->set_value();
+                        });
+                    });
+                    ctx.get(id2, [&done, b2, &ctx](std::exception_ptr err, std::optional<transaction_get_result> doc2) {
+                        auto content = doc2->content<nlohmann::json>();
+                        auto count = content["number"].get<uint32_t>();
+                        if (count <= 0) {
+                            done = true;
+                            b2->set_value();
+                            return;
+                        }
+                        content["number"] = --count;
+                        ctx.replace(*doc2, content, [doc2, b2](std::exception_ptr err, std::optional<transaction_get_result> doc2_updated) {
+                            ASSERT_NE(doc2->cas(), doc2_updated->cas());
+                            b2->set_value();
+                        });
+                    });
                     // wait on the barriers before commit.
                     b1->get_future().get();
                     b2->get_future().get();

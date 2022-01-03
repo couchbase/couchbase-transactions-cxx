@@ -95,5 +95,54 @@ namespace transactions
             return type_;
         }
     };
+
+    class query_exception : public std::runtime_error
+    {
+      public:
+        query_exception(const std::string& what)
+          : std::runtime_error(what)
+        {
+        }
+    };
+    class query_document_not_found : public query_exception
+    {
+      public:
+        query_document_not_found(const std::string& what)
+          : query_exception(what)
+        {
+        }
+    };
+    class query_document_exists : public query_exception
+    {
+      public:
+        query_document_exists(const std::string& what)
+          : query_exception(what)
+        {
+        }
+    };
+    class query_attempt_not_found : public query_exception
+    {
+      public:
+        query_attempt_not_found(const std::string& what)
+          : query_exception(what)
+        {
+        }
+    };
+    class query_cas_mismatch : public query_exception
+    {
+      public:
+        query_cas_mismatch(const std::string& what)
+          : query_exception(what)
+        {
+        }
+    };
+    class query_attempt_expired : public query_exception
+    {
+      public:
+        query_attempt_expired(const std::string& what)
+          : query_exception(what)
+        {
+        }
+    };
 } // namespace transactions
 } // namespace couchbase

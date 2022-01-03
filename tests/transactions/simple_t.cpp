@@ -240,6 +240,291 @@ TEST(SimpleTransactions, CanRollbackReplace)
     ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), c);
 }
 
+TEST(SimpleQueryTransactions, CanHaveTrivialQueryInTxn)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+
+    std::ostringstream stream;
+    stream << "SELECT * FROM `default` USE KEYS '" << id.key() << "'";
+    couchbase::transactions::transactions txn(cluster, cfg);
+    txn.run([&](attempt_context& ctx) {
+        auto payload = ctx.query(stream.str());
+        ASSERT_EQ(payload.rows.size(), 1);
+        ASSERT_EQ(nlohmann::json::parse(payload.rows.front())["default"], c);
+    });
+}
+
+TEST(SimpleQueryTransactions, CanModifyDocInQuery)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+
+    std::ostringstream stream;
+    stream << "UPDATE `default` USE KEYS '" << id.key() << "' SET `some_number` = 10";
+
+    couchbase::transactions::transactions txn(cluster, cfg);
+    txn.run([&](attempt_context& ctx) {
+        auto payload = ctx.query(stream.str());
+        ASSERT_FALSE(payload.meta_data.errors);
+    });
+
+    auto res = TransactionsTestEnvironment::get_doc(id);
+    auto j = res.content_as<nlohmann::json>();
+    ASSERT_EQ(10, j["some_number"].get<int>());
+}
+
+TEST(SimpleQueryTransactions, CanRollback)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+
+    std::ostringstream stream;
+    stream << "UPDATE `default` USE KEYS '" << id.key() << "' SET `some_number` = 10";
+
+    couchbase::transactions::transactions txn(cluster, cfg);
+    EXPECT_THROW(
+      {
+          txn.run([&](attempt_context& ctx) {
+              auto payload = ctx.query(stream.str());
+              ASSERT_FALSE(payload.meta_data.errors);
+              // now, lets force a rollback
+              throw 3;
+          });
+      },
+      transaction_exception);
+
+    auto res = TransactionsTestEnvironment::get_doc(id);
+    auto j = res.content_as<nlohmann::json>();
+    ASSERT_EQ(j, c);
+}
+
+TEST(SimpleQueryTransactions, QueryUpdatesInsert)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+
+    std::ostringstream stream;
+    stream << "UPDATE `default` USE KEYS '" << id.key() << "' SET `some_number` = 10";
+    couchbase::transactions::transactions txn(cluster, cfg);
+    txn.run([&](attempt_context& ctx) {
+        ctx.insert(id, c);
+        auto payload = ctx.query(stream.str());
+        ASSERT_FALSE(payload.meta_data.errors);
+    });
+
+    auto res = TransactionsTestEnvironment::get_doc(id);
+    ASSERT_EQ(10, res.content_as<nlohmann::json>()["some_number"].get<int>());
+}
+
+TEST(SimpleQueryTransactions, CanKVGet)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+
+    std::ostringstream stream;
+    stream << "UPDATE `default` USE KEYS '" << id.key() << "' SET `some_number` = 10";
+    // stream << "SELECT * FROM `default` USE KEYS '" << id.key() << "'";
+    couchbase::transactions::transactions txn(cluster, cfg);
+    txn.run([&](attempt_context& ctx) {
+        ctx.insert(id, c);
+        auto payload = ctx.query(stream.str());
+        ASSERT_TRUE(payload.rows.empty());
+        ASSERT_FALSE(payload.meta_data.errors);
+        auto doc = ctx.get(id);
+        // TODO: serialize txnMeta once I get it
+        // ASSERT_TRUE(doc.links().is_document_in_transaction());
+    });
+    auto res = TransactionsTestEnvironment::get_doc(id);
+    ASSERT_EQ(res.content_as<nlohmann::json>()["some_number"], 10);
+}
+
+TEST(SimpleQueryTransactions, CanKVInsert)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    std::ostringstream stream;
+    stream << "SELECT * FROM `default` USE KEYS '" << id.key() << "'";
+    couchbase::transactions::transactions txn(cluster, cfg);
+    txn.run([&](attempt_context& ctx) {
+        auto payload = ctx.query(stream.str());
+        ctx.insert(id, c);
+    });
+    ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
+}
+TEST(SimpleQueryTransactions, CanRollbackKVInsert)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    std::ostringstream stream;
+    stream << "SELECT * FROM `default` USE KEYS '" << id.key() << "'";
+    couchbase::transactions::transactions txn(cluster, cfg);
+    ASSERT_THROW(
+      {
+          txn.run([&](attempt_context& ctx) {
+              auto payload = ctx.query(stream.str());
+              ctx.insert(id, c);
+              throw 3;
+          });
+      },
+      transaction_exception);
+    try {
+        auto doc = TransactionsTestEnvironment::get_doc(id);
+        FAIL() << "expected doc to not exist";
+    } catch (const client_error& e) {
+        ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+    }
+}
+
+TEST(SimpleQueryTransactions, CanKVReplace)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+
+    std::ostringstream stream;
+    stream << "SELECT * FROM `default` USE KEYS '" << id.key() << "'";
+    couchbase::transactions::transactions txn(cluster, cfg);
+    txn.run([&](attempt_context& ctx) {
+        auto payload = ctx.query(stream.str());
+        auto doc = ctx.get(id);
+        auto new_content = doc.content<nlohmann::json>();
+        new_content["some_number"] = 10;
+        auto replaced_doc = ctx.replace(doc, new_content);
+        ASSERT_NE(replaced_doc.cas(), doc.cas());
+        ASSERT_NE(0, replaced_doc.cas());
+    });
+    ASSERT_EQ(10, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>()["some_number"].get<int>());
+}
+
+TEST(SimpleQueryTransactions, CanRollbackKVReplace)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+
+    std::ostringstream stream;
+    stream << "SELECT * FROM `default` USE KEYS '" << id.key() << "'";
+    couchbase::transactions::transactions txn(cluster, cfg);
+    EXPECT_THROW(
+      {
+          txn.run([&](attempt_context& ctx) {
+              auto payload = ctx.query(stream.str());
+              auto doc = ctx.get(id);
+              auto new_content = doc.content<nlohmann::json>();
+              new_content["some_number"] = 10;
+              auto replaced_doc = ctx.replace(doc, new_content);
+              ASSERT_NE(replaced_doc.cas(), doc.cas());
+              ASSERT_NE(0, replaced_doc.cas());
+              throw 3;
+          });
+      },
+      transaction_exception);
+    ASSERT_EQ(0, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>()["some_number"].get<int>());
+}
+
+TEST(SimpleQueryTransactions, CanKVRemove)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+
+    std::ostringstream stream;
+    stream << "SELECT * FROM `default` USE KEYS '" << id.key() << "'";
+    couchbase::transactions::transactions txn(cluster, cfg);
+    txn.run([&](attempt_context& ctx) {
+        auto payload = ctx.query(stream.str());
+        auto doc = ctx.get(id);
+        ctx.remove(doc);
+    });
+    try {
+        auto doc = TransactionsTestEnvironment::get_doc(id);
+        FAIL() << "expected doc to not exist";
+    } catch (const client_error& e) {
+        ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+    }
+}
+
+TEST(SimpleQueryTransactions, CanRollbackKVRemove)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+
+    std::ostringstream stream;
+    stream << "SELECT * FROM `default` USE KEYS '" << id.key() << "'";
+    couchbase::transactions::transactions txn(cluster, cfg);
+    EXPECT_THROW(
+      {
+          txn.run([&](attempt_context& ctx) {
+              auto payload = ctx.query(stream.str());
+              auto doc = ctx.get(id);
+              ctx.remove(doc);
+              throw 3;
+          });
+      },
+      transaction_exception);
+    ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
+}
+
 int
 main(int argc, char* argv[])
 {

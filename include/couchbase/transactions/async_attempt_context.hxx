@@ -20,8 +20,10 @@
 #include <string>
 
 #include <couchbase/cluster.hxx>
+#include <couchbase/operations/document_query.hxx>
 #include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/transaction_get_result.hxx>
+#include <couchbase/transactions/transaction_query_options.hxx>
 
 namespace couchbase
 {
@@ -37,8 +39,9 @@ namespace transactions
     class async_attempt_context
     {
       public:
-        using Callback = std::function<void(std::optional<transaction_operation_failed>, std::optional<transaction_get_result>)>;
-        using VoidCallback = std::function<void(std::optional<transaction_operation_failed>)>;
+        using Callback = std::function<void(std::exception_ptr, std::optional<transaction_get_result>)>;
+        using VoidCallback = std::function<void(std::exception_ptr)>;
+        using QueryCallback = std::function<void(std::exception_ptr, std::optional<operations::query_response_payload>)>;
         virtual ~async_attempt_context() = default;
         /**
          * Gets a document from the specified Couchbase collection matching the specified id.
@@ -111,6 +114,26 @@ namespace transactions
          */
         virtual void remove(const transaction_get_result& document, VoidCallback&& cb) = 0;
 
+        /**
+         * Performs a Query, within the current transaction.
+         *
+         * @param statement query statement to execute.
+         * @param options options to apply to the query.
+         * @param cb callback which is called when the query completes.
+         */
+        virtual void query(const std::string& statement, const transaction_query_options& options, QueryCallback&& cb) = 0;
+
+        /**
+         * Performs a Query, within the current transaction.
+         *
+         * @param statement query statement to execute.
+         * @param cb callback which is called when the query completes.
+         */
+        virtual void query(const std::string& statement, QueryCallback&& cb)
+        {
+            transaction_query_options opts;
+            return query(statement, opts, std::move(cb));
+        }
         /**
          * Commits the transaction.  All staged replaces, inserts and removals will be written.
          *

@@ -76,15 +76,34 @@ namespace transactions
         virtual transaction_get_result replace_raw(const transaction_get_result& document, const std::string& content);
         virtual void replace_raw(const transaction_get_result& document, const std::string& content, Callback&& cb);
 
-        template<typename Cb>
-        void op_completed_with_callback(Cb&& cb, std::optional<transaction_get_result> t)
+        // These are all just stubs for now
+        void get_with_query(const couchbase::document_id& id, Callback&& cb);
+        void insert_raw_with_query(const couchbase::document_id& id, const std::string& content, Callback&& cb);
+        void replace_raw_with_query(const transaction_get_result& document, const std::string& content, Callback&& cb);
+        void remove_with_query(const transaction_get_result& document, VoidCallback&& cb);
+
+        void commit_with_query(VoidCallback&& cb);
+        void rollback_with_query(VoidCallback&& cb);
+
+        template<typename Handler>
+        void query_begin_work(Handler&& cb);
+
+        void do_query(const std::string& statement, const transaction_query_options& opts, QueryCallback&& cb);
+        std::exception_ptr handle_query_error(const couchbase::operations::query_response& resp);
+        void wrap_query(const std::string& statement,
+                        const transaction_query_options& opts,
+                        const std::vector<json_string>& params,
+                        const nlohmann::json& txdata,
+                        const std::string& hook_point,
+                        std::function<void(std::exception_ptr, couchbase::operations::query_response)>&& cb);
+
+        void handle_err_from_callback(std::exception_ptr e)
         {
             try {
-                cb(std::nullopt, t);
-                op_list_.change_count(-1);
+                throw e;
             } catch (const transaction_operation_failed& ex) {
                 txn_log->error("op callback called a txn operation that threw exception {}", ex.what());
-                op_list_.change_count(-1);
+                op_list_.decrement_ops();
                 // presumably that op called op_completed_with_error already, so
                 // don't do anything here but swallow it.
             } catch (const async_operation_conflict& op_ex) {
@@ -95,7 +114,23 @@ namespace transactions
                 // we just want to handle as a rollback
                 txn_log->error("op callback threw exception {}", e.what());
                 errors_.push_back(transaction_operation_failed(FAIL_OTHER, e.what()));
-                op_list_.change_count(-1);
+                op_list_.decrement_ops();
+            } catch (...) {
+                // could be something really arbitrary, still...
+                txn_log->error("op callback threw unexpected exception");
+                errors_.push_back(transaction_operation_failed(FAIL_OTHER, "unexpected error"));
+                op_list_.decrement_ops();
+            }
+        }
+        template<typename Cb, typename T>
+        void op_completed_with_callback(Cb&& cb, std::optional<T> t)
+        {
+            try {
+                op_list_.decrement_in_flight();
+                cb({}, t);
+                op_list_.decrement_ops();
+            } catch (...) {
+                handle_err_from_callback(std::current_exception());
             }
         }
 
@@ -103,40 +138,71 @@ namespace transactions
         void op_completed_with_callback(Cb&& cb)
         {
             try {
-                cb(std::nullopt);
-                op_list_.change_count(-1);
-            } catch (const async_operation_conflict& op_ex) {
-                // the count isn't changed when this is thrown, so just swallow it and log
-                txn_log->error("op callback called a txn operation that threw exception {}", op_ex.what());
-            } catch (const transaction_operation_failed& ex) {
-                txn_log->error("op callback called a txn operation that threw exception {}", ex.what());
-                op_list_.change_count(-1);
-            } catch (const std::exception& e) {
-                txn_log->error("op callback threw exception {}", e.what());
-                errors_.push_back(transaction_operation_failed(FAIL_OTHER, e.what()));
-                op_list_.change_count(-1);
+                op_list_.decrement_in_flight();
+                cb({});
+                op_list_.decrement_ops();
+            } catch (...) {
+                handle_err_from_callback(std::current_exception());
             }
         }
-        void op_completed_with_error(
-          std::function<void(std::optional<transaction_operation_failed>, std::optional<transaction_get_result>)> cb,
-          transaction_operation_failed err)
+
+        template<typename E>
+        void op_completed_with_error(std::function<void(std::exception_ptr)> cb, E err)
         {
-            errors_.push_back(std::move(err));
-            cb({ err }, std::nullopt);
-            op_list_.change_count(-1);
+            try {
+                throw err;
+            } catch (const transaction_operation_failed& e) {
+                // if this is a transaction_operation_failed, we need to cache it before moving on...
+                errors_.push_back(e);
+                try {
+                    op_list_.decrement_in_flight();
+                    cb(std::current_exception());
+                    op_list_.decrement_ops();
+                } catch (...) {
+                    handle_err_from_callback(std::current_exception());
+                }
+            } catch (...) {
+                try {
+                    op_list_.decrement_in_flight();
+                    cb(std::current_exception());
+                    op_list_.decrement_ops();
+                } catch (...) {
+                    handle_err_from_callback(std::current_exception());
+                }
+            }
         }
-        void op_completed_with_error(std::function<void(std::optional<transaction_operation_failed>)> cb, transaction_operation_failed err)
+
+        template<typename Ret, typename E>
+        void op_completed_with_error(std::function<void(std::exception_ptr, std::optional<Ret>)> cb, E err)
         {
-            errors_.push_back(std::move(err));
-            cb(err);
-            op_list_.change_count(-1);
+            try {
+                throw err;
+            } catch (const transaction_operation_failed& e) {
+                // if this is a transaction_operation_failed, we need to cache it before moving on...
+                errors_.push_back(e);
+                try {
+                    op_list_.decrement_in_flight();
+                    cb(std::current_exception(), std::optional<Ret>());
+                    op_list_.decrement_ops();
+                } catch (...) {
+                    handle_err_from_callback(std::current_exception());
+                }
+            } catch (...) {
+                try {
+                    op_list_.decrement_in_flight();
+                    cb(std::current_exception(), std::optional<Ret>());
+                    op_list_.decrement_ops();
+                } catch (...) {
+                    handle_err_from_callback(std::current_exception());
+                }
+            }
         }
 
         template<typename Handler>
         void cache_error_async(Handler&& cb, std::function<void()> func)
         {
             try {
-                op_list_.change_count(1);
+                op_list_.increment_ops();
                 existing_error();
                 return func();
             } catch (const async_operation_conflict& e) {
@@ -192,6 +258,11 @@ namespace transactions
 
         virtual void remove(const transaction_get_result& document);
         virtual void remove(const transaction_get_result& document, VoidCallback&& cb);
+
+        // These are just stubs for now
+        virtual void query(const std::string& statement, const transaction_query_options& opts, QueryCallback&& cb);
+        virtual operations::query_response_payload query(const std::string& statement, const transaction_query_options& opts);
+
         virtual void commit();
         virtual void commit(VoidCallback&& cb);
         virtual void rollback();

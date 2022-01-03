@@ -39,8 +39,16 @@ namespace transactions
         attempts_.push_back(attempt);
     }
 
+    CB_NODISCARD std::chrono::nanoseconds transaction_context::remaining(const transaction_config& config)
+    {
+        const auto& now = std::chrono::steady_clock::now();
+        auto expired_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(now - start_time_client_) + deferred_elapsed_;
+        return config.expiration_time() - expired_nanos;
+    }
+
     CB_NODISCARD bool transaction_context::has_expired_client_side(const transaction_config& config)
     {
+        // repeat code above - nice for logging.  Ponder changing this.
         const auto& now = std::chrono::steady_clock::now();
         auto expired_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(now - start_time_client_) + deferred_elapsed_;
         auto expired_millis = std::chrono::duration_cast<std::chrono::milliseconds>(expired_nanos);
@@ -114,6 +122,16 @@ namespace transactions
             return current_attempt_context_->remove(doc, std::move(cb));
         }
         throw transaction_operation_failed(FAIL_OTHER, "no current attempt context");
+    }
+
+    void transaction_context::query(const std::string& statement,
+                                    const transaction_query_options& opts,
+                                    async_attempt_context::QueryCallback&& cb)
+    {
+        if (current_attempt_context_) {
+            return current_attempt_context_->query(statement, opts, std::move(cb));
+        }
+        throw(transaction_operation_failed(FAIL_OTHER, "no current attempt context"));
     }
 
     void transaction_context::commit(async_attempt_context::VoidCallback&& cb)

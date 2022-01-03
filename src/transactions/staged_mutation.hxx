@@ -70,6 +70,18 @@ namespace transactions
         {
             content_ = content;
         }
+
+        std::string type_as_string() const
+        {
+            switch (type_) {
+                case staged_mutation_type::INSERT:
+                    return "INSERT";
+                case staged_mutation_type::REMOVE:
+                    return "REMOVE";
+                case staged_mutation_type::REPLACE:
+                    return "REPLACE";
+            }
+        }
     };
 
     class staged_mutation_queue

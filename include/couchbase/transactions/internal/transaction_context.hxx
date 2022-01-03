@@ -85,6 +85,7 @@ namespace transactions
             return cleanup_;
         }
 
+        // TODO: do we need to pass in the config?  Once per-txn config is implemented, possibly not needed.
         CB_NODISCARD bool has_expired_client_side(const transaction_config& config);
 
         void retry_delay();
@@ -132,11 +133,16 @@ namespace transactions
 
         void remove(const transaction_get_result& doc, async_attempt_context::VoidCallback&& cb);
 
+        void query(const std::string& statement, const transaction_query_options& opts, async_attempt_context::QueryCallback&& cb);
+
         void commit(async_attempt_context::VoidCallback&& cb);
 
         void rollback(async_attempt_context::VoidCallback&& cb);
 
         void existing_error();
+
+        // TODO: do we need to pass in the config?  Once per-txn config is implemented, possibly not needed.
+        std::chrono::nanoseconds remaining(const transaction_config& config);
 
       private:
         std::string transaction_id_;

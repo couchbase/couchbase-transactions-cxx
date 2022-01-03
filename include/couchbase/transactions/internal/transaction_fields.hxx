@@ -66,5 +66,6 @@ namespace transactions
     static const std::string PRE_TXN_CAS = TRANSACTION_RESTORE_PREFIX + "CAS";
     static const std::string PRE_TXN_REVID = TRANSACTION_RESTORE_PREFIX + "revid";
     static const std::string PRE_TXN_EXPTIME = TRANSACTION_RESTORE_PREFIX + "exptime";
+
 } // namespace transactions
 } // namespace couchbase

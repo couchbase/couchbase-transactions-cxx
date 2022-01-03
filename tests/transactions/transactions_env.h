@@ -145,9 +145,9 @@ class TransactionsTestEnvironment : public ::testing::Environment
         get_cluster();
     }
 
-    static bool supports_collections()
+    static bool supports_query()
     {
-        return nullptr != std::getenv("SUPPORTS_COLLECTIONS");
+        return nullptr != std::getenv("SUPPORTS_QUERY");
     }
 
     static const nlohmann::json& get_conf()

@@ -75,6 +75,10 @@ struct retry_state {
     {
         return chrono::duration_cast<chrono::milliseconds>(timings.back() - timings.front());
     }
+    chrono::time_point<chrono::steady_clock>& first_timing()
+    {
+        return timings.front();
+    }
 };
 // convenience stuff
 auto one_ms = chrono::milliseconds(1);
@@ -84,12 +88,18 @@ auto hundred_ms = chrono::milliseconds(100);
 TEST(ExpBackoffWithTimeout, WillTimeout)
 {
     retry_state state;
+    auto start = chrono::steady_clock::now();
     ASSERT_THROW(retry_op_exponential_backoff_timeout<void>(one_ms, ten_ms, hundred_ms, [&state] { state.function(); }),
                  retry_operation_timeout);
     // sleep_for is only guaranteed to sleep for _at_least_ the time requested.
     // so lets make sure the total elapsed time is at least what we wanted.
+    // TODO: notice that timings are the times that the function is _called_.  The actual start time for the exponential backoff
+    //       is _before_ that call, so we could be slightly under 100ms in this test.  A very rare
+    //       fail in this tests is possible. So we kept track of the time right before we called the function
+    //       and added that to the elapsed time.  Not perfect, but should prevent the occasional spurious failure.
     ASSERT_GE(state.timings.size(), 0);
-    ASSERT_GE(state.elapsed_ms(), hundred_ms);
+    auto extra = chrono::duration_cast<chrono::milliseconds>(state.first_timing() - start);
+    ASSERT_GE(state.elapsed_ms() + extra, hundred_ms);
 }
 
 TEST(ExpBackoffWithTimeout, RetryCountInRange)

@@ -42,5 +42,18 @@ namespace transactions
          */
         PERSIST_TO_MAJORITY = 0x03
     };
+    static std::string durability_level_to_string(durability_level l)
+    {
+        switch (l) {
+            case durability_level::NONE:
+                return "NONE";
+            case durability_level::MAJORITY:
+                return "MAJORITY";
+            case durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE:
+                return "MAJORITY_AND_PERSIST_TO_ACTIVE";
+            case durability_level::PERSIST_TO_MAJORITY:
+                return "PERSIST_TO_MAJORITY";
+        }
+    }
 } // namespace transactions
 } // namespace couchbase
