@@ -58,6 +58,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/
 option(COUCHBASE_TXNS_CXX_BUILD_DOC "Build documentation" ON)
 option(COUCHBASE_TXNS_CXX_BUILD_EXAMPLES "Build examples" ON)
 option(COUCHBASE_TXNS_CXX_BUILD_TESTS "Build tests" ON)
+option(COUCHBASE_TXNS_CXX_CLIENT_EXTERNAL "Use external couchbase-cxx-client library instead of bundled" OFF)
 
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 
@@ -70,8 +71,10 @@ configure_file(
     ${PROJECT_SOURCE_DIR}/include/couchbase/internal/nlohmann/json.hpp
     COPYONLY)
 
-set(COUCHBASE_CXX_CLIENT_BUILD_TESTS OFF CACHE INTERNAL "")
-add_subdirectory(deps/couchbase-cxx-client)
+if(NOT COUCHBASE_TXNS_CXX_CLIENT_EXTERNAL)
+    set(COUCHBASE_CXX_CLIENT_BUILD_TESTS OFF CACHE INTERNAL "")
+    add_subdirectory(deps/couchbase-cxx-client)
+endif()
 
 find_package(Threads)
 
