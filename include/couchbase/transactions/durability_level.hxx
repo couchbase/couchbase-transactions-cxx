@@ -54,6 +54,7 @@ namespace transactions
             case durability_level::PERSIST_TO_MAJORITY:
                 return "PERSIST_TO_MAJORITY";
         }
+        return "MAJORITY";
     }
 } // namespace transactions
 } // namespace couchbase

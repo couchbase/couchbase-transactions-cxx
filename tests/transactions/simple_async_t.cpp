@@ -597,9 +597,9 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVRemove)
     ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), async_content);
 }
 
-TEST(ThreadedAsyncTxns, AsyncGetReplace)
+TEST(ConcurrentAsyncTxns, AsyncGetReplace)
 {
-    const size_t NUM_TXNS{ 5 };
+    const size_t NUM_TXNS{ 2 };
     auto doc1_content = nlohmann::json::parse("{\"number\": 0}");
     auto doc2_content = nlohmann::json::parse("{\"number\":200}");
     auto id1 = TransactionsTestEnvironment::get_document_id();
@@ -607,62 +607,74 @@ TEST(ThreadedAsyncTxns, AsyncGetReplace)
     TransactionsTestEnvironment::upsert_doc(id1, doc1_content.dump());
     TransactionsTestEnvironment::upsert_doc(id2, doc2_content.dump());
     auto txn = TransactionsTestEnvironment::get_transactions();
-    std::list<std::future<void>> txn_futures;
     std::atomic<uint32_t> attempts{ 0 };
     std::atomic<uint32_t> errors{ 0 };
     std::atomic<uint32_t> txns{ 0 };
-    std::atomic<bool> done = false;
-    txn_futures.emplace_back(std::async(std::launch::async, [&] {
-        while (!done.load()) {
-            txn
-              .run(
-                [&](async_attempt_context& ctx) {
-                    attempts++;
-                    auto b1 = std::make_shared<std::promise<void>>();
-                    auto b2 = std::make_shared<std::promise<void>>();
-                    ctx.get(id1, [&done, &ctx, b1](std::exception_ptr err, std::optional<transaction_get_result> doc1) {
-                        auto content = doc1->content<nlohmann::json>();
-                        auto count = content["number"].get<uint32_t>();
-                        if (count >= 200) {
-                            done = true;
-                            b1->set_value();
-                            return;
-                        }
-                        content["number"] = ++count;
-                        ctx.replace(*doc1, content, [doc1, b1](std::exception_ptr err, std::optional<transaction_get_result> doc1_updated) {
-                            ASSERT_NE(doc1->cas(), doc1_updated->cas());
-                            b1->set_value();
-                        });
-                    });
-                    ctx.get(id2, [&done, b2, &ctx](std::exception_ptr err, std::optional<transaction_get_result> doc2) {
-                        auto content = doc2->content<nlohmann::json>();
-                        auto count = content["number"].get<uint32_t>();
-                        if (count <= 0) {
-                            done = true;
-                            b2->set_value();
-                            return;
-                        }
-                        content["number"] = --count;
-                        ctx.replace(*doc2, content, [doc2, b2](std::exception_ptr err, std::optional<transaction_get_result> doc2_updated) {
-                            ASSERT_NE(doc2->cas(), doc2_updated->cas());
-                            b2->set_value();
-                        });
-                    });
-                    // wait on the barriers before commit.
-                    b1->get_future().get();
-                    b2->get_future().get();
-                },
-                [&txns, &errors](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
-                    txns++;
-                    if (err) {
-                        errors++;
-                    }
-                });
-        }
-    }));
-    for (auto& f : txn_futures) {
-        f.get();
+    std::atomic<bool> done{ false };
+    uint32_t in_flight{ 0 };
+    std::condition_variable cv_in_flight;
+    std::condition_variable cv_txns_complete;
+    std::mutex mut;
+    while (!done.load()) {
+        std::unique_lock<std::mutex> lock(mut);
+        cv_in_flight.wait(lock, [&] { return in_flight < NUM_TXNS; });
+        in_flight++;
+        lock.unlock();
+        txn.run(
+          [&](async_attempt_context& ctx) {
+              attempts++;
+              ctx.get(id1, [&done, &ctx](std::exception_ptr err, std::optional<transaction_get_result> doc1) {
+                  if (!doc1 || err) {
+                      return;
+                  }
+                  auto content = doc1->content<nlohmann::json>();
+                  auto count = content["number"].get<uint32_t>();
+                  if (count >= 200) {
+                      done = true;
+                      return;
+                  }
+                  content["number"] = ++count;
+                  ctx.replace(*doc1, content, [doc1](std::exception_ptr err, std::optional<transaction_get_result> doc1_updated) {
+                      ASSERT_NE(doc1->cas(), doc1_updated->cas());
+                  });
+              });
+              ctx.get(id2, [&done, &ctx](std::exception_ptr err, std::optional<transaction_get_result> doc2) {
+                  if (!doc2 || err) {
+                      return;
+                  }
+                  auto content = doc2->content<nlohmann::json>();
+                  auto count = content["number"].get<uint32_t>();
+                  if (count <= 0) {
+                      done = true;
+                      return;
+                  }
+                  content["number"] = --count;
+                  ctx.replace(*doc2, content, [doc2](std::exception_ptr err, std::optional<transaction_get_result> doc2_updated) {
+                      ASSERT_NE(doc2->cas(), doc2_updated->cas());
+                  });
+              });
+          },
+          [&](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+              txns++;
+              std::unique_lock<std::mutex> lock(mut);
+              in_flight--;
+              if (in_flight < NUM_TXNS) {
+                  cv_in_flight.notify_all();
+              }
+              if (in_flight == 0 && done.load()) {
+                  cv_txns_complete.notify_all();
+              }
+              lock.unlock();
+              if (err) {
+                  errors++;
+              }
+          });
     }
+
+    // wait till it is really done and committed that last one...
+    std::unique_lock<std::mutex> lock(mut);
+    cv_txns_complete.wait(lock, [&] { return (in_flight == 0 && done.load()); });
+    lock.unlock();
     // now lets look at the final state of the docs:
     auto doc1 = TransactionsTestEnvironment::get_doc(id1);
     auto doc2 = TransactionsTestEnvironment::get_doc(id2);
@@ -673,4 +685,5 @@ TEST(ThreadedAsyncTxns, AsyncGetReplace)
     ASSERT_GE(txns.load() - errors.load(), 200);
     // No way we don't have at least one conflict, so attempts should be much larger than txns.
     ASSERT_GT(attempts.load(), 200);
+    std::cout << "attempts: " << attempts.load() << ", txns: " << txns.load() << ", errors: " << errors.load() << std::endl;
 }

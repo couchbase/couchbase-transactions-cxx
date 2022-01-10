@@ -81,6 +81,7 @@ namespace transactions
                 case staged_mutation_type::REPLACE:
                     return "REPLACE";
             }
+            throw std::runtime_error("unknown type of staged mutation");
         }
     };
 

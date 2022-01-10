@@ -122,14 +122,15 @@ tx::transactions::run(logic&& logic)
 void
 tx::transactions::run(async_logic&& logic, txn_complete_callback&& cb)
 {
-    std::async(std::launch::async, [this, logic = std::move(logic), cb = std::move(cb)] {
+    std::thread([this, logic = std::move(logic), cb = std::move(cb)] {
         try {
             auto result = wrap_run(*this, logic);
             return cb({}, result);
         } catch (const transaction_exception& e) {
             return cb(e, std::nullopt);
         }
-    });
+    })
+      .detach();
 }
 
 void

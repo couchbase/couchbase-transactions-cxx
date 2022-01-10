@@ -633,7 +633,7 @@ attempt_context_impl::handle_query_error(const couchbase::operations::query_resp
             break;
         }
     }
-    trace("chosen query error ({}){}", chosen_error.code, chosen_error.message);
+    trace("chosen query error ({}):'{}'", chosen_error.code, chosen_error.message);
     switch (chosen_error.code) {
         case 1065:
             return std::make_exception_ptr(
@@ -1310,10 +1310,10 @@ void
 attempt_context_impl::rollback(VoidCallback&& cb)
 {
     // for now, lets keep the blocking implementation
-    if (op_list_.get_mode().is_query()) {
-        return rollback_with_query(std::move(cb));
-    }
-    std::async(std::launch::async, [cb = std::move(cb), this] {
+    std::thread([cb = std::move(cb), this]() mutable {
+        if (op_list_.get_mode().is_query()) {
+            return rollback_with_query(std::move(cb));
+        }
         try {
             rollback();
             return cb({});
@@ -1321,8 +1321,11 @@ attempt_context_impl::rollback(VoidCallback&& cb)
             return cb(std::current_exception());
         } catch (const std::exception& e) {
             return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_OTHER, e.what()).no_rollback()));
+        } catch (...) {
+            return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_OTHER, "unexpected exception during rollback")));
         }
-    });
+    })
+      .detach();
 }
 
 void
@@ -1342,8 +1345,7 @@ attempt_context_impl::rollback()
         });
         return f.get();
     }
-    // check for ex
-    // piry
+    // check for expiry
     check_expiry_during_commit_or_rollback(STAGE_ROLLBACK, std::nullopt);
     if (!atr_id_ || atr_id_->key().empty() || state() == attempt_state::NOT_STARTED) {
         // TODO: check this, but if we try to rollback an empty txn, we should prevent a subsequent commit

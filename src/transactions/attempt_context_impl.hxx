@@ -149,8 +149,13 @@ namespace transactions
         template<typename E>
         void op_completed_with_error(std::function<void(std::exception_ptr)> cb, E err)
         {
+            return op_completed_with_error(std::move(cb), std::make_exception_ptr(err));
+        }
+
+        void op_completed_with_error(std::function<void(std::exception_ptr)> cb, std::exception_ptr err)
+        {
             try {
-                throw err;
+                std::rethrow_exception(err);
             } catch (const transaction_operation_failed& e) {
                 // if this is a transaction_operation_failed, we need to cache it before moving on...
                 errors_.push_back(e);
@@ -175,8 +180,14 @@ namespace transactions
         template<typename Ret, typename E>
         void op_completed_with_error(std::function<void(std::exception_ptr, std::optional<Ret>)> cb, E err)
         {
+            return op_completed_with_error(std::move(cb), std::make_exception_ptr(err));
+        }
+
+        template<typename Ret>
+        void op_completed_with_error(std::function<void(std::exception_ptr, std::optional<Ret>)> cb, std::exception_ptr err)
+        {
             try {
-                throw err;
+                std::rethrow_exception(err);
             } catch (const transaction_operation_failed& e) {
                 // if this is a transaction_operation_failed, we need to cache it before moving on...
                 errors_.push_back(e);

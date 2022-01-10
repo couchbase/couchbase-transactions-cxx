@@ -83,17 +83,13 @@ TEST(WaitableOpList, SetModeCallsAppropriateCallbacks)
           [&] {
               begin_work_calls++;
               op_list.set_query_node(NODE);
-              std::async(std::launch::async, [&] {
                   op_list.decrement_in_flight();
                   op_list.decrement_ops();
-              });
           },
           [&]() {
               do_work_calls++;
-              std::async(std::launch::async, [&] {
                   op_list.decrement_in_flight();
                   op_list.decrement_ops();
-              });
           });
     };
 
