@@ -20,6 +20,7 @@
 
 #include <couchbase/cluster.hxx>
 #include <couchbase/transactions/transaction_get_result.hxx>
+#include <couchbase/transactions/transaction_query_options.hxx>
 
 namespace couchbase
 {

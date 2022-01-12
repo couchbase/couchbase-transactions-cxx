@@ -600,7 +600,6 @@ attempt_context_impl::query_begin_work(Handler&& cb)
     }
     // TODO: get some stuff (timeouts) from config
     transaction_query_options opts;
-    opts.query_request().raw["txtimeout"] = fmt::format("{}ms", overall_.remaining(config_).count() / 1000000);
     std::vector<json_string> params;
     trace("begin_work using txdata: {}", txdata.dump());
     wrap_query(
@@ -677,13 +676,8 @@ attempt_context_impl::wrap_query(const std::string& statement,
                                  const std::string& hook_point,
                                  std::function<void(std::exception_ptr, couchbase::operations::query_response)>&& cb)
 {
-    auto req = opts.query_request();
-    if (!req.scan_consistency) {
-        req.scan_consistency = operations::query_request::scan_consistency_type::request_plus;
-    }
-    req.metrics = true;
-    auto extra = config_.kv_timeout() ? config_.kv_timeout().value() : timeout_defaults::key_value_durable_timeout;
-    req.timeout = std::chrono::duration_cast<std::chrono::milliseconds>(overall_.remaining(config_)) + extra;
+    auto req = opts.wrap_request(overall_);
+
     if (!params.empty()) {
         req.positional_parameters = params;
     }
@@ -695,7 +689,7 @@ attempt_context_impl::wrap_query(const std::string& statement,
     }
     req.statement = statement;
     overall_.cluster_ref().execute(req, [this, cb = std::move(cb)](couchbase::operations::query_response resp) mutable {
-        trace("request {} resulted in {}", resp.ctx.http_body, resp.payload.meta_data.status);
+        trace("response: {} status: {}", resp.ctx.http_body, resp.payload.meta_data.status);
         cb(handle_query_error(resp), resp);
     });
 }

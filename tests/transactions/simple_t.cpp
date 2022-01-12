@@ -352,7 +352,6 @@ TEST(SimpleQueryTransactions, CanKVGet)
 
     std::ostringstream stream;
     stream << "UPDATE `default` USE KEYS '" << id.key() << "' SET `some_number` = 10";
-    // stream << "SELECT * FROM `default` USE KEYS '" << id.key() << "'";
     couchbase::transactions::transactions txn(cluster, cfg);
     txn.run([&](attempt_context& ctx) {
         ctx.insert(id, c);
@@ -360,6 +359,7 @@ TEST(SimpleQueryTransactions, CanKVGet)
         ASSERT_TRUE(payload.rows.empty());
         ASSERT_FALSE(payload.meta_data.errors);
         auto doc = ctx.get(id);
+        ASSERT_EQ(10, doc.content<nlohmann::json>()["some_number"].get<uint32_t>());
         // TODO: serialize txnMeta once I get it
         // ASSERT_TRUE(doc.links().is_document_in_transaction());
     });
@@ -505,6 +505,7 @@ TEST(SimpleQueryTransactions, CanRollbackKVRemove)
     transaction_config cfg;
     cfg.cleanup_client_attempts(false);
     cfg.cleanup_lost_attempts(false);
+    cfg.expiration_time(std::chrono::seconds(1));
 
     auto id = TransactionsTestEnvironment::get_document_id();
     ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
@@ -519,6 +520,32 @@ TEST(SimpleQueryTransactions, CanRollbackKVRemove)
               auto doc = ctx.get(id);
               ctx.remove(doc);
               throw 3;
+          });
+      },
+      transaction_exception);
+    ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
+}
+
+TEST(SimpleQueryTransactions, CanRollbackRetryBadKVReplace)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some_number\": 0}");
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+    cfg.expiration_time(std::chrono::seconds(1));
+
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+
+    auto query = fmt::format("UPDATE `{}` USE KEYS '{}' SET `some_number` = 10", id.bucket(), id.key());
+    couchbase::transactions::transactions txn(cluster, cfg);
+    ASSERT_THROW(
+      {
+          txn.run([&](attempt_context& ctx) {
+              auto doc = ctx.get(id);
+              auto payload = ctx.query(query);
+              auto new_doc = ctx.replace(doc, "{\"some_number\": 20}");
           });
       },
       transaction_exception);

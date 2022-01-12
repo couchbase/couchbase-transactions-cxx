@@ -80,6 +80,11 @@ namespace transactions
             return config_;
         }
 
+        const transaction_config& config() const
+        {
+            return config_;
+        }
+
         transactions_cleanup& cleanup()
         {
             return cleanup_;
@@ -142,7 +147,7 @@ namespace transactions
         void existing_error();
 
         // TODO: do we need to pass in the config?  Once per-txn config is implemented, possibly not needed.
-        std::chrono::nanoseconds remaining(const transaction_config& config);
+        std::chrono::nanoseconds remaining(const transaction_config& config) const;
 
       private:
         std::string transaction_id_;

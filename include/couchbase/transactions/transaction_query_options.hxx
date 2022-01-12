@@ -16,11 +16,20 @@
 #pragma once
 
 #include <couchbase/operations/document_query.hxx>
+namespace couchbase::transactions
+{
+
+class transaction_context;
 
 class transaction_query_options
 {
   public:
-    transaction_query_options() = default;
+    transaction_query_options()
+    {
+        // set defaults specific to query in transactions.
+        query_req_.scan_consistency = couchbase::operations::query_request::scan_consistency_type::request_plus;
+        query_req_.metrics = true;
+    }
     transaction_query_options(const couchbase::operations::query_request& req)
       : query_req_(req)
     {
@@ -103,6 +112,21 @@ class transaction_query_options
         return *this;
     }
 
+    transaction_query_options& bucket_name(const std::string& bucket)
+    {
+        query_req_.bucket_name = bucket;
+        return *this;
+    }
+
+    transaction_query_options& scope_name(const std::string& scope)
+    {
+        query_req_.scope_name = scope;
+        return *this;
+    }
+
+    couchbase::operations::query_request wrap_request(const transaction_context& txn_ctx) const;
+
   private:
     couchbase::operations::query_request query_req_;
 };
+} // namespace couchbase::transactions

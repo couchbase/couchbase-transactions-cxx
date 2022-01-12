@@ -39,7 +39,7 @@ namespace transactions
         attempts_.push_back(attempt);
     }
 
-    CB_NODISCARD std::chrono::nanoseconds transaction_context::remaining(const transaction_config& config)
+    CB_NODISCARD std::chrono::nanoseconds transaction_context::remaining(const transaction_config& config) const
     {
         const auto& now = std::chrono::steady_clock::now();
         auto expired_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(now - start_time_client_) + deferred_elapsed_;

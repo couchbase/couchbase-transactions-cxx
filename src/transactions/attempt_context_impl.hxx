@@ -270,7 +270,6 @@ namespace transactions
         virtual void remove(const transaction_get_result& document);
         virtual void remove(const transaction_get_result& document, VoidCallback&& cb);
 
-        // These are just stubs for now
         virtual void query(const std::string& statement, const transaction_query_options& opts, QueryCallback&& cb);
         virtual operations::query_response_payload query(const std::string& statement, const transaction_query_options& opts);
 

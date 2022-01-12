@@ -134,6 +134,7 @@ namespace transactions
             transaction_query_options opts;
             return query(statement, opts, std::move(cb));
         }
+
         /**
          * Commits the transaction.  All staged replaces, inserts and removals will be written.
          *
