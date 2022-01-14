@@ -36,9 +36,9 @@ tx::transactions::~transactions() = default;
 
 template<typename Handler>
 tx::transaction_result
-wrap_run(tx::transactions& txns, Handler&& fn)
+wrap_run(tx::transactions& txns, const tx::per_transaction_config& config, Handler&& fn)
 {
-    tx::transaction_context overall(txns);
+    tx::transaction_context overall(txns, config);
     // This will exponentially backoff, doubling the retry delay each time until the 8th time, and cap it at
     // 128*<initial retry delay>, and cap this at the max retries.  NOTE: this sets a maximum effective
     // duration of the transaction of something like max_retries_ * 128 * min_retry_delay.  We could do better
@@ -68,7 +68,7 @@ wrap_run(tx::transactions& txns, Handler&& fn)
                     // commit ambiguous error, so we should always throw.
                     assert(true);
                 }
-                if (er.should_retry() && overall.has_expired_client_side(overall.config())) {
+                if (er.should_retry() && overall.has_expired_client_side()) {
                     tx::txn_log->trace("auto rollback succeeded, however we are expired so no retry");
                     // this always throws
                     tx::transaction_operation_failed(tx::FAIL_EXPIRY, "expired in auto rollback").no_rollback().expired().do_throw(overall);
@@ -116,21 +116,34 @@ wrap_run(tx::transactions& txns, Handler&& fn)
 tx::transaction_result
 tx::transactions::run(logic&& logic)
 {
-    return wrap_run(*this, logic);
+    per_transaction_config config;
+    return wrap_run(*this, config, std::move(logic));
+}
+
+tx::transaction_result
+tx::transactions::run(const per_transaction_config& config, logic&& logic)
+{
+    return wrap_run(*this, config, std::move(logic));
 }
 
 void
-tx::transactions::run(async_logic&& logic, txn_complete_callback&& cb)
+tx::transactions::run(const per_transaction_config& config, async_logic&& logic, txn_complete_callback&& cb)
 {
-    std::thread([this, logic = std::move(logic), cb = std::move(cb)] {
+    std::thread([this, config, logic = std::move(logic), cb = std::move(cb)] {
         try {
-            auto result = wrap_run(*this, logic);
+            auto result = wrap_run(*this, config, std::move(logic));
             return cb({}, result);
         } catch (const transaction_exception& e) {
             return cb(e, std::nullopt);
         }
     })
       .detach();
+}
+void
+tx::transactions::run(async_logic&& logic, txn_complete_callback&& cb)
+{
+    per_transaction_config config;
+    return run(config, std::move(logic), std::move(cb));
 }
 
 void

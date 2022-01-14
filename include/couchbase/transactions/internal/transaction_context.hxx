@@ -25,6 +25,7 @@
 #include "transactions_cleanup.hxx"
 #include <couchbase/transactions.hxx>
 #include <couchbase/transactions/async_attempt_context.hxx>
+#include <couchbase/transactions/per_transaction_config.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transaction_result.hxx>
 
@@ -37,7 +38,7 @@ namespace transactions
     class transaction_context
     {
       public:
-        transaction_context(transactions& txns);
+        transaction_context(transactions& txns, const per_transaction_config& conf = per_transaction_config());
 
         CB_NODISCARD const std::string& transaction_id() const
         {
@@ -90,8 +91,7 @@ namespace transactions
             return cleanup_;
         }
 
-        // TODO: do we need to pass in the config?  Once per-txn config is implemented, possibly not needed.
-        CB_NODISCARD bool has_expired_client_side(const transaction_config& config);
+        CB_NODISCARD bool has_expired_client_side();
 
         void retry_delay();
 
@@ -146,8 +146,7 @@ namespace transactions
 
         void existing_error();
 
-        // TODO: do we need to pass in the config?  Once per-txn config is implemented, possibly not needed.
-        std::chrono::nanoseconds remaining(const transaction_config& config) const;
+        std::chrono::nanoseconds remaining() const;
 
       private:
         std::string transaction_id_;

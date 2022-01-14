@@ -16,6 +16,7 @@
 #pragma once
 
 #include <chrono>
+#include <couchbase/operations/document_query.hxx>
 #include <couchbase/support.hxx>
 #include <couchbase/transactions/durability_level.hxx>
 #include <memory>
@@ -139,7 +140,25 @@ namespace transactions
         template<typename T>
         void expiration_time(T duration)
         {
-            expiration_time_ = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+            expiration_time_ = std::chrono::duration_cast<std::chrono::nanoseconds>(duration);
+        }
+        /**
+         *  @brief Set default scan consistency for all transactional query operations.
+         *
+         * @param scan_consistency Desired default scan consistency
+         */
+        void scan_consistency(couchbase::operations::query_request::scan_consistency_type scan_consistency)
+        {
+            scan_consistency_ = scan_consistency;
+        }
+        /**
+         * @brief Get default scan consistency for all transactional query operations.
+         *
+         * @return scan consistency for transactional query operations.
+         */
+        CB_NODISCARD operations::query_request::scan_consistency_type scan_consistency() const
+        {
+            return scan_consistency_;
         }
 
         /**
@@ -211,6 +230,7 @@ namespace transactions
         bool cleanup_client_attempts_;
         std::unique_ptr<attempt_context_testing_hooks> attempt_context_hooks_;
         std::unique_ptr<cleanup_testing_hooks> cleanup_hooks_;
+        couchbase::operations::query_request::scan_consistency_type scan_consistency_;
     };
 } // namespace transactions
 } // namespace couchbase

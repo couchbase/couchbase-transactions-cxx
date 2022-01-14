@@ -24,8 +24,10 @@
 #include <couchbase/transactions/async_attempt_context.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/exceptions.hxx>
+#include <couchbase/transactions/per_transaction_config.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transaction_result.hxx>
+
 /**
  * @file
  * Main header file for Couchbase Transactions
@@ -150,6 +152,8 @@ namespace transactions
          */
         transaction_result run(logic&& logic);
 
+        transaction_result run(const per_transaction_config& config, logic&& logic);
+
         /**
          * @brief Run a transaction
          *
@@ -163,6 +167,8 @@ namespace transactions
          *         share a common base class @ref transaction_exception.
          */
         void run(async_logic&& logic, txn_complete_callback&& cb);
+
+        void run(const per_transaction_config& config, async_logic&& logic, txn_complete_callback&& cb);
 
         /**
          * @internal

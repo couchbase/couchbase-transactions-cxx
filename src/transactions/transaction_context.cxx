@@ -16,6 +16,7 @@
 
 #include "attempt_context_impl.hxx"
 #include "uid_generator.hxx"
+
 #include <couchbase/transactions/internal/logging.hxx>
 #include <couchbase/transactions/internal/transaction_context.hxx>
 
@@ -23,10 +24,10 @@ namespace couchbase
 {
 namespace transactions
 {
-    transaction_context::transaction_context(transactions& txns)
+    transaction_context::transaction_context(transactions& txns, const per_transaction_config& config)
       : transaction_id_(uid_generator::next())
       , transactions_(txns)
-      , config_(txns.config())
+      , config_(config.apply(txns.config()))
       , start_time_client_(std::chrono::steady_clock::now())
       , deferred_elapsed_(0)
       , cleanup_(txns.cleanup())
@@ -39,20 +40,20 @@ namespace transactions
         attempts_.push_back(attempt);
     }
 
-    CB_NODISCARD std::chrono::nanoseconds transaction_context::remaining(const transaction_config& config) const
+    CB_NODISCARD std::chrono::nanoseconds transaction_context::remaining() const
     {
         const auto& now = std::chrono::steady_clock::now();
         auto expired_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(now - start_time_client_) + deferred_elapsed_;
-        return config.expiration_time() - expired_nanos;
+        return config_.expiration_time() - expired_nanos;
     }
 
-    CB_NODISCARD bool transaction_context::has_expired_client_side(const transaction_config& config)
+    CB_NODISCARD bool transaction_context::has_expired_client_side()
     {
         // repeat code above - nice for logging.  Ponder changing this.
         const auto& now = std::chrono::steady_clock::now();
         auto expired_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(now - start_time_client_) + deferred_elapsed_;
         auto expired_millis = std::chrono::duration_cast<std::chrono::milliseconds>(expired_nanos);
-        bool is_expired = expired_nanos > config.expiration_time();
+        bool is_expired = expired_nanos > config_.expiration_time();
         if (is_expired) {
             txn_log->info("has expired client side (now={}ns, start={}ns, deferred_elapsed={}ns, expired={}ns ({}ms), config={}ms)",
                           now.time_since_epoch().count(),
@@ -60,7 +61,7 @@ namespace transactions
                           deferred_elapsed_.count(),
                           expired_nanos.count(),
                           expired_millis.count(),
-                          std::chrono::duration_cast<std::chrono::milliseconds>(config.expiration_time()).count());
+                          std::chrono::duration_cast<std::chrono::milliseconds>(config_.expiration_time()).count());
         }
         return is_expired;
     }

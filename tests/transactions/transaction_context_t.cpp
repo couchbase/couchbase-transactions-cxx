@@ -268,3 +268,30 @@ TEST(SimpleTxnContext, CanSeeSomeQueryErrorsButNoTxnFailed)
     }
     EXPECT_NO_THROW(tx.existing_error());
 }
+
+TEST(SimpleTxnContext, CanSetPerTxnConfig)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    per_transaction_config per_txn_cfg;
+    per_txn_cfg.scan_consistency(couchbase::operations::query_request::scan_consistency_type::not_bounded);
+    per_txn_cfg.expiration_time(std::chrono::milliseconds(1)).kv_timeout(std::chrono::milliseconds(2));
+    per_txn_cfg.durability_level(couchbase::transactions::durability_level::NONE);
+    transaction_context tx(txns, per_txn_cfg);
+    ASSERT_EQ(tx.config().durability_level(), per_txn_cfg.durability_level());
+    ASSERT_EQ(tx.config().kv_timeout(), per_txn_cfg.kv_timeout());
+    ASSERT_EQ(tx.config().expiration_time(), per_txn_cfg.expiration_time());
+    ASSERT_EQ(tx.config().scan_consistency(), per_txn_cfg.scan_consistency());
+}
+TEST(SimpleTxnContext, CanNotPerTxnConfig)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    transaction_context tx(txns);
+    ASSERT_EQ(tx.config().durability_level(), txns.config().durability_level());
+    ASSERT_EQ(tx.config().kv_timeout(), txns.config().kv_timeout());
+    ASSERT_EQ(tx.config().expiration_time(), txns.config().expiration_time());
+    ASSERT_EQ(tx.config().scan_consistency(), txns.config().scan_consistency());
+}

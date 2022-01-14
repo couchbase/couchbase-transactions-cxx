@@ -46,14 +46,15 @@ attempt_context_impl::cluster_ref()
 
 attempt_context_impl::attempt_context_impl(transaction_context& transaction_ctx)
   : overall_(transaction_ctx)
-  , config_(transaction_ctx.config())
   , is_done_(false)
   , staged_mutations_(new staged_mutation_queue())
-  , hooks_(config_.attempt_context_hooks())
+  , hooks_(overall_.config().attempt_context_hooks())
 {
     // put a new transaction_attempt in the context...
     overall_.add_attempt();
-    trace("added new attempt, state {}", attempt_state_name(state()));
+    trace("added new attempt, state {}, expiration in {}ms",
+          attempt_state_name(state()),
+          std::chrono::duration_cast<std::chrono::milliseconds>(overall_.remaining()).count());
 }
 
 attempt_context_impl::~attempt_context_impl() = default;
@@ -234,7 +235,7 @@ attempt_context_impl::create_staging_request(const transaction_get_result& docum
     if (type != "remove") {
         req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, STAGED_DATA, content.value());
     }
-    return wrap_durable_request(req, config_);
+    return wrap_durable_request(req, overall_.config());
 }
 
 void
@@ -382,7 +383,7 @@ attempt_context_impl::insert_raw(const couchbase::document_id& id, const std::st
                     return op_completed_with_error(cb, *err);
                 }
                 uint64_t cas = 0;
-                exp_delay delay(std::chrono::milliseconds(5), std::chrono::milliseconds(300), config_.expiration_time());
+                exp_delay delay(std::chrono::milliseconds(5), std::chrono::milliseconds(300), overall_.config().expiration_time());
                 create_staged_insert(id, content, cas, delay, cb);
             });
         } catch (const std::exception& e) {
@@ -573,11 +574,12 @@ attempt_context_impl::query_begin_work(Handler&& cb)
     txdata["id"]["atmpt"] = id();
     txdata["id"]["txn"] = transaction_id();
     txdata["state"] = nlohmann::json::object();
-    txdata["state"]["timeLeftMs"] = overall_.remaining(config_).count() / 1000000;
+    txdata["state"]["timeLeftMs"] = overall_.remaining().count() / 1000000;
     txdata["config"] = nlohmann::json::object();
-    txdata["config"]["kvTimeoutMs"] = config_.kv_timeout() ? config_.kv_timeout()->count() : timeout_defaults::key_value_timeout.count();
+    txdata["config"]["kvTimeoutMs"] =
+      overall_.config().kv_timeout() ? overall_.config().kv_timeout()->count() : timeout_defaults::key_value_timeout.count();
     txdata["config"]["numAtrs"] = 1024;
-    txdata["config"]["durabilityLevel"] = durability_level_to_string(config_.durability_level());
+    txdata["config"]["durabilityLevel"] = durability_level_to_string(overall_.config().durability_level());
     if (atr_id_) {
         txdata["atr"] = nlohmann::json::object();
         txdata["atr"]["scp"] = atr_id_->scope();
@@ -977,7 +979,7 @@ attempt_context_impl::atr_commit()
                            prefix + ATR_FIELD_STATUS,
                            jsonify(attempt_state_name(attempt_state::COMMITTED)));
         req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, false, true, prefix + ATR_FIELD_START_COMMIT, mutate_in_macro::CAS);
-        wrap_durable_request(req, config_);
+        wrap_durable_request(req, overall_.config());
         auto ec = error_if_expired_and_not_in_overtime(STAGE_ATR_COMMIT, {});
         if (ec) {
             throw client_error(*ec, "atr_commit check for expiry threw error");
@@ -1042,7 +1044,7 @@ attempt_context_impl::atr_commit_ambiguity_resolution()
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
         couchbase::operations::lookup_in_request req{ atr_id_.value() };
         req.specs.add_spec(protocol::subdoc_opcode::get, true, prefix + ATR_FIELD_STATUS);
-        wrap_request(req, config_);
+        wrap_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
         overall_.cluster_ref().execute(req, [barrier](couchbase::operations::lookup_in_response resp) {
@@ -1097,7 +1099,7 @@ attempt_context_impl::atr_complete()
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id());
         couchbase::operations::mutate_in_request req{ atr_id_.value() };
         req.specs.add_spec(protocol::subdoc_opcode::remove, true, prefix);
-        wrap_durable_request(req, config_);
+        wrap_durable_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
         overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
@@ -1202,7 +1204,7 @@ attempt_context_impl::atr_abort()
         req.specs.add_spec(
           protocol::subdoc_opcode::dict_upsert, true, true, true, prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, mutate_in_macro::CAS);
         staged_mutations_->extract_to(prefix, req);
-        wrap_durable_request(req, config_);
+        wrap_durable_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
         overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
@@ -1257,7 +1259,7 @@ attempt_context_impl::atr_rollback_complete()
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id());
         couchbase::operations::mutate_in_request req{ atr_id_.value() };
         req.specs.add_spec(protocol::subdoc_opcode::remove, true, prefix);
-        wrap_durable_request(req, config_);
+        wrap_durable_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
         overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
@@ -1374,7 +1376,7 @@ attempt_context_impl::rollback()
 bool
 attempt_context_impl::has_expired_client_side(std::string place, std::optional<const std::string> doc_id)
 {
-    bool over = overall_.has_expired_client_side(config_);
+    bool over = overall_.has_expired_client_side();
     bool hook = hooks_.has_expired_client_side(this, place, doc_id);
     if (over) {
         debug("{} expired in {}", id(), place);
@@ -1492,10 +1494,10 @@ attempt_context_impl::set_atr_pending_locked(const couchbase::document_id& id, s
                                true,
                                false,
                                prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
-                               jsonify(std::chrono::duration_cast<std::chrono::milliseconds>(config_.expiration_time()).count()));
+                               jsonify(std::chrono::duration_cast<std::chrono::milliseconds>(overall_.config().expiration_time()).count()));
             req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::upsert;
 
-            wrap_durable_request(req, config_);
+            wrap_durable_request(req, overall_.config());
             overall_.cluster_ref().execute(req, [this, fn, error_handler](couchbase::operations::mutate_in_response resp) {
                 auto ec = error_class_from_response(resp);
                 if (!ec) {
@@ -1680,7 +1682,7 @@ attempt_context_impl::get_doc(const couchbase::document_id& id,
     req.specs.add_spec(protocol::subdoc_opcode::get, true, FORWARD_COMPAT);
     req.specs.add_spec(protocol::subdoc_opcode::get_doc, false, "");
     req.access_deleted = true;
-    wrap_request(req, config_);
+    wrap_request(req, overall_.config());
     try {
         overall_.cluster_ref().execute(req, [this, id, cb = std::move(cb)](couchbase::operations::lookup_in_response resp) {
             auto ec = error_class_from_response(resp);
@@ -1856,7 +1858,7 @@ attempt_context_impl::create_staged_insert(const couchbase::document_id& id,
     req.cas.value = cas;
     req.store_semantics = cas == 0 ? protocol::mutate_in_request_body::store_semantics_type::insert
                                    : protocol::mutate_in_request_body::store_semantics_type::replace;
-    wrap_durable_request(req, config_);
+    wrap_durable_request(req, overall_.config());
     overall_.cluster_ref().execute(req, [this, id, content, cas, cb, delay](couchbase::operations::mutate_in_response resp) {
         auto ec = hooks_.after_staged_insert_complete(this, id.key());
         if (ec) {

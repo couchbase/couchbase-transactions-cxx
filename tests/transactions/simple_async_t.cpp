@@ -57,9 +57,9 @@ TEST(SimpleAsyncTxns, AsyncGet)
           ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> res) {
               if (!err) {
                   success = true;
+                  ASSERT_TRUE(res);
+                  ASSERT_EQ(res->content<nlohmann::json>(), async_content);
               }
-              ASSERT_TRUE(res);
-              ASSERT_EQ(res->content<nlohmann::json>(), async_content);
           });
       },
       [barrier, &success](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
@@ -118,7 +118,7 @@ TEST(SimpleAsyncTxns, AsyncRemoveFail)
                   if (!err) {
                       res->cas(100);
                       ctx.remove(*res, [&cb_called](std::exception_ptr err) {
-                          ASSERT_TRUE(err);
+                          EXPECT_TRUE(err);
                           cb_called = true;
                       });
                   }
@@ -147,16 +147,17 @@ TEST(SimpleAsyncTxns, AsyncRemove)
     txns.run(
       [&cb_called, id](async_attempt_context& ctx) {
           ctx.get(id, [&ctx, &cb_called](std::exception_ptr err, std::optional<transaction_get_result> res) {
-              ASSERT_FALSE(err);
-              ctx.remove(*res, [&cb_called](std::exception_ptr err) {
-                  ASSERT_FALSE(err);
-                  cb_called = true;
-              });
+              if (!err) {
+                  ctx.remove(*res, [&cb_called](std::exception_ptr err) {
+                      EXPECT_FALSE(err);
+                      cb_called = true;
+                  });
+              }
           });
       },
       [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
           txn_completed(std::move(err), res, barrier);
-          ASSERT_TRUE(cb_called.load());
+          EXPECT_TRUE(cb_called.load());
       });
     f.get();
     ASSERT_TRUE(cb_called.load());
@@ -181,21 +182,22 @@ TEST(SimpleAsyncTxns, AsyncReplace)
     txns.run(
       [&cb_called, &new_content, id](async_attempt_context& ctx) {
           ctx.get(id, [&ctx, &new_content, &cb_called](std::exception_ptr err, std::optional<transaction_get_result> res) {
-              ASSERT_FALSE(err);
-              ctx.replace(*res,
-                          new_content,
-                          [old_cas = res->cas(), &cb_called](std::exception_ptr err, std::optional<transaction_get_result> result) {
-                              // replace doesn't actually put the new content in the
-                              // result, but it does change the cas, so...
-                              ASSERT_FALSE(err);
-                              ASSERT_NE(result->cas(), old_cas);
-                              cb_called = true;
-                          });
+              if (!err) {
+                  ctx.replace(*res,
+                              new_content,
+                              [old_cas = res->cas(), &cb_called](std::exception_ptr err, std::optional<transaction_get_result> result) {
+                                  // replace doesn't actually put the new content in the
+                                  // result, but it does change the cas, so...
+                                  EXPECT_FALSE(err);
+                                  EXPECT_NE(result->cas(), old_cas);
+                                  cb_called = true;
+                              });
+              }
           });
       },
       [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
           txn_completed(std::move(err), res, barrier);
-          ASSERT_TRUE(cb_called.load());
+          EXPECT_TRUE(cb_called.load());
       });
     f.get();
     ASSERT_TRUE(cb_called.load());
@@ -217,17 +219,19 @@ TEST(SimpleAsyncTxns, AsyncReplaceFail)
         txns.run(
           [&cb_called, &new_content, id](async_attempt_context& ctx) {
               ctx.get(id, [&ctx, &new_content, &cb_called](std::exception_ptr err, std::optional<transaction_get_result> res) {
-                  ASSERT_FALSE(err);
-                  ctx.replace(*res, new_content, [&cb_called](std::exception_ptr err, std::optional<transaction_get_result> result) {
-                      ASSERT_FALSE(err);
-                      cb_called = true;
-                      throw std::runtime_error("I wanna roll back");
-                  });
+                  if (!err) {
+                      ctx.replace(*res, new_content, [&cb_called](std::exception_ptr err, std::optional<transaction_get_result> result) {
+                          if (!err) {
+                              cb_called = true;
+                              throw std::runtime_error("I wanna roll back");
+                          }
+                      });
+                  }
               });
           },
           [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
               txn_completed(std::move(err), res, barrier);
-              ASSERT_TRUE(cb_called.load());
+              EXPECT_TRUE(cb_called.load());
           });
         f.get();
         FAIL() << "expected exception";
@@ -250,14 +254,15 @@ TEST(SimpleAsyncTxns, AsyncInsert)
     txns.run(
       [&cb_called, id](async_attempt_context& ctx) {
           ctx.insert(id, async_content, [&cb_called](std::exception_ptr err, std::optional<transaction_get_result> res) {
-              ASSERT_FALSE(err);
-              ASSERT_NE(0, res->cas());
-              cb_called = true;
+              if (!err) {
+                  ASSERT_NE(0, res->cas());
+                  cb_called = true;
+              }
           });
       },
       [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
           txn_completed(std::move(err), res, barrier);
-          ASSERT_TRUE(cb_called.load());
+          EXPECT_TRUE(cb_called.load());
       });
     f.get();
     ASSERT_TRUE(cb_called.load());
@@ -276,15 +281,16 @@ TEST(SimpleAsyncTxns, AsyncInsertFail)
         txns.run(
           [&done, id, barrier](async_attempt_context& ctx) {
               ctx.insert(id, async_content, [&done](std::exception_ptr err, std::optional<transaction_get_result> res) {
-                  ASSERT_FALSE(err);
-                  done = true;
-                  throw std::runtime_error("I wanna rollback");
+                  if (!err) {
+                      done = true;
+                      throw std::runtime_error("I wanna rollback");
+                  }
               });
           },
           [barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
               txn_completed(err, result, barrier);
-              ASSERT_TRUE(err);
-              ASSERT_EQ(err->type(), failure_type::FAIL);
+              EXPECT_TRUE(err);
+              EXPECT_EQ(err->type(), failure_type::FAIL);
           });
         f.get();
         FAIL() << "Expected exception";
@@ -312,14 +318,15 @@ TEST(SimpleQueryAsyncTxns, AsyncQuery)
     txns.run(
       [&query_called, &query](async_attempt_context& ctx) {
           ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-              ASSERT_FALSE(err);
-              query_called = true;
+              if (!err) {
+                  query_called = true;
+              }
           });
       },
       [&query_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
           txn_completed(err, result, barrier);
-          ASSERT_TRUE(query_called.load());
-          ASSERT_FALSE(err);
+          EXPECT_TRUE(query_called.load());
+          EXPECT_FALSE(err);
       });
     f.get();
     ASSERT_TRUE(query_called.load());
@@ -339,22 +346,25 @@ TEST(SimpleQueryAsyncTxns, MultipleRacingQueries)
     txns.run(
       [&query_called, &query](async_attempt_context& ctx) {
           ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-              ASSERT_FALSE(err);
-              query_called++;
+              if (!err) {
+                  query_called++;
+              }
           });
           ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-              ASSERT_FALSE(err);
-              query_called++;
+              if (!err) {
+                  query_called++;
+              }
           });
           ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-              ASSERT_FALSE(err);
-              query_called++;
+              if (!err) {
+                  query_called++;
+              }
           });
       },
       [&query_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
           txn_completed(err, result, barrier);
-          ASSERT_EQ(3, query_called.load());
-          ASSERT_FALSE(err);
+          EXPECT_EQ(3, query_called.load());
+          EXPECT_FALSE(err);
       });
     f.get();
     ASSERT_TRUE(query_called.load());
@@ -374,16 +384,17 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncQuery)
     txns.run(
       [&query_called, &query](async_attempt_context& ctx) {
           ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-              ASSERT_FALSE(err);
-              query_called = true;
-              // now rollback by throwing arbitrary exception
-              throw 3;
+              if (!err) {
+                  query_called = true;
+                  // now rollback by throwing arbitrary exception
+                  throw 3;
+              }
           });
       },
       [&query_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
           txn_completed(err, result, barrier);
-          ASSERT_TRUE(query_called.load());
-          ASSERT_TRUE(err);
+          EXPECT_TRUE(query_called.load());
+          EXPECT_TRUE(err);
       });
     EXPECT_THROW({ f.get(); }, transaction_exception);
     ASSERT_TRUE(query_called.load());
@@ -403,19 +414,21 @@ TEST(SimpleQueryAsyncTxns, AsyncKVGet)
       [&get_called, &query, &id](async_attempt_context& ctx) {
           ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
               ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-                  ASSERT_FALSE(err);
-                  ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
-                      ASSERT_FALSE(err);
-                      ASSERT_EQ(result->content<nlohmann::json>()["some"].get<std::string>(), std::string("thing else"));
-                      get_called = true;
-                  });
+                  if (!err) {
+                      ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+                          if (!err) {
+                              EXPECT_EQ(result->content<nlohmann::json>()["some"].get<std::string>(), std::string("thing else"));
+                              get_called = true;
+                          }
+                      });
+                  }
               });
           });
       },
       [&get_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
           txn_completed(err, result, barrier);
-          ASSERT_TRUE(get_called.load());
-          ASSERT_FALSE(err);
+          EXPECT_TRUE(get_called.load());
+          EXPECT_FALSE(err);
       });
     f.get();
     ASSERT_TRUE(get_called.load());
@@ -434,20 +447,22 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVGet)
       [&get_called, &query, &id](async_attempt_context& ctx) {
           ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
               ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-                  ASSERT_FALSE(err);
-                  ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
-                      ASSERT_FALSE(err);
-                      ASSERT_EQ(result->content<nlohmann::json>()["some"].get<std::string>(), std::string("thing else"));
-                      get_called = true;
-                      throw 3;
-                  });
+                  if (!err) {
+                      ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
+                          if (!err) {
+                              EXPECT_EQ(result->content<nlohmann::json>()["some"].get<std::string>(), std::string("thing else"));
+                              get_called = true;
+                              throw 3;
+                          }
+                      });
+                  }
               });
           });
       },
       [&get_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
           txn_completed(err, result, barrier);
-          ASSERT_TRUE(get_called.load());
-          ASSERT_TRUE(err);
+          EXPECT_TRUE(get_called.load());
+          EXPECT_TRUE(err);
       });
     ASSERT_THROW(f.get(), transaction_exception);
     ASSERT_TRUE(get_called.load());
@@ -468,21 +483,26 @@ TEST(SimpleQueryAsyncTxns, AsyncKVReplace)
       [&replace_called, &query, &id, &new_content](async_attempt_context& ctx) {
           ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
               // do a query just to move into query mode.
-              ASSERT_TRUE(result);
-              ctx.query(query,
-                        [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-                            ASSERT_FALSE(err);
+              if (!err) {
+                  EXPECT_TRUE(result);
+                  ctx.query(
+                    query,
+                    [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                        if (!err) {
                             ctx.replace(doc, new_content, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
-                                ASSERT_FALSE(err);
-                                replace_called = true;
+                                if (!err) {
+                                    replace_called = true;
+                                }
                             });
-                        });
+                        }
+                    });
+              }
           });
       },
       [&replace_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
           txn_completed(err, result, barrier);
-          ASSERT_TRUE(replace_called.load());
-          ASSERT_FALSE(err);
+          EXPECT_TRUE(replace_called.load());
+          EXPECT_FALSE(err);
       });
     f.get();
     ASSERT_TRUE(replace_called.load());
@@ -503,22 +523,27 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVReplace)
       [&replace_called, &query, &id, &new_content](async_attempt_context& ctx) {
           ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
               // do a query just to move into query mode.
-              ASSERT_TRUE(result);
-              ctx.query(query,
-                        [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-                            ASSERT_FALSE(err);
+              if (!err) {
+                  EXPECT_TRUE(result);
+                  ctx.query(
+                    query,
+                    [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                        if (!err) {
                             ctx.replace(doc, new_content, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
-                                ASSERT_FALSE(err);
-                                replace_called = true;
-                                throw 3;
+                                if (!err) {
+                                    replace_called = true;
+                                    throw 3;
+                                }
                             });
-                        });
+                        }
+                    });
+              }
           });
       },
       [&replace_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
           txn_completed(err, result, barrier);
-          ASSERT_TRUE(replace_called.load());
-          ASSERT_TRUE(err);
+          EXPECT_TRUE(replace_called.load());
+          EXPECT_TRUE(err);
       });
     ASSERT_THROW(f.get(), transaction_exception);
     ASSERT_TRUE(replace_called.load());
@@ -538,21 +563,26 @@ TEST(SimpleQueryAsyncTxns, AsyncKVRemove)
       [&remove_called, &query, &id](async_attempt_context& ctx) {
           ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
               // do a query just to move into query mode.
-              ASSERT_TRUE(result);
-              ctx.query(query,
-                        [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-                            ASSERT_FALSE(err);
+              if (!err) {
+                  EXPECT_TRUE(result);
+                  ctx.query(
+                    query,
+                    [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                        if (!err) {
                             ctx.remove(doc, [&](std::exception_ptr err) {
-                                ASSERT_FALSE(err);
-                                remove_called = true;
+                                if (!err) {
+                                    remove_called = true;
+                                }
                             });
-                        });
+                        }
+                    });
+              }
           });
       },
       [&remove_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
           txn_completed(err, result, barrier);
-          ASSERT_TRUE(remove_called.load());
-          ASSERT_FALSE(err);
+          EXPECT_TRUE(remove_called.load());
+          EXPECT_FALSE(err);
       });
     f.get();
     ASSERT_TRUE(remove_called.load());
@@ -575,22 +605,26 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVRemove)
       [&remove_called, &query, &id](async_attempt_context& ctx) {
           ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
               // do a query just to move into query mode.
-              ASSERT_TRUE(result);
-              ctx.query(query,
-                        [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-                            ASSERT_FALSE(err);
+              if (!err) {
+                  EXPECT_TRUE(result);
+                  ctx.query(
+                    query,
+                    [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                        if (!err) {
                             ctx.remove(doc, [&](std::exception_ptr err) {
                                 ASSERT_FALSE(err);
                                 remove_called = true;
                                 throw 3;
                             });
-                        });
+                        }
+                    });
+              }
           });
       },
       [&remove_called, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
           txn_completed(err, result, barrier);
-          ASSERT_TRUE(remove_called.load());
-          ASSERT_TRUE(err);
+          EXPECT_TRUE(remove_called.load());
+          EXPECT_TRUE(err);
       });
     ASSERT_THROW(f.get(), transaction_exception);
     ASSERT_TRUE(remove_called.load());

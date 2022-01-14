@@ -54,7 +54,6 @@ namespace transactions
     {
       private:
         transaction_context& overall_;
-        const transaction_config& config_;
         std::optional<couchbase::document_id> atr_id_;
         bool is_done_;
         std::unique_ptr<staged_mutation_queue> staged_mutations_;

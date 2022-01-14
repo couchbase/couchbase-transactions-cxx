@@ -31,6 +31,7 @@ namespace transactions
       , cleanup_client_attempts_(true)
       , attempt_context_hooks_(new attempt_context_testing_hooks())
       , cleanup_hooks_(new cleanup_testing_hooks())
+      , scan_consistency_(operations::query_request::scan_consistency_type::request_plus)
     {
     }
 
@@ -44,6 +45,7 @@ namespace transactions
       , cleanup_client_attempts_(config.cleanup_client_attempts())
       , attempt_context_hooks_(new attempt_context_testing_hooks(config.attempt_context_hooks()))
       , cleanup_hooks_(new cleanup_testing_hooks(config.cleanup_hooks()))
+      , scan_consistency_(config.scan_consistency())
 
     {
     }
@@ -57,6 +59,7 @@ namespace transactions
         cleanup_client_attempts_ = c.cleanup_client_attempts();
         attempt_context_hooks_.reset(new attempt_context_testing_hooks(c.attempt_context_hooks()));
         cleanup_hooks_.reset(new cleanup_testing_hooks(c.cleanup_hooks()));
+        scan_consistency_ = c.scan_consistency();
         return *this;
     }
 
