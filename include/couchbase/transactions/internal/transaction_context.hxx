@@ -35,10 +35,13 @@ namespace transactions
 {
     class attempt_context_impl;
 
+    class exp_delay;
+
     class transaction_context
     {
       public:
         transaction_context(transactions& txns, const per_transaction_config& conf = per_transaction_config());
+        transaction_context(const transaction_context&);
 
         CB_NODISCARD const std::string& transaction_id() const
         {
@@ -122,8 +125,20 @@ namespace transactions
         {
             return transaction_result{ transaction_id(), current_attempt().state == attempt_state::COMPLETED };
         }
+        void new_attempt_context()
+        {
+            auto barrier = std::make_shared<std::promise<void>>();
+            auto f = barrier->get_future();
+            new_attempt_context([barrier](std::exception_ptr err) {
+                if (err) {
+                    return barrier->set_exception(err);
+                }
+                return barrier->set_value();
+            });
+            f.get();
+        }
 
-        void new_attempt_context();
+        void new_attempt_context(async_attempt_context::VoidCallback&& cb);
 
         std::shared_ptr<attempt_context_impl> current_attempt_context();
 
@@ -144,7 +159,11 @@ namespace transactions
 
         void rollback(async_attempt_context::VoidCallback&& cb);
 
+        void finalize(txn_complete_callback&& cb);
+
         void existing_error();
+
+        void handle_error(std::exception_ptr err, txn_complete_callback&& cb);
 
         std::chrono::nanoseconds remaining() const;
 
@@ -169,6 +188,8 @@ namespace transactions
         std::string atr_collection_;
         transactions_cleanup& cleanup_;
         std::shared_ptr<attempt_context_impl> current_attempt_context_;
+
+        std::unique_ptr<exp_delay> delay_;
     };
 } // namespace transactions
 } // namespace couchbase

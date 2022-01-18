@@ -669,7 +669,9 @@ TEST(ConcurrentAsyncTxns, AsyncGetReplace)
                   }
                   content["number"] = ++count;
                   ctx.replace(*doc1, content, [doc1](std::exception_ptr err, std::optional<transaction_get_result> doc1_updated) {
-                      ASSERT_NE(doc1->cas(), doc1_updated->cas());
+                      if (!err) {
+                          EXPECT_NE(doc1->cas(), doc1_updated->cas());
+                      }
                   });
               });
               ctx.get(id2, [&done, &ctx](std::exception_ptr err, std::optional<transaction_get_result> doc2) {
@@ -684,7 +686,9 @@ TEST(ConcurrentAsyncTxns, AsyncGetReplace)
                   }
                   content["number"] = --count;
                   ctx.replace(*doc2, content, [doc2](std::exception_ptr err, std::optional<transaction_get_result> doc2_updated) {
-                      ASSERT_NE(doc2->cas(), doc2_updated->cas());
+                      if (!err) {
+                          EXPECT_NE(doc2->cas(), doc2_updated->cas());
+                      }
                   });
               });
           },

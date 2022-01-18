@@ -300,18 +300,18 @@ namespace transactions
         return retry_op_constant_delay<R>(DEFAULT_RETRY_OP_DELAY, std::numeric_limits<size_t>::max(), func);
     }
 
-    template<typename R1, typename P1, typename R2, typename P2, typename R3, typename P3>
     struct exp_delay {
-        std::chrono::duration<R1, P1> initial_delay;
-        std::chrono::duration<R2, P2> max_delay;
-        std::chrono::duration<R3, P3> timeout;
+        std::chrono::nanoseconds initial_delay;
+        std::chrono::nanoseconds max_delay;
+        std::chrono::nanoseconds timeout;
         mutable uint32_t retries;
         mutable std::optional<std::chrono::time_point<std::chrono::steady_clock>> end_time;
 
+        template<typename R1, typename P1, typename R2, typename P2, typename R3, typename P3>
         exp_delay(std::chrono::duration<R1, P1> initial, std::chrono::duration<R2, P2> max, std::chrono::duration<R3, P3> limit)
-          : initial_delay(initial)
-          , max_delay(max)
-          , timeout(limit)
+          : initial_delay(std::chrono::duration_cast<std::chrono::nanoseconds>(initial))
+          , max_delay(std::chrono::duration_cast<std::chrono::nanoseconds>(max))
+          , timeout(std::chrono::duration_cast<std::chrono::nanoseconds>(limit))
           , retries(0)
           , end_time()
         {

@@ -16,6 +16,7 @@
 
 #include "attempt_context_impl.hxx"
 #include "uid_generator.hxx"
+#include "utils.hxx"
 
 #include <couchbase/transactions/internal/logging.hxx>
 #include <couchbase/transactions/internal/transaction_context.hxx>
@@ -31,6 +32,7 @@ namespace transactions
       , start_time_client_(std::chrono::steady_clock::now())
       , deferred_elapsed_(0)
       , cleanup_(txns.cleanup())
+      , delay_(new exp_delay(std::chrono::milliseconds(1), std::chrono::milliseconds(100), 2 * config_.expiration_time()))
     {
     }
 
@@ -75,9 +77,22 @@ namespace transactions
         std::this_thread::sleep_for(delay);
     }
 
-    void transaction_context::new_attempt_context()
+    void transaction_context::new_attempt_context(async_attempt_context::VoidCallback&& cb)
     {
-        current_attempt_context_ = std::make_shared<attempt_context_impl>(*this);
+        // thread.detach hack for async - move the delay to an asio timer
+        std::thread([this, cb = std::move(cb)] {
+            // the first time we call the delay, it just records an end time.  After that, it
+            // actually delays.
+            try {
+                (*delay_)();
+                current_attempt_context_ = std::make_shared<attempt_context_impl>(*this);
+                txn_log->info("starting attempt {}/{}/{}/", num_attempts(), transaction_id(), current_attempt_context_->id());
+                cb(nullptr);
+            } catch (...) {
+                cb(std::current_exception());
+            }
+        })
+          .detach();
     }
 
     std::shared_ptr<attempt_context_impl> transaction_context::current_attempt_context()
@@ -157,6 +172,93 @@ namespace transactions
             return current_attempt_context_->existing_error();
         }
         throw transaction_operation_failed(FAIL_OTHER, "no current attempt context").no_rollback();
+    }
+
+    void transaction_context::handle_error(std::exception_ptr err, txn_complete_callback&& callback)
+    {
+        try {
+            std::rethrow_exception(err);
+        } catch (const transaction_operation_failed& er) {
+            txn_log->error("got transaction_operation_failed {}", er.what());
+            if (er.should_rollback()) {
+                txn_log->trace("got rollback-able exception, rolling back");
+                try {
+                    current_attempt_context_->rollback();
+                } catch (const std::exception& er_rollback) {
+                    cleanup().add_attempt(*current_attempt_context_);
+                    txn_log->trace("got error {} while auto rolling back, throwing original error", er_rollback.what(), er.what());
+                    auto final = er.get_final_exception(*this);
+                    // if you get here, we didn't throw, yet we had an error.  Fall through in
+                    // this case.  Note the current logic is such that rollback will not have a
+                    // commit ambiguous error, so we should always throw.
+                    assert(final);
+                    return callback(final, std::nullopt);
+                }
+                if (er.should_retry() && has_expired_client_side()) {
+                    txn_log->trace("auto rollback succeeded, however we are expired so no retry");
+
+                    return callback(transaction_operation_failed(FAIL_EXPIRY, "expired in auto rollback")
+                                      .no_rollback()
+                                      .expired()
+                                      .get_final_exception(*this),
+                                    {});
+                }
+            }
+            if (er.should_retry()) {
+                txn_log->trace("got retryable exception, retrying");
+                cleanup().add_attempt(*current_attempt_context_);
+                return callback(std::nullopt, std::nullopt);
+            }
+
+            // throw the expected exception here
+            cleanup().add_attempt(*current_attempt_context_);
+            auto final = er.get_final_exception(*this);
+            std::optional<transaction_result> res;
+            if (!final) {
+                res = get_transaction_result();
+            }
+            return callback(final, res);
+        } catch (const std::exception& ex) {
+            txn_log->error("got runtime error {}", ex.what());
+            try {
+                current_attempt_context_->rollback();
+            } catch (...) {
+                txn_log->error("got error rolling back {}", ex.what());
+            }
+            cleanup().add_attempt(*current_attempt_context_);
+            // the assumption here is this must come from the logic, not
+            // our operations (which only throw transaction_operation_failed),
+            auto op_failed = transaction_operation_failed(FAIL_OTHER, ex.what());
+            return callback(op_failed.get_final_exception(*this), std::nullopt);
+        } catch (...) {
+            txn_log->error("got unexpected error, rolling back");
+            try {
+                current_attempt_context_->rollback();
+            } catch (...) {
+                txn_log->error("got error rolling back unexpected error");
+            }
+            cleanup().add_attempt(*current_attempt_context_);
+            // the assumption here is this must come from the logic, not
+            // our operations (which only throw transaction_operation_failed),
+            auto op_failed = transaction_operation_failed(FAIL_OTHER, "Unexpected error");
+            return callback(op_failed.get_final_exception(*this), std::nullopt);
+        }
+    }
+
+    void transaction_context::finalize(txn_complete_callback&& cb)
+    {
+
+        try {
+            existing_error();
+            commit([this, cb = std::move(cb)](std::exception_ptr err) mutable {
+                if (err) {
+                    return handle_error(err, std::move(cb));
+                }
+                cb(std::nullopt, get_transaction_result());
+            });
+        } catch (...) {
+            return handle_error(std::current_exception(), std::move(cb));
+        }
     }
 
 } // namespace transactions

@@ -39,7 +39,86 @@ txn_completed(std::exception_ptr err, std::shared_ptr<std::promise<void>> barrie
     }
 };
 
-TEST(SimpleTxnContext, CanDoSimpleTxn)
+// blocking txn logic wrapper
+template<typename Handler>
+transaction_result
+simple_txn_wrapper(transaction_context& tx, Handler&& handler)
+{
+    size_t attempts{ 0 };
+    while (attempts++ < 1000) {
+        auto barrier = std::make_shared<std::promise<std::optional<transaction_result>>>();
+        auto f = barrier->get_future();
+        tx.new_attempt_context();
+        // in transactions.run, we currently handle exceptions that may come back from the
+        // txn logic as well (using tx::handle_error).
+        handler();
+        tx.finalize([barrier](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+            if (err) {
+                return barrier->set_exception(std::make_exception_ptr(*err));
+            }
+            return barrier->set_value(result);
+        });
+        if (auto res = f.get()) {
+            return *res;
+        }
+    }
+    throw std::runtime_error("exceeded max attempts and didn't timeout!");
+}
+
+TEST(SimpleTxnContext, CanDoSimpleTxnWithTxWrapper)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    auto new_content = nlohmann::json::parse("{\"some\":\"thing else\"}");
+
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, tx_content.dump()));
+    transaction_context tx(txns);
+    auto txn_logic = [&new_content, &id, &tx]() {
+        tx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> res) {
+            EXPECT_TRUE(res);
+            EXPECT_FALSE(err);
+            tx.replace(*res, new_content.dump(), [&](std::exception_ptr err, std::optional<transaction_get_result> replaced) {
+                EXPECT_TRUE(replaced);
+                EXPECT_FALSE(err);
+            });
+        });
+    };
+    auto result = simple_txn_wrapper(tx, txn_logic);
+    ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), new_content);
+}
+
+TEST(SimpleTxnContext, CanDoSimpleTxnWithFinalize)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto id = TransactionsTestEnvironment::get_document_id();
+
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, tx_content.dump()));
+    transaction_context tx(txns);
+    tx.new_attempt_context();
+    auto new_content = nlohmann::json::parse("{\"some\":\"thing else\"}");
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
+    tx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> res) {
+        EXPECT_TRUE(res);
+        EXPECT_FALSE(err);
+        tx.replace(*res, new_content.dump(), [&](std::exception_ptr err, std::optional<transaction_get_result> replaced) {
+            EXPECT_TRUE(replaced);
+            EXPECT_FALSE(err);
+        });
+    });
+    tx.finalize([&](std::optional<transaction_exception> err, std::optional<transaction_result> result) {
+        if (err) {
+            return barrier->set_exception(std::make_exception_ptr(*err));
+        }
+        return barrier->set_value();
+    });
+    f.get();
+    ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), new_content);
+}
+
+TEST(SimpleTxnContext, CanDoSimpleTxnExplicitCommit)
 {
     auto& cluster = TransactionsTestEnvironment::get_cluster();
     auto txns = TransactionsTestEnvironment::get_transactions();

@@ -1123,9 +1123,6 @@ attempt_context_impl::commit(VoidCallback&& cb)
     // for now, lets keep the blocking implementation
     std::thread([cb = std::move(cb), this]() mutable {
         try {
-            if (op_list_.get_mode().is_query()) {
-                return commit_with_query(std::move(cb));
-            }
             commit();
             return cb({});
         } catch (const transaction_operation_failed& e) {

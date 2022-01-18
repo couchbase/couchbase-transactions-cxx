@@ -290,7 +290,7 @@ namespace transactions
             return cause_;
         }
 
-        void do_throw(const transaction_context context) const
+        void do_throw(const transaction_context& context) const
         {
             if (to_raise_ == FAILED_POST_COMMIT) {
                 return;
@@ -302,6 +302,23 @@ namespace transactions
                     throw transaction_exception(*this, context, failure_type::COMMIT_AMBIGUOUS);
                 default:
                     throw transaction_exception(*this, context, failure_type::FAIL);
+            }
+        }
+
+        std::optional<transaction_exception> get_final_exception(const transaction_context& context) const
+        {
+            {
+
+                switch (to_raise_) {
+                    case EXPIRED:
+                        return transaction_exception(*this, context, failure_type::EXPIRY);
+                    case AMBIGUOUS:
+                        return transaction_exception(*this, context, failure_type::COMMIT_AMBIGUOUS);
+                    case FAILED_POST_COMMIT:
+                        return std::nullopt;
+                    default:
+                        return transaction_exception(*this, context, failure_type::FAIL);
+                }
             }
         }
 
