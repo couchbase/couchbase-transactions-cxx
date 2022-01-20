@@ -214,6 +214,7 @@ tx::transactions_cleanup::create_client_record(const std::string& bucket_name)
         couchbase::operations::mutate_in_request req{ id };
         req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::insert;
         req.specs.add_spec(protocol::subdoc_opcode::dict_add, true, true, false, FIELD_CLIENTS, "{}");
+        // ExtBinaryMetadata
         req.specs.add_spec(protocol::subdoc_opcode::set_doc, false, false, false, std::string(""), jsonify(std::string({ 0x00 })));
         wrap_durable_request(req, config_);
         auto barrier = std::make_shared<std::promise<result>>();
