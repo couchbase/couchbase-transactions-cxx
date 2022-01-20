@@ -447,10 +447,6 @@ attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_ge
                       if (err) {
                           return cb(err);
                       }
-                      if (it->has_expired()) {
-                          debug("existing atr entry has expired (age is {}ms), ignoring", it->age_ms());
-                          return cb(std::nullopt);
-                      }
                       switch (it->state()) {
                           case attempt_state::COMPLETED:
                           case attempt_state::ROLLED_BACK:
