@@ -1607,6 +1607,7 @@ attempt_context_impl::do_get(const couchbase::document_id& id, Handler&& cb)
                                           return cb(err->ec(), std::nullopt);
                                       }
                                       switch (entry->state()) {
+                                          case attempt_state::COMPLETED:
                                           case attempt_state::COMMITTED:
                                               if (doc->links().is_document_being_removed()) {
                                                   ignore_doc = true;
