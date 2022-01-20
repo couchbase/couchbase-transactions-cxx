@@ -57,7 +57,12 @@ namespace transactions
         /**
          * Set once the commit is fully rolled back.
          */
-        ROLLED_BACK
+        ROLLED_BACK,
+
+        /**
+         * A state this client doesn't recognise.
+         */
+        UNKNOWN
     };
 
     inline const char* attempt_state_name(attempt_state state)
@@ -75,6 +80,8 @@ namespace transactions
                 return "COMPLETED";
             case attempt_state::ROLLED_BACK:
                 return "ROLLED_BACK";
+            case attempt_state::UNKNOWN:
+                return "UNKNOWN";
             default:
                 throw std::runtime_error("unknown attempt state");
         }
@@ -95,7 +102,7 @@ namespace transactions
         } else if (str == "ROLLED_BACK") {
             return attempt_state::ROLLED_BACK;
         } else {
-            throw std::runtime_error("unknown attempt state: " + str);
+            return attempt_state::UNKNOWN;
         }
     }
 } // namespace transactions
