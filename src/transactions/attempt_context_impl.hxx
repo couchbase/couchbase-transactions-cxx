@@ -393,7 +393,7 @@ namespace transactions
                                            std::function<void(std::optional<transaction_operation_failed>)>&& cb);
 
         template<typename Handler>
-        void do_get(const couchbase::document_id& id, Handler&& cb);
+        void do_get(const couchbase::document_id& id, const std::optional<std::string> resolving_missing_atr_entry, Handler&& cb);
 
         void get_doc(const couchbase::document_id& id,
                      std::function<void(std::optional<error_class>, std::optional<transaction_get_result>)>&& cb);

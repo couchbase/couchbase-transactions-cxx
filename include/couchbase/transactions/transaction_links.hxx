@@ -145,6 +145,11 @@ namespace transactions
             return (!!op_ && *op_ == "remove");
         }
 
+        CB_NODISCARD bool is_document_being_inserted() const
+        {
+            return (!!op_ && *op_ == "insert");
+        }
+
         CB_NODISCARD bool has_staged_write() const
         {
             return !!(staged_attempt_id_);
