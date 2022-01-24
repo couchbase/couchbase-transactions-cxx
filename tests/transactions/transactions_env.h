@@ -36,7 +36,7 @@
 #define CONFIG_FILE_NAME "../tests/config.json"
 #define ENV_CONNECTION_STRING "TXN_CONNECTION_STRING"
 static const uint32_t DEFAULT_IO_COMPLETION_THREADS = 4;
-static const size_t MAX_PINGS = 5;
+static const size_t MAX_PINGS = 10;
 static const auto PING_INTERVAL = std::chrono::milliseconds(100);
 
 namespace tx = couchbase::transactions;
@@ -120,18 +120,30 @@ struct conn {
             while (!ok && num_pings++ < MAX_PINGS) {
                 spdlog::info("sleeping {}ms before pinging...", sleep_time.count());
                 std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time));
+                std::set<couchbase::service_type> services{ couchbase::service_type::key_value, couchbase::service_type::query };
                 auto barrier = std::make_shared<std::promise<couchbase::diag::ping_result>>();
                 auto f = barrier->get_future();
-                c.ping("tests_startup", "default", { couchbase::service_type::key_value }, [barrier](couchbase::diag::ping_result result) {
-                    barrier->set_value(result);
-                });
+                c.ping(
+                  "tests_startup", "default", services, [barrier](couchbase::diag::ping_result result) { barrier->set_value(result); });
                 auto result = f.get();
-                ok = result.services[couchbase::service_type::key_value].size() > 0;
-                for (auto s : result.services[couchbase::service_type::key_value]) {
-                    ok = ok && !s.error && (s.state == couchbase::diag::ping_state::ok);
+                ok = false;
+                for (auto& svc : services) {
+                    if (result.services.find(svc) != result.services.end()) {
+                        if (result.services[svc].size() > 0) {
+                            ok = std::all_of(result.services[svc].begin(),
+                                             result.services[svc].end(),
+                                             [&](const couchbase::diag::endpoint_ping_info& info) {
+                                                 return (!info.error && info.state == couchbase::diag::ping_state::ok);
+                                             });
+                        }
+                    }
                 }
+
                 sleep_time *= 2;
                 spdlog::info("ping after connect {}", ok ? "successful" : "unsuccessful");
+            }
+            if (!ok) {
+                exit(-1);
             }
         }
     }
@@ -226,7 +238,7 @@ class TransactionsTestEnvironment : public ::testing::Environment
         couchbase::transactions::transaction_config cfg;
         cfg.cleanup_client_attempts(true);
         cfg.cleanup_lost_attempts(true);
-        cfg.expiration_time(std::chrono::seconds(1));
+        cfg.expiration_time(std::chrono::seconds(5));
         return { c, cfg };
     }
 };

@@ -264,11 +264,6 @@ namespace transactions
             return *this;
         }
 
-        error_class ec() const
-        {
-            return ec_;
-        }
-
         bool should_rollback() const
         {
             return rollback_;

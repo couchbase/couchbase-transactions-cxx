@@ -731,6 +731,13 @@ attempt_context_impl::wrap_query(const std::string& statement,
                                  std::function<void(std::exception_ptr, couchbase::operations::query_response)>&& cb)
 {
     auto req = opts.wrap_request(overall_);
+    if (statement != BEGIN_WORK) {
+        auto mode = op_list_.get_mode();
+        assert(mode.is_query());
+        if (!op_list_.get_mode().query_node.empty()) {
+            req.send_to_node = op_list_.get_mode().query_node;
+        }
+    }
     if (check_expiry) {
         if (has_expired_client_side(hook_point, std::nullopt)) {
             auto err = std::make_exception_ptr(
@@ -1690,7 +1697,9 @@ attempt_context_impl::do_get(const couchbase::document_id& id, Handler&& cb)
                                   } else {
                                       auto err = forward_compat::check(forward_compat_stage::GETS_READING_ATR, entry->forward_compat());
                                       if (err) {
-                                          return cb(err->ec(), std::nullopt);
+                                          // all forward compat errors are FAIL_OTHER, with cause FORWARD_COMPATIBILITY_FAILURE.  Sadly we
+                                          // lose the cause here, but error handling remains the same.
+                                          return cb(FAIL_OTHER, std::nullopt);
                                       }
                                       switch (entry->state()) {
                                           case attempt_state::COMPLETED:
