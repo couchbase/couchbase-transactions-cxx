@@ -94,6 +94,7 @@ namespace transactions
                         const std::vector<json_string>& params,
                         const nlohmann::json& txdata,
                         const std::string& hook_point,
+                        bool check_expiry,
                         std::function<void(std::exception_ptr, couchbase::operations::query_response)>&& cb);
 
         void handle_err_from_callback(std::exception_ptr e)
@@ -108,6 +109,9 @@ namespace transactions
             } catch (const async_operation_conflict& op_ex) {
                 // the count isn't changed when this is thrown, so just swallow it and log
                 txn_log->error("op callback called a txn operation that threw exception {}", op_ex.what());
+            } catch (const query_exception& query_ex) {
+                txn_log->warn("op callback called a txn operation that threw (and didn't handle) a query_exception {}", query_ex.what());
+                op_list_.decrement_ops();
             } catch (const std::exception& e) {
                 // if the callback throws something which wasn't handled
                 // we just want to handle as a rollback
@@ -207,6 +211,24 @@ namespace transactions
                 }
             }
         }
+        template<typename Ret>
+        void op_completed_with_error_no_cache(std::function<void(std::exception_ptr, std::optional<Ret>)> cb, std::exception_ptr err)
+        {
+            try {
+                cb(err, std::optional<Ret>());
+            } catch (...) {
+                // eat it.
+            }
+        }
+
+        void op_completed_with_error_no_cache(std::function<void(std::exception_ptr)> cb, std::exception_ptr err)
+        {
+            try {
+                cb(err);
+            } catch (...) {
+                // just eat it.
+            }
+        }
 
         template<typename Handler>
         void cache_error_async(Handler&& cb, std::function<void()> func)
@@ -218,7 +240,9 @@ namespace transactions
             } catch (const async_operation_conflict& e) {
                 // can't do anything here but log and eat it.
                 error("Attempted to perform txn operation after commit/rollback started");
-                op_completed_with_error(cb, transaction_operation_failed(FAIL_OTHER, e.what()));
+                // you cannot call op_completed_with_error, as it tries to decrement
+                // the op count, however it didn't successfully increment it, so...
+                op_completed_with_error_no_cache(cb, std::current_exception());
             } catch (const transaction_operation_failed& e) {
                 // thrown only from call_func when previous error exists, so eat it, unless
                 // it has PREVIOUS_OP_FAILED cause

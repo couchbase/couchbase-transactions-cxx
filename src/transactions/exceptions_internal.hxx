@@ -227,7 +227,6 @@ namespace transactions
         transaction_operation_failed& retry()
         {
             retry_ = true;
-            validate();
             return *this;
         }
 
@@ -235,7 +234,6 @@ namespace transactions
         transaction_operation_failed& no_rollback()
         {
             rollback_ = false;
-            validate();
             return *this;
         }
 
@@ -243,7 +241,6 @@ namespace transactions
         transaction_operation_failed& expired()
         {
             to_raise_ = EXPIRED;
-            validate();
             return *this;
         }
 
@@ -251,7 +248,6 @@ namespace transactions
         transaction_operation_failed& failed_post_commit()
         {
             to_raise_ = FAILED_POST_COMMIT;
-            validate();
             return *this;
         }
 
@@ -259,14 +255,12 @@ namespace transactions
         transaction_operation_failed& ambiguous()
         {
             to_raise_ = AMBIGUOUS;
-            validate();
             return *this;
         }
 
         transaction_operation_failed& cause(external_exception cause)
         {
             cause_ = cause;
-            validate();
             return *this;
         }
 
@@ -329,11 +323,6 @@ namespace transactions
         final_error to_raise_;
         external_exception cause_;
 
-        void validate()
-        {
-            // you can't retry without rollback.
-            assert(!(retry_ && !rollback_));
-        }
     };
 
     namespace internal

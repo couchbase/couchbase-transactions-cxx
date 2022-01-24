@@ -600,14 +600,19 @@ attempt_context_impl::query_begin_work(Handler&& cb)
     transaction_query_options opts;
     std::vector<json_string> params;
     trace("begin_work using txdata: {}", txdata.dump());
-    wrap_query(
-      BEGIN_WORK, opts, params, txdata, "", [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
-          if (resp.ctx.last_dispatched_to) {
-              trace("begin_work setting query node to {}", *resp.ctx.last_dispatched_to);
-              op_list_.set_query_node(resp.ctx.last_dispatched_to.value());
-          }
-          return cb(err);
-      });
+    wrap_query(BEGIN_WORK,
+               opts,
+               params,
+               txdata,
+               STAGE_QUERY_BEGIN_WORK,
+               false,
+               [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
+                   if (resp.ctx.last_dispatched_to) {
+                       trace("begin_work setting query node to {}", *resp.ctx.last_dispatched_to);
+                       op_list_.set_query_node(resp.ctx.last_dispatched_to.value());
+                   }
+                   return cb(err);
+               });
 }
 
 std::exception_ptr
@@ -646,35 +651,95 @@ attempt_context_impl::handle_query_error(const couchbase::operations::query_resp
             return std::make_exception_ptr(query_document_not_found(chosen_error.message));
         case 17015:
             return std::make_exception_ptr(query_cas_mismatch(chosen_error.message));
-        default:
-            return std::make_exception_ptr(query_exception(chosen_error.message));
     }
+    if (chosen_error.code >= 17000 && chosen_error.code <= 18000) {
+        transaction_operation_failed err(FAIL_OTHER, chosen_error.message);
+        // parse the body for now, get the serialized info to create a transaction_operation_failed:
+        auto body = nlohmann::json::parse(resp.ctx.http_body);
+        auto errors = body["errors"];
+        for (auto& e : errors) {
+            if (e["code"].get<uint64_t>() == chosen_error.code) {
+                if (e.contains("cause")) {
+                    if (e["cause"]["retry"].get<bool>()) {
+                        err.retry();
+                    }
+                    if (!e["cause"]["rollback"].get<bool>()) {
+                        err.no_rollback();
+                    }
+                    auto raise = e["cause"]["raise"].get<std::string>();
+                    if (raise == std::string("expired")) {
+                        err.expired();
+                    } else if (raise == std::string("commit_ambiguous")) {
+                        err.ambiguous();
+                    } else if (raise == std::string("failed_post_commit")) {
+                        err.failed_post_commit();
+                    } else if (raise != std::string("failed")) {
+                        trace("unknown value in raise field: {}, raising failed", raise);
+                    }
+                }
+            }
+        }
+        return std::make_exception_ptr(err);
+    }
+
+    return { std::make_exception_ptr(query_exception(chosen_error.message)) };
 }
 
 void
 attempt_context_impl::do_query(const std::string& statement, const transaction_query_options& opts, QueryCallback&& cb)
 {
-    // TODO: add hooks, error handling...
     std::vector<json_string> params;
     nlohmann::json txdata;
     trace("do_query called with statement {}", statement);
-    wrap_query(statement, opts, params, txdata, "", [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) {
-        if (err) {
-            return op_completed_with_error(std::move(cb), err);
-        }
-        op_completed_with_callback(std::move(cb), std::optional<operations::query_response_payload>(resp.payload));
-    });
+    wrap_query(statement,
+               opts,
+               params,
+               txdata,
+               STAGE_QUERY,
+               true,
+               [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) {
+                   if (err) {
+                       return op_completed_with_error(std::move(cb), err);
+                   }
+                   op_completed_with_callback(std::move(cb), std::optional<operations::query_response_payload>(resp.payload));
+               });
 }
-
+std::string
+dump_request(const couchbase::operations::query_request& req)
+{
+    std::string raw = "{";
+    for (const auto& x : req.raw) {
+        raw += x.first;
+        raw += ":";
+        raw += x.second.str();
+        raw += ",";
+    }
+    raw += "}";
+    std::string params;
+    for (const auto& x : req.positional_parameters) {
+        params.append(x.str());
+    }
+    return fmt::format("request: {}, {}, {}", req.statement, params, raw);
+}
 void
 attempt_context_impl::wrap_query(const std::string& statement,
                                  const transaction_query_options& opts,
                                  const std::vector<json_string>& params,
                                  const nlohmann::json& txdata,
                                  const std::string& hook_point,
+                                 bool check_expiry,
                                  std::function<void(std::exception_ptr, couchbase::operations::query_response)>&& cb)
 {
     auto req = opts.wrap_request(overall_);
+    if (check_expiry) {
+        if (has_expired_client_side(hook_point, std::nullopt)) {
+            auto err = std::make_exception_ptr(
+              transaction_operation_failed(FAIL_EXPIRY, fmt::format("{} expired in stage {}", statement, hook_point))
+                .no_rollback()
+                .expired());
+            return cb(err, {});
+        }
+    }
 
     if (!params.empty()) {
         req.positional_parameters = params;
@@ -686,8 +751,15 @@ attempt_context_impl::wrap_query(const std::string& statement,
         req.raw["txdata"] = txdata.dump();
     }
     req.statement = statement;
+    if (auto ec = hooks_.before_query(this, statement)) {
+        error("have not implemented before_query hook handling");
+    }
+    trace("http request: {}", dump_request(req));
     overall_.cluster_ref().execute(req, [this, cb = std::move(cb)](couchbase::operations::query_response resp) mutable {
         trace("response: {} status: {}", resp.ctx.http_body, resp.payload.meta_data.status);
+        if (auto ec = hooks_.after_query(this, resp.ctx.statement)) {
+            error("have not implemented after_query handling yet");
+        }
         cb(handle_query_error(resp), resp);
     });
 }
@@ -759,11 +831,13 @@ attempt_context_impl::get_with_query(const couchbase::document_id& id, Callback&
     cache_error_async(std::move(cb), [&] {
         auto params = make_params(id, {});
         transaction_query_options opts;
+        opts.readonly(true);
         return wrap_query(KV_GET,
                           opts,
                           params,
                           make_kv_txdata(),
-                          "",
+                          STAGE_QUERY_KV_GET,
+                          true,
                           [this, id, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
                               if (resp.ctx.ec == error::key_value_errc::document_not_found) {
                                   return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>());
@@ -771,6 +845,10 @@ attempt_context_impl::get_with_query(const couchbase::document_id& id, Callback&
                               if (!err) {
                                   // make a transaction_get_result from the row...
                                   try {
+                                      if (resp.payload.rows.empty()) {
+                                          trace("get_with_query got no doc and no error, returning query_document_not_found");
+                                          return op_completed_with_error(std::move(cb), query_document_not_found("doc not found"));
+                                      }
                                       trace("get_with_query got: {}", resp.payload.rows.front());
                                       auto obj = nlohmann::json::parse(resp.payload.rows.front());
                                       transaction_get_result doc(
@@ -797,19 +875,21 @@ attempt_context_impl::insert_raw_with_query(const couchbase::document_id& id, co
                           opts,
                           params,
                           make_kv_txdata(),
-                          "",
+                          STAGE_QUERY_KV_INSERT,
+                          true,
                           [this, id, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
                               if (err) {
                                   try {
                                       std::rethrow_exception(err);
                                   } catch (const transaction_operation_failed& e) {
-                                      op_completed_with_error(std::move(cb), err);
+                                      return op_completed_with_error(std::move(cb), err);
                                   } catch (const query_document_exists& e) {
-                                      op_completed_with_error(std::move(cb), e);
+                                      return op_completed_with_error(std::move(cb), e);
                                   } catch (const std::exception& e) {
-                                      op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, e.what()));
+                                      return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, e.what()));
                                   } catch (...) {
-                                      op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, "unexpected error"));
+                                      return op_completed_with_error(std::move(cb),
+                                                                     transaction_operation_failed(FAIL_OTHER, "unexpected error"));
                                   }
                               }
                               // make a transaction_get_result from the row...
@@ -839,7 +919,8 @@ attempt_context_impl::replace_raw_with_query(const transaction_get_result& docum
           opts,
           params,
           make_kv_txdata(document),
-          "",
+          STAGE_QUERY_KV_REPLACE,
+          true,
           [this, id = document.id(), cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
               if (err) {
                   try {
@@ -882,7 +963,8 @@ attempt_context_impl::remove_with_query(const transaction_get_result& document, 
           opts,
           params,
           make_kv_txdata(document),
-          "",
+          STAGE_QUERY_KV_REMOVE,
+          true,
           [this, id = document.id(), cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
               if (err) {
                   try {
@@ -910,57 +992,68 @@ attempt_context_impl::commit_with_query(VoidCallback&& cb)
 {
     couchbase::operations::query_request req;
     trace("commit_with_query called");
-    req.statement = COMMIT;
-    std::string txid = id();
-    req.raw["txid"] = jsonify(txid);
-    overall_.cluster_ref().execute(req, [this, cb = std::move(cb)](couchbase::operations::query_response resp) {
-        if (resp.ctx.ec || resp.payload.meta_data.errors) {
-            is_done_ = true;
-            try {
-                std::rethrow_exception(handle_query_error(resp));
-            } catch (const transaction_operation_failed&) {
-                return cb(std::current_exception());
-            } catch (const query_attempt_expired& e) {
-                return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_EXPIRY, e.what()).ambiguous().no_rollback()));
-            } catch (const query_document_not_found& e) {
-                return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_DOC_NOT_FOUND, e.what()).no_rollback()));
-            } catch (const query_document_exists& e) {
-                return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, e.what()).no_rollback()));
-            } catch (const query_cas_mismatch& e) {
-                return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_CAS_MISMATCH, e.what()).no_rollback()));
-            } catch (const std::exception& e) {
-                return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_OTHER, e.what()).no_rollback()));
-            }
-        }
-        state(attempt_state::COMPLETED);
-        return cb({});
-    });
+    transaction_query_options opts;
+    std::vector<json_string> params;
+    wrap_query(
+      COMMIT,
+      opts,
+      params,
+      make_kv_txdata(std::nullopt),
+      STAGE_QUERY_COMMIT,
+      false,
+      [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
+          is_done_ = true;
+          if (err) {
+              try {
+                  std::rethrow_exception(err);
+              } catch (const transaction_operation_failed&) {
+                  return cb(std::current_exception());
+              } catch (const query_attempt_expired& e) {
+                  return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_EXPIRY, e.what()).ambiguous().no_rollback()));
+              } catch (const query_document_not_found& e) {
+                  return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_DOC_NOT_FOUND, e.what()).no_rollback()));
+              } catch (const query_document_exists& e) {
+                  return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, e.what()).no_rollback()));
+              } catch (const query_cas_mismatch& e) {
+                  return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_CAS_MISMATCH, e.what()).no_rollback()));
+              } catch (const std::exception& e) {
+                  return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_OTHER, e.what()).no_rollback()));
+              }
+          }
+          state(attempt_state::COMPLETED);
+          return cb({});
+      });
 }
 void
 attempt_context_impl::rollback_with_query(VoidCallback&& cb)
 {
     couchbase::operations::query_request req;
     trace("rollback_with_query called");
-    req.statement = ROLLBACK;
-    std::string txid = id();
-    req.raw["txid"] = jsonify(txid);
-    overall_.cluster_ref().execute(req, [this, cb = std::move(cb)](couchbase::operations::query_response resp) {
-        if (resp.ctx.ec || resp.payload.meta_data.errors) {
-            is_done_ = true;
-            try {
-                std::rethrow_exception(handle_query_error(resp));
-            } catch (const transaction_operation_failed&) {
-                return cb(std::current_exception());
-            } catch (const query_attempt_not_found& e) {
-                debug("got query_attempt_not_found, assuming query was already rolled back successfullly");
-            } catch (const std::exception& e) {
-                return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_OTHER, e.what()).no_rollback()));
-            }
-        }
-        state(attempt_state::ROLLED_BACK);
-        trace("rollback successful");
-        return cb({});
-    });
+    transaction_query_options opts;
+    std::vector<json_string> params;
+    wrap_query(ROLLBACK,
+               opts,
+               params,
+               make_kv_txdata(std::nullopt),
+               STAGE_QUERY_ROLLBACK,
+               false,
+               [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
+                   is_done_ = true;
+                   if (err) {
+                       try {
+                           std::rethrow_exception(err);
+                       } catch (const transaction_operation_failed&) {
+                           return cb(std::current_exception());
+                       } catch (const query_attempt_not_found& e) {
+                           debug("got query_attempt_not_found, assuming query was already rolled back successfullly");
+                       } catch (const std::exception& e) {
+                           return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_OTHER, e.what()).no_rollback()));
+                       }
+                   }
+                   state(attempt_state::ROLLED_BACK);
+                   trace("rollback successful");
+                   return cb({});
+               });
 }
 void
 attempt_context_impl::atr_commit()

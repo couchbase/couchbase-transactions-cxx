@@ -65,6 +65,7 @@ namespace transactions
     static const std::string STAGE_CREATE_STAGED_INSERT = "createdStagedInsert";
     static const std::string STAGE_REMOVE_DOC = "removeDoc";
     static const std::string STAGE_COMMIT_DOC = "commitDoc";
+    static const std::string STAGE_BEFORE_RETRY = "beforeRetry";
 
     static const std::string STAGE_ATR_COMMIT = "atrCommit";
     static const std::string STAGE_ATR_COMMIT_AMBIGUITY_RESOLUTION = "atrCommitAmbiguityResolution";
@@ -72,6 +73,15 @@ namespace transactions
     static const std::string STAGE_ATR_ROLLBACK_COMPLETE = "atrRollbackComplete";
     static const std::string STAGE_ATR_PENDING = "atrPending";
     static const std::string STAGE_ATR_COMPLETE = "atrComplete";
+
+    static const std::string STAGE_QUERY = "query";
+    static const std::string STAGE_QUERY_BEGIN_WORK = "queryBeginWork";
+    static const std::string STAGE_QUERY_COMMIT = "queryCommit";
+    static const std::string STAGE_QUERY_ROLLBACK = "queryRollback";
+    static const std::string STAGE_QUERY_KV_GET = "queryKvGet";
+    static const std::string STAGE_QUERY_KV_REPLACE = "queryKvReplace";
+    static const std::string STAGE_QUERY_KV_REMOVE = "queryKvRemove";
+    static const std::string STAGE_QUERY_KV_INSERT = "queryKvInsert";
 
     /**
      * Hooks purely for testing purposes.  If you're an end-user looking at these for any reason, then please contact us first
@@ -103,6 +113,8 @@ namespace transactions
         error_func2 before_check_atr_entry_for_blocking_doc = noop_2;
         error_func2 before_doc_get = noop_2;
         error_func2 before_get_doc_in_exists_during_staged_insert = noop_2;
+        error_func2 before_query = noop_2;
+        error_func2 after_query = noop_2;
 
         error_func1 after_docs_committed = noop_1;
         error_func1 after_docs_removed = noop_1;

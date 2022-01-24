@@ -120,6 +120,23 @@ TEST(SimpleTransactions, CanGetReplaceRawStrings)
     ASSERT_EQ(new_content, TransactionsTestEnvironment::get_doc(id).content_as<std::string>());
 }
 
+TEST(SimpleTransactions, CanUseJsonStringAsContent)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    transaction_config cfg;
+    cfg.cleanup_client_attempts(false);
+    cfg.cleanup_lost_attempts(false);
+    couchbase::transactions::transactions txn(cluster, cfg);
+    std::string content = "\"imaquotedjsonstring\"";
+    // insert the doc
+    auto id = TransactionsTestEnvironment::get_document_id();
+    txn.run([&](attempt_context& ctx) {
+        ctx.insert(id, content);
+        auto doc = ctx.get(id);
+    });
+    ASSERT_EQ(content, TransactionsTestEnvironment::get_doc(id).content_as<std::string>());
+}
+
 TEST(SimpleTransactions, CanGetReplaceObjects)
 {
     auto& cluster = TransactionsTestEnvironment::get_cluster();
