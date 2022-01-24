@@ -618,18 +618,18 @@ attempt_context_impl::query_begin_work(Handler&& cb)
 std::exception_ptr
 attempt_context_impl::handle_query_error(const couchbase::operations::query_response& resp)
 {
-    if (!resp.ctx.ec && !resp.payload.meta_data.errors) {
+    if (!resp.ctx.ec && !resp.meta.errors) {
         return {};
     }
     // TODO: look at ambiguous and unambiguous timeout errors vs the codes, etc...
-    trace("handling query error {}, {} errors in meta_data", resp.ctx.ec.message(), resp.payload.meta_data.errors ? "has" : "no");
+    trace("handling query error {}, {} errors in meta_data", resp.ctx.ec.message(), resp.meta.errors ? "has" : "no");
     if (resp.ctx.ec == couchbase::error::common_errc::ambiguous_timeout ||
         resp.ctx.ec == couchbase::error::common_errc::unambiguous_timeout) {
         return std::make_exception_ptr(query_attempt_expired(resp.ctx.ec.message()));
     }
     // TODO: txns on the query server can return a serialized transaction_operation_failed -- not currently supported in the client.
-    auto chosen_error = resp.payload.meta_data.errors->front();
-    for (auto& err : *resp.payload.meta_data.errors) {
+    auto chosen_error = resp.meta.errors->front();
+    for (auto& err : *resp.meta.errors) {
         if (err.code >= 17000 && err.code <= 18000) {
             chosen_error = err;
             break;
@@ -701,7 +701,7 @@ attempt_context_impl::do_query(const std::string& statement, const transaction_q
                    if (err) {
                        return op_completed_with_error(std::move(cb), err);
                    }
-                   op_completed_with_callback(std::move(cb), std::optional<operations::query_response_payload>(resp.payload));
+                   op_completed_with_callback(std::move(cb), std::optional<operations::query_response>(resp));
                });
 }
 std::string
@@ -763,7 +763,7 @@ attempt_context_impl::wrap_query(const std::string& statement,
     }
     trace("http request: {}", dump_request(req));
     overall_.cluster_ref().execute(req, [this, cb = std::move(cb)](couchbase::operations::query_response resp) mutable {
-        trace("response: {} status: {}", resp.ctx.http_body, resp.payload.meta_data.status);
+        trace("response: {} status: {}", resp.ctx.http_body, resp.meta.status);
         if (auto ec = hooks_.after_query(this, resp.ctx.statement)) {
             error("have not implemented after_query handling yet");
         }
@@ -790,12 +790,12 @@ attempt_context_impl::query(const std::string& statement, const transaction_quer
     });
 }
 
-operations::query_response_payload
+operations::query_response
 attempt_context_impl::query(const std::string& statement, const transaction_query_options& opts)
 {
-    auto barrier = std::make_shared<std::promise<operations::query_response_payload>>();
+    auto barrier = std::make_shared<std::promise<operations::query_response>>();
     auto f = barrier->get_future();
-    query(statement, opts, [barrier](std::exception_ptr err, std::optional<operations::query_response_payload> resp) {
+    query(statement, opts, [barrier](std::exception_ptr err, std::optional<operations::query_response> resp) {
         if (err) {
             return barrier->set_exception(err);
         }
@@ -852,12 +852,12 @@ attempt_context_impl::get_with_query(const couchbase::document_id& id, Callback&
                               if (!err) {
                                   // make a transaction_get_result from the row...
                                   try {
-                                      if (resp.payload.rows.empty()) {
+                                      if (resp.rows.empty()) {
                                           trace("get_with_query got no doc and no error, returning query_document_not_found");
                                           return op_completed_with_error(std::move(cb), query_document_not_found("doc not found"));
                                       }
-                                      trace("get_with_query got: {}", resp.payload.rows.front());
-                                      auto obj = nlohmann::json::parse(resp.payload.rows.front());
+                                      trace("get_with_query got: {}", resp.rows.front());
+                                      auto obj = nlohmann::json::parse(resp.rows.front());
                                       transaction_get_result doc(
                                         id, obj["doc"].get<nlohmann::json>().dump(), std::stoull(obj["scas"].get<std::string>()), {}, {});
                                       return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>(doc));
@@ -901,8 +901,8 @@ attempt_context_impl::insert_raw_with_query(const couchbase::document_id& id, co
                               }
                               // make a transaction_get_result from the row...
                               try {
-                                  trace("insert_raw_with_query got: {}", resp.payload.rows.front());
-                                  auto obj = nlohmann::json::parse(resp.payload.rows.front());
+                                  trace("insert_raw_with_query got: {}", resp.rows.front());
+                                  auto obj = nlohmann::json::parse(resp.rows.front());
                                   transaction_get_result doc(
                                     id, obj["doc"].get<nlohmann::json>().dump(), std::stoull(obj["scas"].get<std::string>()), {}, {});
                                   return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>(doc));
@@ -946,8 +946,8 @@ attempt_context_impl::replace_raw_with_query(const transaction_get_result& docum
               }
               // make a transaction_get_result from the row...
               try {
-                  trace("replace_raw_with_query got: {}", resp.payload.rows.front());
-                  auto obj = nlohmann::json::parse(resp.payload.rows.front());
+                  trace("replace_raw_with_query got: {}", resp.rows.front());
+                  auto obj = nlohmann::json::parse(resp.rows.front());
                   transaction_get_result doc(
                     id, obj["doc"].get<nlohmann::json>().dump(), std::stoull(obj["scas"].get<std::string>()), {}, {});
                   return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>(doc));
@@ -1221,7 +1221,7 @@ void
 attempt_context_impl::commit(VoidCallback&& cb)
 {
     // for now, lets keep the blocking implementation
-    std::thread([cb = std::move(cb), this]() mutable {
+    std::thread t([cb = std::move(cb), this]() mutable {
         try {
             commit();
             return cb({});
@@ -1230,8 +1230,8 @@ attempt_context_impl::commit(VoidCallback&& cb)
         } catch (const std::exception& e) {
             return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_OTHER, e.what())));
         }
-    })
-      .detach();
+    });
+    t.detach();
 }
 
 void
@@ -1399,7 +1399,7 @@ void
 attempt_context_impl::rollback(VoidCallback&& cb)
 {
     // for now, lets keep the blocking implementation
-    std::thread([cb = std::move(cb), this]() mutable {
+    std::thread t([cb = std::move(cb), this]() mutable {
         if (op_list_.get_mode().is_query()) {
             return rollback_with_query(std::move(cb));
         }
@@ -1413,8 +1413,8 @@ attempt_context_impl::rollback(VoidCallback&& cb)
         } catch (...) {
             return cb(std::make_exception_ptr(transaction_operation_failed(FAIL_OTHER, "unexpected exception during rollback")));
         }
-    })
-      .detach();
+    });
+    t.detach();
 }
 
 void

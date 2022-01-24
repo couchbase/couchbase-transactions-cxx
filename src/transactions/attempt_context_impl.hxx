@@ -294,7 +294,7 @@ namespace transactions
         virtual void remove(const transaction_get_result& document, VoidCallback&& cb);
 
         virtual void query(const std::string& statement, const transaction_query_options& opts, QueryCallback&& cb);
-        virtual operations::query_response_payload query(const std::string& statement, const transaction_query_options& opts);
+        virtual operations::query_response query(const std::string& statement, const transaction_query_options& opts);
 
         virtual void commit();
         virtual void commit(VoidCallback&& cb);

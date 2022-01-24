@@ -295,7 +295,7 @@ TEST(SimpleQueryTransactions, CanModifyDocInQuery)
     couchbase::transactions::transactions txn(cluster, cfg);
     txn.run([&](attempt_context& ctx) {
         auto payload = ctx.query(stream.str());
-        ASSERT_FALSE(payload.meta_data.errors);
+        ASSERT_FALSE(payload.meta.errors);
     });
 
     auto res = TransactionsTestEnvironment::get_doc(id);
@@ -322,7 +322,7 @@ TEST(SimpleQueryTransactions, CanRollback)
       {
           txn.run([&](attempt_context& ctx) {
               auto payload = ctx.query(stream.str());
-              ASSERT_FALSE(payload.meta_data.errors);
+              ASSERT_FALSE(payload.meta.errors);
               // now, lets force a rollback
               throw 3;
           });
@@ -350,7 +350,7 @@ TEST(SimpleQueryTransactions, QueryUpdatesInsert)
     txn.run([&](attempt_context& ctx) {
         ctx.insert(id, c);
         auto payload = ctx.query(stream.str());
-        ASSERT_FALSE(payload.meta_data.errors);
+        ASSERT_FALSE(payload.meta.errors);
     });
 
     auto res = TransactionsTestEnvironment::get_doc(id);
@@ -374,7 +374,7 @@ TEST(SimpleQueryTransactions, CanKVGet)
         ctx.insert(id, c);
         auto payload = ctx.query(stream.str());
         ASSERT_TRUE(payload.rows.empty());
-        ASSERT_FALSE(payload.meta_data.errors);
+        ASSERT_FALSE(payload.meta.errors);
         auto doc = ctx.get(id);
         ASSERT_EQ(10, doc.content<nlohmann::json>()["some_number"].get<uint32_t>());
         // TODO: serialize txnMeta once I get it

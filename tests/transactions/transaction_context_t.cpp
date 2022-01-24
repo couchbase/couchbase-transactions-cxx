@@ -299,7 +299,7 @@ TEST(SimpleTxnContext, CanDoQuery)
     ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, tx_content.dump()));
     auto query = fmt::format("SELECT * FROM `{}` USE KEYS '{}'", id.bucket(), id.key());
     transaction_query_options opts;
-    tx.query(query, opts, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+    tx.query(query, opts, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
         // this should result in a transaction_operation_failed exception since the doc isn't there
         EXPECT_TRUE(payload);
         EXPECT_FALSE(err);
@@ -324,17 +324,16 @@ TEST(SimpleTxnContext, CanSeeSomeQueryErrorsButNoTxnFailed)
     auto barrier = std::make_shared<std::promise<void>>();
     auto f = barrier->get_future();
     transaction_query_options opts;
-    tx.query(
-      "jkjkjl;kjlk;  jfjjffjfj", opts, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-          // this should result in a query_exception since the query isn't parseable.
-          EXPECT_TRUE(err);
-          EXPECT_FALSE(payload);
-          if (err) {
-              barrier->set_exception(err);
-          } else {
-              barrier->set_value();
-          }
-      });
+    tx.query("jkjkjl;kjlk;  jfjjffjfj", opts, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+        // this should result in a query_exception since the query isn't parseable.
+        EXPECT_TRUE(err);
+        EXPECT_FALSE(payload);
+        if (err) {
+            barrier->set_exception(err);
+        } else {
+            barrier->set_value();
+        }
+    });
     try {
         f.get();
         FAIL() << "expected future to throw exception";

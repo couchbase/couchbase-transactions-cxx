@@ -317,7 +317,7 @@ TEST(SimpleQueryAsyncTxns, AsyncQuery)
     std::atomic<bool> query_called = false;
     txns.run(
       [&query_called, &query](async_attempt_context& ctx) {
-          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
               if (!err) {
                   query_called = true;
               }
@@ -345,17 +345,17 @@ TEST(SimpleQueryAsyncTxns, MultipleRacingQueries)
     std::atomic<int> query_called = 0;
     txns.run(
       [&query_called, &query](async_attempt_context& ctx) {
-          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
               if (!err) {
                   query_called++;
               }
           });
-          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
               if (!err) {
                   query_called++;
               }
           });
-          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
               if (!err) {
                   query_called++;
               }
@@ -383,7 +383,7 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncQuery)
     std::atomic<bool> query_called = false;
     txns.run(
       [&query_called, &query](async_attempt_context& ctx) {
-          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
               if (!err) {
                   query_called = true;
                   // now rollback by throwing arbitrary exception
@@ -413,7 +413,7 @@ TEST(SimpleQueryAsyncTxns, AsyncKVGet)
     txns.run(
       [&get_called, &query, &id](async_attempt_context& ctx) {
           ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
-              ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+              ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
                   if (!err) {
                       ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
                           if (!err) {
@@ -446,7 +446,7 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVGet)
     txns.run(
       [&get_called, &query, &id](async_attempt_context& ctx) {
           ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
-              ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+              ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
                   if (!err) {
                       ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
                           if (!err) {
@@ -486,8 +486,7 @@ TEST(SimpleQueryAsyncTxns, AsyncKVReplace)
               if (!err) {
                   EXPECT_TRUE(result);
                   ctx.query(
-                    query,
-                    [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                    query, [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
                         if (!err) {
                             ctx.replace(doc, new_content, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
                                 if (!err) {
@@ -526,8 +525,7 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVReplace)
               if (!err) {
                   EXPECT_TRUE(result);
                   ctx.query(
-                    query,
-                    [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
+                    query, [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
                         if (!err) {
                             ctx.replace(doc, new_content, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
                                 if (!err) {
@@ -565,17 +563,16 @@ TEST(SimpleQueryAsyncTxns, AsyncKVRemove)
               // do a query just to move into query mode.
               if (!err) {
                   EXPECT_TRUE(result);
-                  ctx.query(
-                    query,
-                    [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-                        if (!err) {
-                            ctx.remove(doc, [&](std::exception_ptr err) {
+                  ctx.query(query,
+                            [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
                                 if (!err) {
-                                    remove_called = true;
+                                    ctx.remove(doc, [&](std::exception_ptr err) {
+                                        if (!err) {
+                                            remove_called = true;
+                                        }
+                                    });
                                 }
                             });
-                        }
-                    });
               }
           });
       },
@@ -607,17 +604,16 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVRemove)
               // do a query just to move into query mode.
               if (!err) {
                   EXPECT_TRUE(result);
-                  ctx.query(
-                    query,
-                    [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response_payload> payload) {
-                        if (!err) {
-                            ctx.remove(doc, [&](std::exception_ptr err) {
-                                ASSERT_FALSE(err);
-                                remove_called = true;
-                                throw 3;
+                  ctx.query(query,
+                            [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+                                if (!err) {
+                                    ctx.remove(doc, [&](std::exception_ptr err) {
+                                        ASSERT_FALSE(err);
+                                        remove_called = true;
+                                        throw 3;
+                                    });
+                                }
                             });
-                        }
-                    });
               }
           });
       },

@@ -131,14 +131,14 @@ namespace transactions
          * @param options options to apply to the query.
          * @returns result of the query.
          */
-        virtual operations::query_response_payload query(const std::string& statement, const transaction_query_options& options) = 0;
+        virtual operations::query_response query(const std::string& statement, const transaction_query_options& options) = 0;
         /**
          * Performs a Query, within the current transaction.
          *
          * @param statement query statement to execute.
          * @return result of the query
          */
-        virtual operations::query_response_payload query(const std::string& statement)
+        virtual operations::query_response query(const std::string& statement)
         {
             transaction_query_options opts;
             return query(statement, opts);

@@ -72,7 +72,7 @@ class transaction_query_options
 
     transaction_query_options& scan_wait(std::chrono::milliseconds scan_wait)
     {
-        query_req_.scan_wait = scan_wait.count();
+        query_req_.scan_wait = scan_wait;
         return *this;
     }
 

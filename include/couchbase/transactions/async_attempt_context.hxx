@@ -41,7 +41,7 @@ namespace transactions
       public:
         using Callback = std::function<void(std::exception_ptr, std::optional<transaction_get_result>)>;
         using VoidCallback = std::function<void(std::exception_ptr)>;
-        using QueryCallback = std::function<void(std::exception_ptr, std::optional<operations::query_response_payload>)>;
+        using QueryCallback = std::function<void(std::exception_ptr, std::optional<operations::query_response>)>;
         virtual ~async_attempt_context() = default;
         /**
          * Gets a document from the specified Couchbase collection matching the specified id.
