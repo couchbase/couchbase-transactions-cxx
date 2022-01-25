@@ -111,6 +111,12 @@ tx::atr_cleanup_entry::clean(std::shared_ptr<spdlog::logger> logger, transaction
 void
 tx::atr_cleanup_entry::check_atr_and_cleanup(std::shared_ptr<spdlog::logger> logger, transactions_cleanup_attempt* result)
 {
+    // ExtStoreDurability: this is the first point where we're guaranteed to have the ATR entry
+    auto durability_level_raw = atr_entry_->durability_level();
+    auto durability_level = cleanup_->config().durability_level();
+    if (durability_level_raw.has_value()) {
+        durability_level = store_string_to_durability_level(durability_level_raw.value());
+    }
     if (check_if_expired_ && !atr_entry_->has_expired(safety_margin_ms_)) {
         logger->trace("{} not expired, nothing to clean", *this);
         return;
@@ -122,12 +128,12 @@ tx::atr_cleanup_entry::check_atr_and_cleanup(std::shared_ptr<spdlog::logger> log
     if (err) {
         throw *err;
     }
-    cleanup_docs(logger);
+    cleanup_docs(logger, durability_level);
     auto ec = cleanup_->config().cleanup_hooks().on_cleanup_docs_completed();
     if (ec) {
         throw client_error(*ec, "on_cleanup_docs_completed hook threw error");
     }
-    cleanup_entry(logger);
+    cleanup_entry(logger, durability_level);
     ec = cleanup_->config().cleanup_hooks().on_cleanup_completed();
     if (ec) {
         throw client_error(*ec, "on_cleanup_completed hook threw error");
@@ -136,20 +142,20 @@ tx::atr_cleanup_entry::check_atr_and_cleanup(std::shared_ptr<spdlog::logger> log
 }
 
 void
-tx::atr_cleanup_entry::cleanup_docs(std::shared_ptr<spdlog::logger> logger)
+tx::atr_cleanup_entry::cleanup_docs(std::shared_ptr<spdlog::logger> logger, durability_level dl)
 {
     switch (atr_entry_->state()) {
         case tx::attempt_state::COMMITTED:
-            commit_docs(logger, atr_entry_->inserted_ids());
-            commit_docs(logger, atr_entry_->replaced_ids());
-            remove_docs_staged_for_removal(logger, atr_entry_->removed_ids());
+            commit_docs(logger, atr_entry_->inserted_ids(), dl);
+            commit_docs(logger, atr_entry_->replaced_ids(), dl);
+            remove_docs_staged_for_removal(logger, atr_entry_->removed_ids(), dl);
             break;
         // half-finished commit
         case tx::attempt_state::ABORTED:
             // half finished rollback
-            remove_docs(logger, atr_entry_->inserted_ids());
-            remove_txn_links(logger, atr_entry_->replaced_ids());
-            remove_txn_links(logger, atr_entry_->removed_ids());
+            remove_docs(logger, atr_entry_->inserted_ids(), dl);
+            remove_txn_links(logger, atr_entry_->replaced_ids(), dl);
+            remove_txn_links(logger, atr_entry_->removed_ids(), dl);
             break;
         default:
             logger->trace("attempt in {}, nothing to do in cleanup_docs", attempt_state_name(atr_entry_->state()));
@@ -230,7 +236,9 @@ tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
 }
 
 void
-tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<tx::doc_record>> docs)
+tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger,
+                                   std::optional<std::vector<tx::doc_record>> docs,
+                                   durability_level dl)
 {
     if (docs) {
         do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, tx::transaction_get_result& doc, bool) {
@@ -245,7 +253,7 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, std::
                     req.value = content;
                     auto barrier = std::make_shared<std::promise<result>>();
                     auto f = barrier->get_future();
-                    cleanup_->cluster_ref().execute(wrap_durable_request(req, cleanup_->config()),
+                    cleanup_->cluster_ref().execute(wrap_durable_request(req, cleanup_->config(), dl),
                                                     [barrier](couchbase::operations::insert_response resp) {
                                                         barrier->set_value(result::create_from_mutation_response(resp));
                                                     });
@@ -256,7 +264,7 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, std::
                     req.specs.add_spec(protocol::subdoc_opcode::set_doc, false, false, false, {}, content);
                     req.cas.value = doc.cas();
                     req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::replace;
-                    wrap_durable_request(req, cleanup_->config());
+                    wrap_durable_request(req, cleanup_->config(), dl);
                     auto barrier = std::make_shared<std::promise<result>>();
                     auto f = barrier->get_future();
                     cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
@@ -272,7 +280,9 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger, std::
     }
 }
 void
-tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<tx::doc_record>> docs)
+tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger,
+                                   std::optional<std::vector<tx::doc_record>> docs,
+                                   durability_level dl)
 {
     if (docs) {
         do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, transaction_get_result& doc, bool is_deleted) {
@@ -285,7 +295,7 @@ tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger, std::
                 req.specs.add_spec(couchbase::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
                 req.cas.value = doc.cas();
                 req.access_deleted = true;
-                wrap_durable_request(req, cleanup_->config());
+                wrap_durable_request(req, cleanup_->config(), dl);
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
                 cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
@@ -295,7 +305,7 @@ tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger, std::
             } else {
                 couchbase::operations::remove_request req{ doc.id() };
                 req.cas.value = doc.cas();
-                wrap_durable_request(req, cleanup_->config());
+                wrap_durable_request(req, cleanup_->config(), dl);
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
                 cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::remove_response resp) {
@@ -310,7 +320,8 @@ tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger, std::
 
 void
 tx::atr_cleanup_entry::remove_docs_staged_for_removal(std::shared_ptr<spdlog::logger> logger,
-                                                      std::optional<std::vector<tx::doc_record>> docs)
+                                                      std::optional<std::vector<tx::doc_record>> docs,
+                                                      durability_level dl)
 {
     if (docs) {
         do_per_doc(logger, *docs, true, [&](std::shared_ptr<spdlog::logger> logger, transaction_get_result& doc, bool) {
@@ -321,7 +332,7 @@ tx::atr_cleanup_entry::remove_docs_staged_for_removal(std::shared_ptr<spdlog::lo
                 }
                 couchbase::operations::remove_request req{ doc.id() };
                 req.cas.value = doc.cas();
-                wrap_durable_request(req, cleanup_->config());
+                wrap_durable_request(req, cleanup_->config(), dl);
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
                 cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::remove_response resp) {
@@ -339,7 +350,9 @@ tx::atr_cleanup_entry::remove_docs_staged_for_removal(std::shared_ptr<spdlog::lo
 }
 
 void
-tx::atr_cleanup_entry::remove_txn_links(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<tx::doc_record>> docs)
+tx::atr_cleanup_entry::remove_txn_links(std::shared_ptr<spdlog::logger> logger,
+                                        std::optional<std::vector<tx::doc_record>> docs,
+                                        durability_level dl)
 {
     if (docs) {
         do_per_doc(logger, *docs, false, [&](std::shared_ptr<spdlog::logger> logger, transaction_get_result& doc, bool) {
@@ -351,7 +364,7 @@ tx::atr_cleanup_entry::remove_txn_links(std::shared_ptr<spdlog::logger> logger, 
             req.specs.add_spec(protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
             req.access_deleted = true;
             req.cas.value = doc.cas();
-            wrap_durable_request(req, cleanup_->config());
+            wrap_durable_request(req, cleanup_->config(), dl);
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
             cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
@@ -364,7 +377,7 @@ tx::atr_cleanup_entry::remove_txn_links(std::shared_ptr<spdlog::logger> logger, 
 }
 
 void
-tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger)
+tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger, durability_level dl)
 {
     try {
         auto ec = cleanup_->config().cleanup_hooks().before_atr_remove();
@@ -373,7 +386,7 @@ tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger)
         }
         couchbase::operations::mutate_in_request req{ atr_id_ };
         req.specs.add_spec(protocol::subdoc_opcode::replace, true, false, false, "attempts", "{}");
-        wrap_durable_request(req, cleanup_->config());
+        wrap_durable_request(req, cleanup_->config(), dl);
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
         cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {

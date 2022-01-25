@@ -114,6 +114,14 @@ namespace transactions
         return req;
     }
 
+    template<typename T>
+    T& wrap_durable_request(T&& req, const transaction_config& config, durability_level dl)
+    {
+        wrap_request(req, config);
+        req.durability_level = durability(dl);
+        return req;
+    }
+
     static inline result wrap_operation_future(std::future<result>& fut, bool ignore_subdoc_errors = true)
     {
         auto res = fut.get();

@@ -18,6 +18,7 @@
 
 #include "atr_entry.hxx"
 #include <chrono>
+#include <couchbase/transactions/durability_level.hxx>
 #include <couchbase/transactions/transaction_get_result.hxx>
 #include <memory>
 #include <mutex>
@@ -68,12 +69,14 @@ namespace transactions
         friend class compare_atr_entries;
 
         void check_atr_and_cleanup(std::shared_ptr<spdlog::logger> logger, transactions_cleanup_attempt* result);
-        void cleanup_docs(std::shared_ptr<spdlog::logger> logger);
-        void cleanup_entry(std::shared_ptr<spdlog::logger> logger);
-        void commit_docs(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<doc_record>> docs);
-        void remove_docs(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<doc_record>> docs);
-        void remove_docs_staged_for_removal(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<doc_record>> docs);
-        void remove_txn_links(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<doc_record>> docs);
+        void cleanup_docs(std::shared_ptr<spdlog::logger> logger, durability_level dl);
+        void cleanup_entry(std::shared_ptr<spdlog::logger> logger, durability_level dl);
+        void commit_docs(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<doc_record>> docs, durability_level dl);
+        void remove_docs(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<doc_record>> docs, durability_level dl);
+        void remove_docs_staged_for_removal(std::shared_ptr<spdlog::logger> logger,
+                                            std::optional<std::vector<doc_record>> docs,
+                                            durability_level dl);
+        void remove_txn_links(std::shared_ptr<spdlog::logger> logger, std::optional<std::vector<doc_record>> docs, durability_level dl);
         void do_per_doc(std::shared_ptr<spdlog::logger> logger,
                         std::vector<doc_record> docs,
                         bool require_crc_to_match,

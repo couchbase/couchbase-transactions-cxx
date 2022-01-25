@@ -1641,6 +1641,13 @@ attempt_context_impl::set_atr_pending_locked(const couchbase::document_id& id, s
                                false,
                                prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
                                jsonify(std::chrono::duration_cast<std::chrono::milliseconds>(overall_.config().expiration_time()).count()));
+            // ExtStoreDurability
+            req.specs.add_spec(protocol::subdoc_opcode::dict_add,
+                               true,
+                               true,
+                               false,
+                               prefix + ATR_FIELD_DURABILITY_LEVEL,
+                               jsonify(store_durability_level_to_string(overall_.config().durability_level())));
             // ExtBinaryMetadata
             req.specs.add_spec(protocol::subdoc_opcode::set_doc, false, false, false, std::string(""), jsonify(std::string({ 0x00 })));
             req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::upsert;

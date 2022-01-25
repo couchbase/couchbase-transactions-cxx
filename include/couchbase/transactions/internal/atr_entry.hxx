@@ -51,7 +51,8 @@ namespace transactions
                   std::optional<std::vector<doc_record>> replaced_ids,
                   std::optional<std::vector<doc_record>> removed_ids,
                   std::optional<nlohmann::json> forward_compat,
-                  std::uint64_t cas)
+                  std::uint64_t cas,
+                  std::optional<std::string> durability_level)
           : atr_bucket_(std::move(atr_bucket))
           , atr_id_(std::move(atr_id))
           , attempt_id_(std::move(attempt_id))
@@ -67,6 +68,7 @@ namespace transactions
           , removed_ids_(std::move(removed_ids))
           , forward_compat_(std::move(forward_compat))
           , cas_(cas)
+          , durability_level_(durability_level)
         {
         }
 
@@ -154,6 +156,11 @@ namespace transactions
             return state_;
         }
 
+        CB_NODISCARD std::optional<std::string> durability_level() const
+        {
+            return durability_level_;
+        }
+
       private:
         const std::string atr_bucket_;
         const std::string atr_id_;
@@ -170,6 +177,8 @@ namespace transactions
         const std::optional<std::vector<doc_record>> removed_ids_;
         const std::optional<nlohmann::json> forward_compat_;
         const std::uint64_t cas_{};
+        // ExtStoreDurability
+        const std::optional<std::string> durability_level_;
     };
 } // namespace transactions
 } // namespace couchbase

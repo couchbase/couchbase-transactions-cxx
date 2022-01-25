@@ -160,7 +160,9 @@ namespace transactions
                       process_document_ids(val, ATR_FIELD_DOCS_REMOVED),
                       val.contains(ATR_FIELD_FORWARD_COMPAT) ? std::make_optional(val[ATR_FIELD_FORWARD_COMPAT].get<nlohmann::json>())
                                                              : std::nullopt,
-                      now_ns);
+                      now_ns,
+                      val.contains(ATR_FIELD_DURABILITY_LEVEL) ? std::make_optional(val[ATR_FIELD_DURABILITY_LEVEL].get<nlohmann::json>())
+                                                               : std::nullopt);
                 }
             }
             return active_transaction_record(resp.ctx.id, resp.cas.value, std::move(entries));

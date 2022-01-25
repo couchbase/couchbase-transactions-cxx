@@ -56,5 +56,39 @@ namespace transactions
         }
         return "MAJORITY";
     }
+
+    static std::string store_durability_level_to_string(durability_level l)
+    {
+        switch (l) {
+            case durability_level::NONE:
+                return "n";
+            case durability_level::MAJORITY:
+                return "m";
+            case durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE:
+                return "pa";
+            case durability_level::PERSIST_TO_MAJORITY:
+                return "pm";
+            default:
+                return "m";
+        }
+    }
+
+    static durability_level store_string_to_durability_level(const std::string& s)
+    {
+        if (s == "m") {
+            return durability_level::MAJORITY;
+        }
+        if (s == "pa") {
+            return durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE;
+        }
+        if (s == "pm") {
+            return durability_level::PERSIST_TO_MAJORITY;
+        }
+        if (s == "n") {
+            return durability_level::NONE;
+        }
+        // Default to a something sensible if we don't understand the code
+        return durability_level::MAJORITY;
+    }
 } // namespace transactions
 } // namespace couchbase
