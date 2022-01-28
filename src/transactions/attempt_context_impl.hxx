@@ -76,7 +76,7 @@ namespace transactions
         virtual void replace_raw(const transaction_get_result& document, const std::string& content, Callback&& cb);
 
         // These are all just stubs for now
-        void get_with_query(const couchbase::document_id& id, Callback&& cb);
+        void get_with_query(const couchbase::document_id& id, bool optional, Callback&& cb);
         void insert_raw_with_query(const couchbase::document_id& id, const std::string& content, Callback&& cb);
         void replace_raw_with_query(const transaction_get_result& document, const std::string& content, Callback&& cb);
         void remove_with_query(const transaction_get_result& document, VoidCallback&& cb);
@@ -111,6 +111,7 @@ namespace transactions
                 txn_log->error("op callback called a txn operation that threw exception {}", op_ex.what());
             } catch (const query_exception& query_ex) {
                 txn_log->warn("op callback called a txn operation that threw (and didn't handle) a query_exception {}", query_ex.what());
+                errors_.push_back(transaction_operation_failed(FAIL_OTHER, query_ex.what()).cause(query_ex.cause()));
                 op_list_.decrement_ops();
             } catch (const std::exception& e) {
                 // if the callback throws something which wasn't handled

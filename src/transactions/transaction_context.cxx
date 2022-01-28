@@ -177,7 +177,12 @@ namespace transactions
     void transaction_context::handle_error(std::exception_ptr err, txn_complete_callback&& callback)
     {
         try {
-            std::rethrow_exception(err);
+            try {
+                std::rethrow_exception(err);
+            } catch (const query_exception& e) {
+                // turn this into a transaction_operation_failed
+                throw transaction_operation_failed(FAIL_OTHER, e.what()).cause(e.cause());
+            }
         } catch (const transaction_operation_failed& er) {
             txn_log->error("got transaction_operation_failed {}", er.what());
             if (er.should_rollback()) {
@@ -250,6 +255,9 @@ namespace transactions
 
         try {
             existing_error();
+            if (current_attempt_context_->is_done()) {
+                return cb(std::nullopt, get_transaction_result());
+            }
             commit([this, cb = std::move(cb)](std::exception_ptr err) mutable {
                 if (err) {
                     return handle_error(err, std::move(cb));

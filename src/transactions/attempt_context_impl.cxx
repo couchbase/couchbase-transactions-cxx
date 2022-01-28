@@ -107,7 +107,7 @@ void
 attempt_context_impl::get(const couchbase::document_id& id, Callback&& cb)
 {
     if (op_list_.get_mode().is_query()) {
-        return get_with_query(id, std::move(cb));
+        return get_with_query(id, false, std::move(cb));
     }
     cache_error_async(std::move(cb), [&]() {
         check_if_done(cb);
@@ -164,8 +164,7 @@ void
 attempt_context_impl::get_optional(const couchbase::document_id& id, Callback&& cb)
 {
     if (op_list_.get_mode().is_query()) {
-        // TODO: special handling of optional transaction_get_result.
-        return get_with_query(id, std::move(cb));
+        return get_with_query(id, true, std::move(cb));
     }
     cache_error_async(std::move(cb), [&]() {
         check_if_done(cb);
@@ -640,6 +639,8 @@ attempt_context_impl::handle_query_error(const couchbase::operations::query_resp
         case 1065:
             return std::make_exception_ptr(
               transaction_operation_failed(FAIL_OTHER, "N1QL Queries in transactions are supported in couchbase server 7.0 and later"));
+        case 3000:
+            return std::make_exception_ptr(query_parsing_failure(chosen_error.message));
         case 17004:
             return std::make_exception_ptr(query_attempt_not_found(chosen_error.message));
         case 1080:
@@ -676,10 +677,10 @@ attempt_context_impl::handle_query_error(const couchbase::operations::query_resp
                     } else if (raise != std::string("failed")) {
                         trace("unknown value in raise field: {}, raising failed", raise);
                     }
+                    return std::make_exception_ptr(err);
                 }
             }
         }
-        return std::make_exception_ptr(err);
     }
 
     return { std::make_exception_ptr(query_exception(chosen_error.message)) };
@@ -808,7 +809,7 @@ std::vector<json_string>
 make_params(const couchbase::document_id& id, const json_string& content)
 {
     std::vector<json_string> retval;
-    auto keyspace = fmt::format("default:{}.{}.{}", id.bucket(), id.scope(), id.collection());
+    auto keyspace = fmt::format("default:`{}`.`{}`.`{}`", id.bucket(), id.scope(), id.collection());
     retval.push_back(jsonify(keyspace));
     if (!id.key().empty()) {
         retval.push_back(jsonify(id.key()));
@@ -833,7 +834,7 @@ make_kv_txdata(std::optional<transaction_get_result> doc = std::nullopt)
 }
 
 void
-attempt_context_impl::get_with_query(const couchbase::document_id& id, Callback&& cb)
+attempt_context_impl::get_with_query(const couchbase::document_id& id, bool optional, Callback&& cb)
 {
     cache_error_async(std::move(cb), [&] {
         auto params = make_params(id, {});
@@ -845,7 +846,7 @@ attempt_context_impl::get_with_query(const couchbase::document_id& id, Callback&
                           make_kv_txdata(),
                           STAGE_QUERY_KV_GET,
                           true,
-                          [this, id, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
+                          [this, id, optional, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
                               if (resp.ctx.ec == error::key_value_errc::document_not_found) {
                                   return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>());
                               }
@@ -864,6 +865,16 @@ attempt_context_impl::get_with_query(const couchbase::document_id& id, Callback&
                                   } catch (const std::exception& e) {
                                       // TODO: unsure what to do here, but this is pretty fatal, so
                                       return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, e.what()));
+                                  }
+                              }
+                              // for get_optional.   <sigh>
+                              if (optional) {
+                                  try {
+                                      std::rethrow_exception(err);
+                                  } catch (const query_document_not_found&) {
+                                      return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>());
+                                  } catch (...) {
+                                      return op_completed_with_error(std::move(cb), std::current_exception());
                                   }
                               }
                               return op_completed_with_error(std::move(cb), err);
@@ -1007,7 +1018,7 @@ attempt_context_impl::commit_with_query(VoidCallback&& cb)
       params,
       make_kv_txdata(std::nullopt),
       STAGE_QUERY_COMMIT,
-      false,
+      true,
       [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
           is_done_ = true;
           if (err) {
@@ -1043,7 +1054,7 @@ attempt_context_impl::rollback_with_query(VoidCallback&& cb)
                params,
                make_kv_txdata(std::nullopt),
                STAGE_QUERY_ROLLBACK,
-               false,
+               true,
                [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
                    is_done_ = true;
                    if (err) {

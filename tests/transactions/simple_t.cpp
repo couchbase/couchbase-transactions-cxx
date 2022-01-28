@@ -136,6 +136,42 @@ TEST(SimpleTransactions, CanUseJsonStringAsContent)
     });
     ASSERT_EQ(content, TransactionsTestEnvironment::get_doc(id).content_as<std::string>());
 }
+TEST(SimpleTransactions, QueryErrorCanBeHandled)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    txns.run([&](attempt_context& ctx) {
+        // the EXPECT_THROW will eat the exception, as long as there is one of the correct type.
+        EXPECT_THROW(ctx.query("wont parse"), query_parsing_failure);
+        auto res = ctx.query("Select 'Yo' as greeting");
+        EXPECT_EQ(1, res.rows.size());
+    });
+}
+
+TEST(SimpleTransactions, UnhandledQueryErrorFailsTxn)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    ASSERT_THROW(
+      {
+          txns.run([&](attempt_context& ctx) {
+              ctx.query("wont parse");
+              ctx.query("Select * from `default` limit 1");
+          });
+      },
+      transaction_exception);
+}
+
+TEST(SimpleTransactions, QueryModeGetOptional)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, content.dump()));
+    auto query = fmt::format("SELECT * FROM `{}` USE KEYS '{}'", id.bucket(), id.key());
+    txns.run([&](attempt_context& ctx) {
+        ctx.query(query);
+        auto doc = ctx.get_optional(id);
+        ASSERT_TRUE(doc);
+    });
+}
 
 TEST(SimpleTransactions, CanGetReplaceObjects)
 {

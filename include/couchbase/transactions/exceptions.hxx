@@ -43,7 +43,17 @@ namespace transactions
         FEATURE_NOT_AVAILABLE_EXCEPTION,
         TRANSACTION_ABORTED_EXTERNALLY,
         PREVIOUS_OPERATION_FAILED,
-        FORWARD_COMPATIBILITY_FAILURE
+        FORWARD_COMPATIBILITY_FAILURE,
+        PARSING_FAILURE,
+        ILLEGAL_STATE_EXCEPTION,
+        COUCHBASE_EXCEPTION,
+        SERVICE_NOT_AVAILABLE_EXCEPTION,
+        REQUEST_CANCELED_EXCEPTION,
+        CONCURRENT_OPERATIONS_DETECTED_ON_SAME_DOCUMENT,
+        COMMIT_NOT_PERMITTED,
+        ROLLBACK_NOT_PERMITTED,
+        TRANSACTION_ALREADY_ABORTED,
+        TRANSACTION_ALREADY_COMMITTED,
     };
 
     /**
@@ -99,16 +109,23 @@ namespace transactions
     class query_exception : public std::runtime_error
     {
       public:
-        query_exception(const std::string& what)
+        query_exception(const std::string& what, external_exception cause = COUCHBASE_EXCEPTION)
           : std::runtime_error(what)
         {
         }
+        external_exception cause() const
+        {
+            return cause_;
+        }
+
+      private:
+        external_exception cause_;
     };
     class query_document_not_found : public query_exception
     {
       public:
         query_document_not_found(const std::string& what)
-          : query_exception(what)
+          : query_exception(what, DOCUMENT_NOT_FOUND_EXCEPTION)
         {
         }
     };
@@ -116,7 +133,7 @@ namespace transactions
     {
       public:
         query_document_exists(const std::string& what)
-          : query_exception(what)
+          : query_exception(what, DOCUMENT_EXISTS_EXCEPTION)
         {
         }
     };
@@ -141,6 +158,14 @@ namespace transactions
       public:
         query_attempt_expired(const std::string& what)
           : query_exception(what)
+        {
+        }
+    };
+    class query_parsing_failure : public query_exception
+    {
+      public:
+        query_parsing_failure(const std::string& what)
+          : query_exception(what, PARSING_FAILURE)
         {
         }
     };
