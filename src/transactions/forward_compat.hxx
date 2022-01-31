@@ -120,7 +120,7 @@ namespace transactions
     struct forward_compat_supported {
         uint32_t protocol_major = 2;
         uint32_t protocol_minor = 0;
-        std::list<std::string> extensions{ "TI", "MO", "BM", "RC", "UA", "BF3787", "BF3791" };
+        std::list<std::string> extensions{ "TI", "MO", "BM", "SD", "BF3787", "BF3705", "BF3838", "RC", "UA", "BF3791" };
     };
 
     struct forward_compat_requirement {

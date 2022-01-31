@@ -42,6 +42,8 @@ namespace transactions
     static const std::string ATR_FIELD_PER_DOC_COLLECTION = "col";
     static const std::string ATR_FIELD_TRANSACTION_ID = "tid";
     static const std::string ATR_FIELD_FORWARD_COMPAT = "fc";
+    static const std::string ATR_FIELD_DURABILITY_LEVEL = "d";
+    static const std::string ATR_FIELD_PREVENT_COLLLISION = "p";
 
     // Fields inside regular docs that are part of a transaction
     static const std::string TRANSACTION_INTERFACE_PREFIX_ONLY = "txn";

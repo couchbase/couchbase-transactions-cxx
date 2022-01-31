@@ -379,7 +379,7 @@ namespace transactions
         template<typename Handler>
         void check_if_done(Handler& cb);
 
-        void atr_commit();
+        void atr_commit(bool ambiguity_resolution_mode);
 
         void atr_commit_ambiguity_resolution();
 

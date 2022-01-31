@@ -1070,7 +1070,7 @@ attempt_context_impl::rollback_with_query(VoidCallback&& cb)
                });
 }
 void
-attempt_context_impl::atr_commit()
+attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
 {
     try {
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
@@ -1082,6 +1082,7 @@ attempt_context_impl::atr_commit()
                            prefix + ATR_FIELD_STATUS,
                            jsonify(attempt_state_name(attempt_state::COMMITTED)));
         req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, false, true, prefix + ATR_FIELD_START_COMMIT, mutate_in_macro::CAS);
+        req.specs.add_spec(protocol::subdoc_opcode::dict_add, true, false, false, prefix + ATR_FIELD_PREVENT_COLLLISION, jsonify(0));
         wrap_durable_request(req, overall_.config());
         auto ec = error_if_expired_and_not_in_overtime(STAGE_ATR_COMMIT, {});
         if (ec) {
@@ -1107,28 +1108,70 @@ attempt_context_impl::atr_commit()
     } catch (const client_error& e) {
         error_class ec = e.ec();
         switch (ec) {
-            case FAIL_EXPIRY:
+            case FAIL_EXPIRY: {
                 expiry_overtime_mode_ = true;
-                throw transaction_operation_failed(ec, e.what()).expired();
+                auto out = transaction_operation_failed(ec, e.what()).no_rollback();
+                if (ambiguity_resolution_mode) {
+                    out.ambiguous();
+                } else {
+                    out.expired();
+                }
+                throw out;
+            }
             case FAIL_AMBIGUOUS:
                 debug("atr_commit got FAIL_AMBIGUOUS, resolving ambiguity...");
-                try {
-                    return retry_op<void>([&]() { return atr_commit_ambiguity_resolution(); });
-                } catch (const retry_atr_commit& e) {
-                    debug("ambiguity resolution will retry atr_commit");
-                    throw retry_operation(e.what());
-                }
+                std::this_thread::sleep_for(DEFAULT_RETRY_OP_EXP_DELAY);
+                return atr_commit(true);
             case FAIL_TRANSIENT:
-                throw transaction_operation_failed(ec, e.what()).retry();
-            case FAIL_HARD:
-                throw transaction_operation_failed(ec, e.what()).no_rollback();
-            case FAIL_DOC_NOT_FOUND:
-            case FAIL_PATH_NOT_FOUND:
-            case FAIL_ATR_FULL:
-                throw transaction_operation_failed(ec, e.what()).no_rollback();
-            default:
-                error("failed to commit transaction {}, attempt {}, with error {}", transaction_id(), id(), e.what());
-                throw transaction_operation_failed(ec, e.what());
+                std::this_thread::sleep_for(DEFAULT_RETRY_OP_EXP_DELAY);
+                return atr_commit(ambiguity_resolution_mode);
+            case FAIL_PATH_ALREADY_EXISTS:
+                // Need retry_op as atr_commit_ambiguity_resolution can throw retry_operation
+                return retry_op<void>([&]() { return atr_commit_ambiguity_resolution(); });
+            case FAIL_HARD: {
+                auto out = transaction_operation_failed(ec, e.what()).no_rollback();
+                if (ambiguity_resolution_mode) {
+                    out.ambiguous();
+                }
+                throw out;
+            }
+            case FAIL_DOC_NOT_FOUND: {
+                auto out =
+                  transaction_operation_failed(ec, e.what()).cause(external_exception::ACTIVE_TRANSACTION_RECORD_NOT_FOUND).no_rollback();
+                if (ambiguity_resolution_mode) {
+                    out.ambiguous();
+                }
+                throw out;
+            }
+            case FAIL_PATH_NOT_FOUND: {
+                auto out = transaction_operation_failed(ec, e.what())
+                             .cause(external_exception::ACTIVE_TRANSACTION_RECORD_ENTRY_NOT_FOUND)
+                             .no_rollback();
+                if (ambiguity_resolution_mode) {
+                    out.ambiguous();
+                }
+                throw out;
+            }
+            case FAIL_ATR_FULL: {
+                auto out =
+                  transaction_operation_failed(ec, e.what()).cause(external_exception::ACTIVE_TRANSACTION_RECORD_FULL).no_rollback();
+                if (ambiguity_resolution_mode) {
+                    out.ambiguous();
+                }
+                throw out;
+            }
+            default: {
+                error("failed to commit transaction {}, attempt {}, ambiguity_resolution_mode {}, with error {}",
+                      transaction_id(),
+                      id(),
+                      ambiguity_resolution_mode,
+                      e.what());
+                auto out = transaction_operation_failed(ec, e.what()).no_rollback();
+                if (ambiguity_resolution_mode) {
+                    out.ambiguous();
+                }
+                throw out;
+            }
         }
     }
 }
@@ -1154,33 +1197,36 @@ attempt_context_impl::atr_commit_ambiguity_resolution()
             barrier->set_value(result::create_from_subdoc_response(resp));
         });
         auto res = wrap_operation_future(f);
-        auto atr_status = attempt_state_value(res.values[0].content_as<std::string>());
+        auto atr_status_raw = res.values[0].content_as<std::string>();
+        debug("atr_commit_ambiguity_resolution read atr state {}", atr_status_raw);
+        auto atr_status = attempt_state_value(atr_status_raw);
         switch (atr_status) {
-            case attempt_state::COMPLETED:
+            case attempt_state::COMMITTED:
                 return;
             case attempt_state::ABORTED:
-            case attempt_state::ROLLED_BACK:
-                // rolled back by another process?
-                throw transaction_operation_failed(FAIL_OTHER, "transaction rolled back externally").no_rollback();
+                // aborted by another process?
+                throw transaction_operation_failed(FAIL_OTHER, "transaction aborted externally").retry();
             default:
-                // still pending - so we can safely retry
-                throw retry_atr_commit("atr still pending, retry atr_commit");
+                throw transaction_operation_failed(FAIL_OTHER, "unexpected state found on ATR ambiguity resolution")
+                  .cause(ILLEGAL_STATE_EXCEPTION)
+                  .no_rollback();
         }
     } catch (const client_error& e) {
         error_class ec = e.ec();
         switch (ec) {
             case FAIL_EXPIRY:
-                expiry_overtime_mode_ = true;
                 throw transaction_operation_failed(ec, e.what()).no_rollback().ambiguous();
             case FAIL_HARD:
-                throw transaction_operation_failed(ec, e.what()).no_rollback();
+                throw transaction_operation_failed(ec, e.what()).no_rollback().ambiguous();
             case FAIL_TRANSIENT:
             case FAIL_OTHER:
                 throw retry_operation(e.what());
             case FAIL_PATH_NOT_FOUND:
-                throw transaction_operation_failed(FAIL_OTHER, "transaction rolled back externally").no_rollback();
+                throw transaction_operation_failed(ec, e.what()).cause(ACTIVE_TRANSACTION_RECORD_ENTRY_NOT_FOUND).no_rollback().ambiguous();
+            case FAIL_DOC_NOT_FOUND:
+                throw transaction_operation_failed(ec, e.what()).cause(ACTIVE_TRANSACTION_RECORD_NOT_FOUND).no_rollback().ambiguous();
             default:
-                throw transaction_operation_failed(ec, e.what()).no_rollback();
+                throw transaction_operation_failed(ec, e.what()).no_rollback().ambiguous();
         }
     }
 }
@@ -1264,7 +1310,7 @@ attempt_context_impl::commit()
             throw transaction_operation_failed(FAIL_EXPIRY, "transaction expired").expired();
         }
         if (atr_id_ && !atr_id_->key().empty() && !is_done_) {
-            retry_op_exp<void>([&]() { atr_commit(); });
+            retry_op_exp<void>([&]() { atr_commit(false); });
             staged_mutations_->commit(*this);
             atr_complete();
             is_done_ = true;
