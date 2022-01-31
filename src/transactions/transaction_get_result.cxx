@@ -61,10 +61,10 @@ transaction_get_result::create_from(const couchbase::operations::lookup_in_respo
         atr_bucket_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[4].value);
     }
     if (resp.fields[5].status == protocol::status::success) {
-        atr_collection_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[5].value);
+        atr_scope_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[5].value);
     }
     if (resp.fields[6].status == protocol::status::success) {
-        atr_scope_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[6].value);
+        atr_collection_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[6].value);
     }
 
     if (resp.fields[7].status == protocol::status::success) {
@@ -158,42 +158,39 @@ transaction_get_result::create_from(const couchbase::document_id& id, const resu
         atr_bucket_name = res.values[4].content_as<std::string>();
     }
     if (res.values[5].has_value()) {
-        auto name = res.values[5].content_as<std::string>();
-        auto splits = split_string(name, '.');
-        if (splits.size() < 2) {
-            throw std::runtime_error("couldn't parse atr collection");
-        }
-        atr_scope_name = splits[0];
-        atr_collection_name = splits[1];
+        atr_scope_name = res.values[5].content_as<std::string>();
     }
     if (res.values[6].has_value()) {
-        auto restore = res.values[6].content_as<nlohmann::json>();
+        atr_collection_name = res.values[6].content_as<std::string>();
+    }
+    if (res.values[7].has_value()) {
+        auto restore = res.values[7].content_as<nlohmann::json>();
         cas_pre_txn = restore["CAS"].get<std::string>();
         // only present in 6.5+
         revid_pre_txn = restore["revid"].get<std::string>();
         exptime_pre_txn = restore["exptime"].get<uint32_t>();
     }
-    if (res.values[7].has_value()) {
-        op = res.values[7].content_as<std::string>();
-    }
     if (res.values[8].has_value()) {
-        auto doc = res.values[8].content_as<nlohmann::json>();
+        op = res.values[8].content_as<std::string>();
+    }
+    if (res.values[9].has_value()) {
+        auto doc = res.values[9].content_as<nlohmann::json>();
         cas_from_doc = doc["CAS"].get<std::string>();
         // only present in 6.5+
         revid_from_doc = doc["revid"].get<std::string>();
         exptime_from_doc = doc["exptime"].get<uint32_t>();
         crc32_from_doc = doc["value_crc32c"].get<std::string>();
     }
-    if (res.values[9].has_value()) {
-        crc32_of_staging = res.values[9].content_as<std::string>();
-    }
     if (res.values[10].has_value()) {
-        forward_compat = res.values[10].content_as<nlohmann::json>();
+        crc32_of_staging = res.values[10].content_as<std::string>();
+    }
+    if (res.values[11].has_value()) {
+        forward_compat = res.values[11].content_as<nlohmann::json>();
     } else {
         forward_compat = nlohmann::json::object();
     }
-    if (res.values[11].has_value()) {
-        content = res.values[11].content_as<nlohmann::json>().dump();
+    if (res.values[12].has_value()) {
+        content = res.values[12].content_as<nlohmann::json>().dump();
     }
 
     transaction_links links(atr_id,
