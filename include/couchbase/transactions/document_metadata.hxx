@@ -48,6 +48,16 @@ namespace transactions
         {
         }
 
+        /** @internal
+         * @brief Create document metadata, used in responses from query server.
+         *
+         * @param cas string representation of document cas.
+         */
+        document_metadata(std::string cas)
+          : cas_(std::move(cas))
+        {
+        }
+
         /**
          * @brief Get CAS for the document
          *

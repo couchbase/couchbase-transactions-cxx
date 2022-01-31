@@ -83,6 +83,52 @@ namespace transactions
         {
         }
 
+        /** @brief create links from query result
+         *
+         * @param json the returned row object from a txn query response.
+         */
+        explicit transaction_links(const nlohmann::json& json)
+        {
+            if (json.contains("txnMeta")) {
+                for (const auto& item : json["txnMeta"].items()) {
+                    if (item.key() == "atmpt") {
+                        staged_attempt_id_ = item.value().get<std::string>();
+                    }
+                    if (item.key() == "txn") {
+                        staged_transaction_id_ = item.value().get<std::string>();
+                    }
+                    if (item.key() == "atr") {
+                        atr_id_ = item.value()["key"].get<std::string>();
+                        atr_bucket_name_ = item.value()["bkt"].get<std::string>();
+                        atr_scope_name_ = item.value()["scp"].get<std::string>();
+                        atr_collection_name_ = item.value()["coll"].get<std::string>();
+                    }
+                }
+            }
+        }
+
+        void append_to_json(nlohmann::json& obj) const
+        {
+            if (staged_attempt_id_) {
+                obj["txnMeta"]["atmpt"] = staged_attempt_id_.value();
+            }
+            if (staged_transaction_id_) {
+                obj["txnMeta"]["txn"] = staged_transaction_id_.value();
+            }
+            if (atr_id_) {
+                obj["txnMeta"]["atr"]["key"] = atr_id_.value();
+            }
+            if (atr_bucket_name_) {
+                obj["txnMeta"]["atr"]["bkt"] = atr_bucket_name_.value();
+            }
+            if (atr_scope_name_) {
+                obj["txnMeta"]["atr"]["scp"] = atr_scope_name_.value();
+            }
+            if (atr_collection_name_) {
+                obj["txnMeta"]["atr"]["coll"] = atr_collection_name_.value();
+            }
+        }
+
         /**
          * Note this doesn't guarantee an active transaction, as it may have expired and need rolling back.
          */

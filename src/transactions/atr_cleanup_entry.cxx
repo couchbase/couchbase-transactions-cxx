@@ -170,6 +170,7 @@ tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
             req.specs.add_spec(protocol::subdoc_opcode::get, true, ATTEMPT_ID);
             req.specs.add_spec(protocol::subdoc_opcode::get, true, STAGED_DATA);
             req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_BUCKET_NAME);
+            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_SCOPE_NAME);
             req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_COLL_NAME);
             req.specs.add_spec(protocol::subdoc_opcode::get, true, TRANSACTION_RESTORE_PREFIX_ONLY);
             req.specs.add_spec(protocol::subdoc_opcode::get, true, TYPE);

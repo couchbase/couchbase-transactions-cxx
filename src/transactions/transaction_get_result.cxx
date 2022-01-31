@@ -61,42 +61,40 @@ transaction_get_result::create_from(const couchbase::operations::lookup_in_respo
         atr_bucket_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[4].value);
     }
     if (resp.fields[5].status == protocol::status::success) {
-        auto name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[5].value);
-        auto splits = split_string(name, '.');
-        if (splits.size() < 2) {
-            throw std::runtime_error("couldn't parse atr collection");
-        }
-        atr_scope_name = splits[0];
-        atr_collection_name = splits[1];
+        atr_collection_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[5].value);
     }
     if (resp.fields[6].status == protocol::status::success) {
-        auto restore = nlohmann::json::parse(resp.fields[6].value);
+        atr_scope_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[6].value);
+    }
+
+    if (resp.fields[7].status == protocol::status::success) {
+        auto restore = nlohmann::json::parse(resp.fields[7].value);
         cas_pre_txn = restore["CAS"].get<std::string>();
         // only present in 6.5+
         revid_pre_txn = restore["revid"].get<std::string>();
         exptime_pre_txn = restore["exptime"].get<uint32_t>();
     }
-    if (resp.fields[7].status == protocol::status::success) {
-        op = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[7].value);
-    }
     if (resp.fields[8].status == protocol::status::success) {
-        auto doc = nlohmann::json::parse(resp.fields[8].value);
+        op = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[8].value);
+    }
+    if (resp.fields[9].status == protocol::status::success) {
+        auto doc = nlohmann::json::parse(resp.fields[9].value);
         cas_from_doc = doc["CAS"].get<std::string>();
         // only present in 6.5+
         revid_from_doc = doc["revid"].get<std::string>();
         exptime_from_doc = doc["exptime"].get<uint32_t>();
         crc32_from_doc = doc["value_crc32c"].get<std::string>();
     }
-    if (resp.fields[9].status == protocol::status::success) {
-        crc32_of_staging = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[9].value);
-    }
     if (resp.fields[10].status == protocol::status::success) {
-        forward_compat = nlohmann::json::parse(resp.fields[10].value);
+        crc32_of_staging = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[10].value);
+    }
+    if (resp.fields[11].status == protocol::status::success) {
+        forward_compat = nlohmann::json::parse(resp.fields[11].value);
     } else {
         forward_compat = nlohmann::json::object();
     }
-    if (resp.fields[11].status == protocol::status::success) {
-        content = resp.fields[11].value;
+    if (resp.fields[12].status == protocol::status::success) {
+        content = resp.fields[12].value;
     }
 
     transaction_links links(atr_id,

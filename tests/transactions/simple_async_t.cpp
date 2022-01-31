@@ -469,6 +469,68 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVGet)
     ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>()["some"].get<std::string>(), "thing");
 }
 
+TEST(SimpleQueryAsyncTxns, AsyncKVInsert)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    auto f = barrier->get_future();
+    std::atomic<bool> insert_called = false;
+    txns.run(
+      [&, barrier](async_attempt_context& ctx) {
+          ctx.query("Select 'Yo' as greeting",
+                    [&, barrier](std::exception_ptr err, std::optional<couchbase::operations::query_response> resp) {
+                        if (!err) {
+                            ctx.insert(id, async_content.dump(), [&](std::exception_ptr err, std::optional<transaction_get_result> res) {
+                                insert_called = !err;
+                            });
+                        }
+                    });
+      },
+      [&, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
+          txn_completed(err, res, barrier);
+          EXPECT_FALSE(err);
+          EXPECT_TRUE(insert_called.load());
+      });
+    f.get();
+    ASSERT_TRUE(insert_called.load());
+    ASSERT_EQ(TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>(), async_content);
+}
+
+TEST(SimpleQueryAsyncTxns, RollbackAsyncKVInsert)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    auto f = barrier->get_future();
+    std::atomic<bool> insert_called = false;
+    txns.run(
+      [&, barrier](async_attempt_context& ctx) {
+          ctx.query("Select 'Yo' as greeting",
+                    [&, barrier](std::exception_ptr err, std::optional<couchbase::operations::query_response> resp) {
+                        if (!err) {
+                            ctx.insert(id, async_content.dump(), [&](std::exception_ptr err, std::optional<transaction_get_result> res) {
+                                insert_called = !err;
+                                // now roll it back
+                                throw 3;
+                            });
+                        }
+                    });
+      },
+      [&, barrier](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
+          txn_completed(err, res, barrier);
+          EXPECT_TRUE(err);
+          EXPECT_TRUE(insert_called.load());
+      });
+    ASSERT_THROW(f.get(), transaction_exception);
+    ASSERT_TRUE(insert_called.load());
+    try {
+        TransactionsTestEnvironment::get_doc(id);
+    } catch (const client_error& e) {
+        ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+    }
+}
+
 TEST(SimpleQueryAsyncTxns, AsyncKVReplace)
 {
     auto txns = TransactionsTestEnvironment::get_transactions();

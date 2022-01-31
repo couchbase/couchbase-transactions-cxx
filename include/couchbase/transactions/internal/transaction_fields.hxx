@@ -58,6 +58,7 @@ namespace transactions
     // 7.0 and above: write them to the system collection, and migrate them over
     // Adding scope and collection metadata fields to try and future proof
     static const std::string ATR_COLL_NAME = TRANSACTION_INTERFACE_PREFIX + "atr.coll";
+    static const std::string ATR_SCOPE_NAME = TRANSACTION_INTERFACE_PREFIX + "atr.scp";
     static const std::string STAGED_DATA = TRANSACTION_INTERFACE_PREFIX + "op.stgd";
     static const std::string TYPE = TRANSACTION_INTERFACE_PREFIX + "op.type";
     static const std::string CRC32_OF_STAGING = TRANSACTION_INTERFACE_PREFIX + "op.crc32";

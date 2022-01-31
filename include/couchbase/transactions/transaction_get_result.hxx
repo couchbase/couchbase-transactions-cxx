@@ -70,6 +70,24 @@ namespace transactions
           , metadata_(std::move(metadata))
         {
         }
+        /** @internal */
+        transaction_get_result(const couchbase::document_id& id, const nlohmann::json& json)
+          : id_(id)
+          , links_(json)
+          , metadata_(json.contains("scas") ? json["scas"].get<std::string>() : "")
+        {
+            if (json.contains("cas")) {
+                cas_ = json["cas"].get<uint64_t>();
+            }
+            if (json.contains("scas")) {
+                if (!cas_) {
+                    cas_ = strtoull(json["scas"].get<std::string>().c_str(), nullptr, 10);
+                }
+            }
+            if (json.contains("doc")) {
+                value_ = json["doc"].dump();
+            }
+        }
 
         /** @internal */
         template<typename Content>

@@ -212,8 +212,8 @@ attempt_context_impl::create_staging_request(const transaction_get_result& docum
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATTEMPT_ID, jsonify(id()));
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_ID, jsonify(atr_id()));
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_BUCKET_NAME, jsonify(document.id().bucket()));
-    req.specs.add_spec(
-      protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_COLL_NAME, jsonify(collection_spec_from_id(atr_id_.value())));
+    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_SCOPE_NAME, jsonify(atr_id_->scope()));
+    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_COLL_NAME, jsonify(atr_id_->collection()));
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, true, CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C);
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, TYPE, jsonify(type));
 
@@ -827,8 +827,7 @@ make_kv_txdata(std::optional<transaction_get_result> doc = std::nullopt)
     nlohmann::json retval{ { "kv", true } };
     if (doc) {
         retval["scas"] = fmt::format("{}", doc->cas());
-        // TODO: once kv_get_with_query actually returns a doc with txnMeta,
-        //   add that here as well.
+        doc->links().append_to_json(retval);
     }
     return retval;
 }
@@ -859,8 +858,7 @@ attempt_context_impl::get_with_query(const couchbase::document_id& id, bool opti
                                       }
                                       trace("get_with_query got: {}", resp.rows.front());
                                       auto obj = nlohmann::json::parse(resp.rows.front());
-                                      transaction_get_result doc(
-                                        id, obj["doc"].get<nlohmann::json>().dump(), std::stoull(obj["scas"].get<std::string>()), {}, {});
+                                      transaction_get_result doc(id, obj);
                                       return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>(doc));
                                   } catch (const std::exception& e) {
                                       // TODO: unsure what to do here, but this is pretty fatal, so
@@ -914,8 +912,7 @@ attempt_context_impl::insert_raw_with_query(const couchbase::document_id& id, co
                               try {
                                   trace("insert_raw_with_query got: {}", resp.rows.front());
                                   auto obj = nlohmann::json::parse(resp.rows.front());
-                                  transaction_get_result doc(
-                                    id, obj["doc"].get<nlohmann::json>().dump(), std::stoull(obj["scas"].get<std::string>()), {}, {});
+                                  transaction_get_result doc(id, obj);
                                   return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>(doc));
                               } catch (const std::exception& e) {
                                   // TODO: unsure what to do here, but this is pretty fatal, so
@@ -959,8 +956,7 @@ attempt_context_impl::replace_raw_with_query(const transaction_get_result& docum
               try {
                   trace("replace_raw_with_query got: {}", resp.rows.front());
                   auto obj = nlohmann::json::parse(resp.rows.front());
-                  transaction_get_result doc(
-                    id, obj["doc"].get<nlohmann::json>().dump(), std::stoull(obj["scas"].get<std::string>()), {}, {});
+                  transaction_get_result doc(id, obj);
                   return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>(doc));
               } catch (const std::exception& e) {
                   // TODO: unsure what to do here, but this is pretty fatal, so
@@ -1783,6 +1779,7 @@ attempt_context_impl::get_doc(const couchbase::document_id& id,
     req.specs.add_spec(protocol::subdoc_opcode::get, true, ATTEMPT_ID);
     req.specs.add_spec(protocol::subdoc_opcode::get, true, STAGED_DATA);
     req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_BUCKET_NAME);
+    req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_SCOPE_NAME);
     req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_COLL_NAME);
     req.specs.add_spec(protocol::subdoc_opcode::get, true, TRANSACTION_RESTORE_PREFIX_ONLY);
     req.specs.add_spec(protocol::subdoc_opcode::get, true, TYPE);
@@ -1959,7 +1956,8 @@ attempt_context_impl::create_staged_insert(const couchbase::document_id& id,
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_ID, jsonify(atr_id()));
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, STAGED_DATA, content);
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_BUCKET_NAME, jsonify(id.bucket()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_COLL_NAME, jsonify(collection_spec_from_id(id)));
+    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_SCOPE_NAME, jsonify(id.scope()));
+    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_COLL_NAME, jsonify(id.collection()));
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, TYPE, jsonify("insert"));
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, true, CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C);
     req.access_deleted = true;
