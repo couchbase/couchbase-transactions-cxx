@@ -134,6 +134,36 @@ TEST(SimpleAsyncTxns, AsyncRemoveFail)
         ASSERT_TRUE(cb_called.load());
     }
 }
+TEST(SimpleAsyncTxns, RYOWOnInsert)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    std::atomic<bool> cb_called = false;
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
+    txns.run(
+      [&cb_called, id](async_attempt_context& ctx) {
+          ctx.insert(id, async_content, [&ctx, &cb_called, id](std::exception_ptr err, std::optional<transaction_get_result> res) {
+              EXPECT_FALSE(err);
+              EXPECT_TRUE(res);
+              ctx.get(id, [&ctx, &cb_called, id](std::exception_ptr err, std::optional<transaction_get_result> res) {
+                  EXPECT_FALSE(err);
+                  EXPECT_TRUE(res);
+                  EXPECT_EQ(res->content<nlohmann::json>(), async_content);
+                  cb_called = !!res;
+              });
+          });
+      },
+      [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
+          txn_completed(err, res, barrier);
+          EXPECT_FALSE(err);
+          EXPECT_TRUE(res);
+          EXPECT_TRUE(cb_called.load());
+      });
+    f.get();
+    EXPECT_TRUE(cb_called.load());
+}
 
 TEST(SimpleAsyncTxns, AsyncRemove)
 {

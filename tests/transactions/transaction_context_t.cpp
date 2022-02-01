@@ -261,6 +261,26 @@ TEST(SimpleTxnContext, CanGetReplaceErrors)
     EXPECT_THROW(f.get(), transaction_operation_failed);
     EXPECT_THROW(tx.existing_error(), transaction_operation_failed);
 }
+TEST(SimpleTxnContext, RYOWGetAfterInsert)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto id = TransactionsTestEnvironment::get_document_id();
+
+    transaction_context tx(txns);
+    tx.new_attempt_context();
+    auto logic = [&]() {
+        tx.insert(id, tx_content.dump(), [&](std::exception_ptr err, std::optional<transaction_get_result> res) {
+            EXPECT_FALSE(err);
+            EXPECT_TRUE(res);
+            tx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> res) {
+                EXPECT_FALSE(err);
+                EXPECT_EQ(res->content<nlohmann::json>(), tx_content);
+            });
+        });
+    };
+    ASSERT_NO_THROW(simple_txn_wrapper(tx, logic));
+    ASSERT_NO_THROW(tx.existing_error());
+}
 
 TEST(SimpleTxnContext, CanGetGetErrors)
 {
