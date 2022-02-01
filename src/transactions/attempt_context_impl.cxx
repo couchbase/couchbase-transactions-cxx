@@ -382,8 +382,7 @@ attempt_context_impl::insert_raw(const couchbase::document_id& id, const std::st
                     return op_completed_with_error(cb, *err);
                 }
                 uint64_t cas = 0;
-                exp_delay delay(std::chrono::milliseconds(5), std::chrono::milliseconds(300), overall_.config().expiration_time());
-                create_staged_insert(id, content, cas, delay, cb);
+                create_staged_insert(id, content, cas, cb);
             });
         } catch (const std::exception& e) {
             return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, e.what()));
@@ -1881,12 +1880,11 @@ attempt_context_impl::get_doc(const couchbase::document_id& id,
     }
 }
 
-template<typename Handler, typename Delay>
+template<typename Handler>
 void
 attempt_context_impl::create_staged_insert_error_handler(const couchbase::document_id& id,
                                                          const std::string& content,
                                                          uint64_t cas,
-                                                         Delay&& delay,
                                                          Handler&& cb,
                                                          error_class ec,
                                                          const std::string& message)
@@ -1903,8 +1901,8 @@ attempt_context_impl::create_staged_insert_error_handler(const couchbase::docume
             return op_completed_with_error(cb, transaction_operation_failed(ec, "transient error in insert").retry());
         case FAIL_AMBIGUOUS:
             debug("FAIL_AMBIGUOUS in create_staged_insert, retrying");
-            delay();
-            return create_staged_insert(id, content, cas, delay, cb);
+            std::this_thread::sleep_for(DEFAULT_RETRY_OP_EXP_DELAY);
+            return create_staged_insert(id, content, cas, cb);
         case FAIL_OTHER:
             return op_completed_with_error(cb, transaction_operation_failed(ec, "error in create_staged_insert"));
         case FAIL_HARD:
@@ -1944,7 +1942,7 @@ attempt_context_impl::create_staged_insert_error_handler(const couchbase::docume
                 return error_handler(*err);
             }
             return get_doc(
-              id, [this, id, content, cb, error_handler, delay](std::optional<error_class> ec, std::optional<transaction_get_result> doc) {
+              id, [this, id, content, cb, error_handler](std::optional<error_class> ec, std::optional<transaction_get_result> doc) {
                   if (!ec) {
                       if (doc) {
                           debug("document {} exists, is_in_transaction {}, is_deleted {} ",
@@ -1958,8 +1956,8 @@ attempt_context_impl::create_staged_insert_error_handler(const couchbase::docume
                           if (!doc->links().is_document_in_transaction() && doc->links().is_deleted()) {
                               // it is just a deleted doc, so we are ok.  Let's try again, but with the cas
                               debug("create staged insert found existing deleted doc, retrying with cas {}", doc->cas());
-                              delay();
-                              return create_staged_insert(id, content, doc->cas(), delay, cb);
+                              std::this_thread::sleep_for(DEFAULT_RETRY_OP_EXP_DELAY);
+                              return create_staged_insert(id, content, doc->cas(), cb);
                           }
                           if (!doc->links().is_document_in_transaction()) {
                               // doc was inserted outside txn elsewhere
@@ -1977,13 +1975,13 @@ attempt_context_impl::create_staged_insert_error_handler(const couchbase::docume
                           check_and_handle_blocking_transactions(
                             *doc,
                             forward_compat_stage::WWC_INSERTING,
-                            [this, id, content, doc, cb, delay](std::optional<transaction_operation_failed> err) {
+                            [this, id, content, doc, cb](std::optional<transaction_operation_failed> err) {
                                 if (err) {
                                     return op_completed_with_error(cb, *err);
                                 }
                                 debug("doc ok to overwrite, retrying create_staged_insert with cas {}", doc->cas());
-                                delay();
-                                return create_staged_insert(id, content, doc->cas(), delay, cb);
+                                std::this_thread::sleep_for(DEFAULT_RETRY_OP_EXP_DELAY);
+                                return create_staged_insert(id, content, doc->cas(), cb);
                             });
                       } else {
                           // no doc now, just retry entire txn
@@ -2003,23 +2001,18 @@ attempt_context_impl::create_staged_insert_error_handler(const couchbase::docume
     }
 }
 
-template<typename Handler, typename Delay>
+template<typename Handler>
 void
-attempt_context_impl::create_staged_insert(const couchbase::document_id& id,
-                                           const std::string& content,
-                                           uint64_t cas,
-                                           Delay&& delay,
-                                           Handler&& cb)
+attempt_context_impl::create_staged_insert(const couchbase::document_id& id, const std::string& content, uint64_t cas, Handler&& cb)
 {
     auto ec = error_if_expired_and_not_in_overtime(STAGE_CREATE_STAGED_INSERT, id.key());
     if (ec) {
-        return create_staged_insert_error_handler(
-          id, content, cas, std::move(delay), cb, *ec, "create_staged_insert expired and not in overtime");
+        return create_staged_insert_error_handler(id, content, cas, cb, *ec, "create_staged_insert expired and not in overtime");
     }
 
     ec = hooks_.before_staged_insert(this, id.key());
     if (ec) {
-        return create_staged_insert_error_handler(id, content, cas, std::move(delay), cb, *ec, "before_staged_insert hook threw error");
+        return create_staged_insert_error_handler(id, content, cas, cb, *ec, "before_staged_insert hook threw error");
     }
     debug("about to insert staged doc {} with cas {}", id, cas);
     couchbase::operations::mutate_in_request req{ id };
@@ -2038,10 +2031,10 @@ attempt_context_impl::create_staged_insert(const couchbase::document_id& id,
     req.store_semantics = cas == 0 ? protocol::mutate_in_request_body::store_semantics_type::insert
                                    : protocol::mutate_in_request_body::store_semantics_type::replace;
     wrap_durable_request(req, overall_.config());
-    overall_.cluster_ref().execute(req, [this, id, content, cas, cb, delay](couchbase::operations::mutate_in_response resp) {
+    overall_.cluster_ref().execute(req, [this, id, content, cas, cb](couchbase::operations::mutate_in_response resp) {
         auto ec = hooks_.after_staged_insert_complete(this, id.key());
         if (ec) {
-            return create_staged_insert_error_handler(id, content, cas, std::move(delay), cb, *ec, "after_staged_insert hook threw error");
+            return create_staged_insert_error_handler(id, content, cas, cb, *ec, "after_staged_insert hook threw error");
         }
         if (!resp.ctx.ec) {
             debug("inserted doc {} CAS={}, {}", id, resp.cas.value, resp.ctx.ec.message());
@@ -2066,7 +2059,7 @@ attempt_context_impl::create_staged_insert(const couchbase::document_id& id,
             return op_completed_with_callback(cb, std::optional<transaction_get_result>(out));
         }
         ec = error_class_from_response(resp);
-        return create_staged_insert_error_handler(id, content, cas, std::move(delay), cb, *ec, resp.ctx.ec.message());
+        return create_staged_insert_error_handler(id, content, cas, cb, *ec, resp.ctx.ec.message());
     });
 }
 
