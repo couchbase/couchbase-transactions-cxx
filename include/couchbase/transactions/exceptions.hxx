@@ -111,6 +111,7 @@ namespace transactions
       public:
         query_exception(const std::string& what, external_exception cause = COUCHBASE_EXCEPTION)
           : std::runtime_error(what)
+          , cause_(cause)
         {
         }
         external_exception cause() const
