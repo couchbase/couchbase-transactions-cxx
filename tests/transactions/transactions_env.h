@@ -17,7 +17,7 @@
 #pragma once
 #include "../../src/transactions/result.hxx"
 #include "../../src/transactions/uid_generator.hxx"
-#include "../../src/transactions/utils.hxx"
+#include "couchbase/transactions/internal/utils.hxx"
 #include <couchbase/transactions.hxx>
 
 #include <couchbase/cluster.hxx>

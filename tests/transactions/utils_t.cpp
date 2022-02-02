@@ -20,8 +20,8 @@
 #include <limits>
 #include <thread>
 
-#include "../../src/transactions/exceptions_internal.hxx"
-#include "../../src/transactions/utils.hxx"
+#include "couchbase/transactions/internal/exceptions_internal.hxx"
+#include "couchbase/transactions/internal/utils.hxx"
 #include "transactions_env.h"
 
 using namespace couchbase::transactions;

@@ -15,11 +15,11 @@
  */
 
 #include "attempt_context_impl.hxx"
+#include "couchbase/transactions/internal/exceptions_internal.hxx"
 #include "couchbase/transactions/internal/logging.hxx"
 #include "couchbase/transactions/internal/transaction_context.hxx"
 #include "couchbase/transactions/internal/transactions_cleanup.hxx"
-#include "exceptions_internal.hxx"
-#include "utils.hxx"
+#include "couchbase/transactions/internal/utils.hxx"
 #include <couchbase/transactions.hxx>
 
 namespace tx = couchbase::transactions;

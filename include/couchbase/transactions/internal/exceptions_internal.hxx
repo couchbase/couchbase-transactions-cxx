@@ -16,8 +16,8 @@
 
 #pragma once
 
+#include "../../../../src/transactions/result.hxx"
 #include "couchbase/transactions/internal/transaction_context.hxx"
-#include "result.hxx"
 #include <couchbase/transactions/exceptions.hxx>
 
 namespace couchbase
@@ -205,7 +205,7 @@ namespace transactions
             // just retain the first.
             assert(errors.size() > 0);
             auto error_to_throw = *errors.begin();
-            for (auto& ex: errors) {
+            for (auto& ex : errors) {
                 if (!ex.retry_) {
                     error_to_throw = ex;
                 }
@@ -317,7 +317,6 @@ namespace transactions
         bool rollback_;
         final_error to_raise_;
         external_exception cause_;
-
     };
 
     namespace internal

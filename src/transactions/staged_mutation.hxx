@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "attempt_context_impl.hxx"
-#include "utils.hxx"
+#include "couchbase/transactions/internal/utils.hxx"
 #include <couchbase/transactions/transaction_get_result.hxx>
 
 namespace couchbase

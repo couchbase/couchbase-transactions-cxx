@@ -30,9 +30,9 @@
 
 #include "attempt_context_testing_hooks.hxx"
 #include "couchbase/transactions/internal/atr_cleanup_entry.hxx"
+#include "couchbase/transactions/internal/exceptions_internal.hxx"
 #include "couchbase/transactions/internal/transaction_context.hxx"
 #include "error_list.hxx"
-#include "exceptions_internal.hxx"
 #include "waitable_op_list.hxx"
 
 namespace couchbase

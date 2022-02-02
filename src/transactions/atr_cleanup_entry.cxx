@@ -21,8 +21,8 @@
 #include "cleanup_testing_hooks.hxx"
 #include "couchbase/transactions/internal/logging.hxx"
 #include "couchbase/transactions/internal/transactions_cleanup.hxx"
+#include "couchbase/transactions/internal/utils.hxx"
 #include "forward_compat.hxx"
-#include "utils.hxx"
 
 #include <optional>
 

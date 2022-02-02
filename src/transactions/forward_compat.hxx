@@ -15,8 +15,8 @@
  */
 #pragma once
 
+#include "couchbase/transactions/internal/exceptions_internal.hxx"
 #include "couchbase/transactions/internal/logging.hxx"
-#include "exceptions_internal.hxx"
 
 #include <chrono>
 #include <couchbase/internal/nlohmann/json.hpp>

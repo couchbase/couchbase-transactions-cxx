@@ -18,11 +18,11 @@
 #include "active_transaction_record.hxx"
 #include "atr_ids.hxx"
 #include "attempt_context_testing_hooks.hxx"
+#include "couchbase/transactions/internal/exceptions_internal.hxx"
 #include "couchbase/transactions/internal/logging.hxx"
-#include "exceptions_internal.hxx"
+#include "couchbase/transactions/internal/utils.hxx"
 #include "forward_compat.hxx"
 #include "staged_mutation.hxx"
-#include "utils.hxx"
 #include <couchbase/transactions/attempt_state.hxx>
 
 namespace couchbase::transactions

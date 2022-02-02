@@ -15,8 +15,8 @@
  */
 
 #include "active_transaction_record.hxx"
-#include "exceptions_internal.hxx"
-#include "utils.hxx"
+#include "couchbase/transactions/internal/exceptions_internal.hxx"
+#include "couchbase/transactions/internal/utils.hxx"
 #include <couchbase/cluster.hxx>
 #include <couchbase/errors.hxx>
 #include <couchbase/operations.hxx>

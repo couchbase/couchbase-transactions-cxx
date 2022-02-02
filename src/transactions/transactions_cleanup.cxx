@@ -30,8 +30,8 @@
 #include "couchbase/transactions/internal/logging.hxx"
 #include "couchbase/transactions/internal/transaction_fields.hxx"
 #include "couchbase/transactions/internal/transactions_cleanup.hxx"
+#include "couchbase/transactions/internal/utils.hxx"
 #include "uid_generator.hxx"
-#include "utils.hxx"
 
 namespace tx = couchbase::transactions;
 

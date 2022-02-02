@@ -23,7 +23,7 @@
 #include <couchbase/transactions.hxx>
 #include <spdlog/spdlog.h>
 
-#include "../src/transactions/utils.hxx"
+#include "couchbase/transactions/internal/utils.hxx"
 
 using namespace std;
 using namespace couchbase;

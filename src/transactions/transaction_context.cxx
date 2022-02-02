@@ -15,8 +15,8 @@
  */
 
 #include "attempt_context_impl.hxx"
+#include "couchbase/transactions/internal/utils.hxx"
 #include "uid_generator.hxx"
-#include "utils.hxx"
 
 #include <couchbase/transactions/internal/logging.hxx>
 #include <couchbase/transactions/internal/transaction_context.hxx>

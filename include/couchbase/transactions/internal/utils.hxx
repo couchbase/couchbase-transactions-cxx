@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 #pragma once
-#include "exceptions_internal.hxx"
-#include "result.hxx"
+#include "../../../../src/transactions/result.hxx"
+#include "couchbase/transactions/internal/exceptions_internal.hxx"
 #include <chrono>
 #include <couchbase/errors.hxx>
 #include <couchbase/operations.hxx>

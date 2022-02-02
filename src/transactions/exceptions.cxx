@@ -13,8 +13,8 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
+#include "couchbase/transactions/internal/exceptions_internal.hxx"
 #include "couchbase/transactions/internal/transaction_context.hxx"
-#include "exceptions_internal.hxx"
 
 #include <couchbase/errors.hxx>
 #include <couchbase/transactions/exceptions.hxx>

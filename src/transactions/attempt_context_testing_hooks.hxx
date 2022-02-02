@@ -15,7 +15,7 @@
  */
 #pragma once
 
-#include "exceptions_internal.hxx"
+#include "couchbase/transactions/internal/exceptions_internal.hxx"
 #include <functional>
 #include <string>
 

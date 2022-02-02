@@ -26,7 +26,7 @@
 #include <couchbase/transactions/transaction_config.hxx>
 
 #include "couchbase/transactions/internal/atr_entry.hxx"
-#include "utils.hxx"
+#include "couchbase/transactions/internal/utils.hxx"
 
 namespace couchbase
 {
