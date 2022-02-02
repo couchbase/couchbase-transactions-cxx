@@ -27,7 +27,6 @@ class transaction_query_options
     transaction_query_options()
     {
         // set defaults specific to query in transactions.
-        query_req_.scan_consistency = couchbase::operations::query_request::scan_consistency_type::request_plus;
         query_req_.metrics = true;
     }
     transaction_query_options(const couchbase::operations::query_request& req)
@@ -121,6 +120,18 @@ class transaction_query_options
     transaction_query_options& scope_name(const std::string& scope)
     {
         query_req_.scope_name = scope;
+        return *this;
+    }
+
+    transaction_query_options& metrics(bool metrics)
+    {
+        query_req_.metrics = metrics;
+        return *this;
+    }
+
+    transaction_query_options& max_parallelism(uint64_t max)
+    {
+        query_req_.max_parallelism = max;
         return *this;
     }
 
