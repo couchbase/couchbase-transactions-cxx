@@ -129,7 +129,6 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
         lost_attempts_cleanup_log->info("{} cleanup of {} complete", static_cast<void*>(this), bucket_name);
         return;
     }
-    // FOR NOW: default scope and collection for atrs
     auto details = get_active_clients(bucket_name, client_uuid_);
     auto all_atrs = atr_ids::all();
 
@@ -219,11 +218,15 @@ tx::transactions_cleanup::create_client_record(const std::string& bucket_name)
         wrap_durable_request(req, config_);
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
+        auto ec = config_.cleanup_hooks().client_record_before_create(bucket_name);
+        if (ec) {
+            throw client_error(*ec, "client_record_before_create hook raised error");
+        }
         cluster_.execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
             barrier->set_value(result::create_from_subdoc_response(resp));
         });
         wrap_operation_future(f);
-        config_.cleanup_hooks().client_record_before_create(bucket_name);
+
     } catch (const tx::client_error& e) {
         lost_attempts_cleanup_log->trace("{} create_client_record got error {}", static_cast<void*>(this), e.what());
         auto ec = e.ec();
@@ -240,125 +243,140 @@ tx::transactions_cleanup::create_client_record(const std::string& bucket_name)
 const tx::client_record_details
 tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, const std::string& uuid)
 {
-    return retry_op<client_record_details>([&]() -> client_record_details {
-        client_record_details details;
-        // Write our client record, return details.
-        try {
-            auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
-            couchbase::operations::lookup_in_request req{ id };
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, FIELD_RECORDS);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, "$vbucket");
-            wrap_request(req, config_);
-            auto barrier = std::make_shared<std::promise<result>>();
-            auto f = barrier->get_future();
-            cluster_.execute(req, [barrier](couchbase::operations::lookup_in_response resp) {
-                barrier->set_value(result::create_from_subdoc_response(resp));
-            });
-            auto res = wrap_operation_future(f);
-            std::vector<std::string> active_client_uids;
-            auto hlc = res.values[1].content_as<nlohmann::json>();
-            auto now_ms = now_ns_from_vbucket(hlc) / 1000000;
-            details.override_enabled = false;
-            details.override_expires = 0;
-            if (res.values[0].status == subdoc_result::status_type::success) {
-                auto records = res.values[0].content_as<nlohmann::json>();
-                for (auto& r : records.items()) {
-                    if (r.key() == FIELD_OVERRIDE) {
-                        auto overrides = r.value().get<nlohmann::json>();
-                        for (auto& over : overrides.items()) {
-                            if (over.key() == FIELD_OVERRIDE_ENABLED) {
-                                details.override_enabled = over.value().get<bool>();
-                            } else if (over.key() == FIELD_OVERRIDE_EXPIRES) {
-                                details.override_expires = over.value().get<uint64_t>();
-                            }
-                        }
-                    } else if (r.key() == FIELD_CLIENTS_ONLY) {
-                        auto clients = r.value().get<nlohmann::json>();
-                        for (auto& client : clients.items()) {
-                            const auto& other_client_uuid = client.key();
-                            auto cl = client.value();
-                            uint64_t heartbeat_ms = parse_mutation_cas(cl[FIELD_HEARTBEAT].get<std::string>());
-                            auto expires_ms = cl[FIELD_EXPIRES].get<uint64_t>();
-                            auto expired_period = static_cast<int64_t>(now_ms) - static_cast<int64_t>(heartbeat_ms);
-                            bool has_expired = expired_period >= static_cast<int64_t>(expires_ms) && now_ms > heartbeat_ms;
-                            if (has_expired && other_client_uuid != uuid) {
-                                details.expired_client_ids.push_back(other_client_uuid);
-                            } else {
-                                active_client_uids.push_back(other_client_uuid);
-                            }
-                        }
-                    }
-                }
-            }
-            if (std::find(active_client_uids.begin(), active_client_uids.end(), uuid) == active_client_uids.end()) {
-                active_client_uids.push_back(uuid);
-            }
-            std::sort(active_client_uids.begin(), active_client_uids.end());
-            auto this_idx =
-              std::distance(active_client_uids.begin(), std::find(active_client_uids.begin(), active_client_uids.end(), uuid));
-            details.num_active_clients = static_cast<uint32_t>(active_client_uids.size());
-            details.index_of_this_client = static_cast<uint32_t>(this_idx);
-            details.num_active_clients = static_cast<uint32_t>(active_client_uids.size());
-            details.num_expired_clients = static_cast<uint32_t>(details.expired_client_ids.size());
-            details.num_existing_clients = details.num_expired_clients + details.num_active_clients;
-            details.client_uuid = uuid;
-            details.cas_now_nanos = now_ms * 1000000;
-            details.override_active = (details.override_enabled && details.override_expires > details.cas_now_nanos);
-            lost_attempts_cleanup_log->trace("{} client details {}", static_cast<void*>(this), details);
-            if (details.override_active) {
-                lost_attempts_cleanup_log->trace("{} override enabled, will not update record", static_cast<void*>(this));
-                return details;
-            }
+    std::chrono::milliseconds min_retry(1000);
+    if (config_.cleanup_window() < min_retry) {
+        min_retry = config_.cleanup_window();
+    }
+    return retry_op_exponential_backoff_timeout<client_record_details>(
+      min_retry, std::chrono::seconds(1), config_.cleanup_window(), [&]() -> client_record_details {
+          client_record_details details;
+          // Write our client record, return details.
+          try {
+              auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
+              couchbase::operations::lookup_in_request req{ id };
+              req.specs.add_spec(protocol::subdoc_opcode::get, true, FIELD_RECORDS);
+              req.specs.add_spec(protocol::subdoc_opcode::get, true, "$vbucket");
+              wrap_request(req, config_);
+              auto barrier = std::make_shared<std::promise<result>>();
+              auto f = barrier->get_future();
+              auto ec = config_.cleanup_hooks().client_record_before_get(bucket_name);
+              if (ec) {
+                  throw client_error(*ec, "client_record_before_get hook raised error");
+              }
+              cluster_.execute(req, [barrier](couchbase::operations::lookup_in_response resp) {
+                  barrier->set_value(result::create_from_subdoc_response(resp));
+              });
+              auto res = wrap_operation_future(f);
+              std::vector<std::string> active_client_uids;
+              auto hlc = res.values[1].content_as<nlohmann::json>();
+              auto now_ms = now_ns_from_vbucket(hlc) / 1000000;
+              details.override_enabled = false;
+              details.override_expires = 0;
+              if (res.values[0].status == subdoc_result::status_type::success) {
+                  auto records = res.values[0].content_as<nlohmann::json>();
+                  lost_attempts_cleanup_log->trace("client records: {}", records.dump());
+                  for (auto& r : records.items()) {
+                      if (r.key() == FIELD_OVERRIDE) {
+                          auto overrides = r.value().get<nlohmann::json>();
+                          for (auto& over : overrides.items()) {
+                              if (over.key() == FIELD_OVERRIDE_ENABLED) {
+                                  details.override_enabled = over.value().get<bool>();
+                              } else if (over.key() == FIELD_OVERRIDE_EXPIRES) {
+                                  details.override_expires = over.value().get<uint64_t>();
+                              }
+                          }
+                      } else if (r.key() == FIELD_CLIENTS_ONLY) {
+                          auto clients = r.value().get<nlohmann::json>();
+                          for (auto& client : clients.items()) {
+                              const auto& other_client_uuid = client.key();
+                              auto cl = client.value();
+                              uint64_t heartbeat_ms = parse_mutation_cas(cl[FIELD_HEARTBEAT].get<std::string>());
+                              auto expires_ms = cl[FIELD_EXPIRES].get<uint64_t>();
+                              auto expired_period = static_cast<int64_t>(now_ms) - static_cast<int64_t>(heartbeat_ms);
+                              bool has_expired = expired_period >= static_cast<int64_t>(expires_ms) && now_ms > heartbeat_ms;
+                              if (has_expired && other_client_uuid != uuid) {
+                                  details.expired_client_ids.push_back(other_client_uuid);
+                              } else {
+                                  active_client_uids.push_back(other_client_uuid);
+                              }
+                          }
+                      }
+                  }
+              }
+              if (std::find(active_client_uids.begin(), active_client_uids.end(), uuid) == active_client_uids.end()) {
+                  active_client_uids.push_back(uuid);
+              }
+              std::sort(active_client_uids.begin(), active_client_uids.end());
+              auto this_idx =
+                std::distance(active_client_uids.begin(), std::find(active_client_uids.begin(), active_client_uids.end(), uuid));
+              details.num_active_clients = static_cast<uint32_t>(active_client_uids.size());
+              details.index_of_this_client = static_cast<uint32_t>(this_idx);
+              details.num_active_clients = static_cast<uint32_t>(active_client_uids.size());
+              details.num_expired_clients = static_cast<uint32_t>(details.expired_client_ids.size());
+              details.num_existing_clients = details.num_expired_clients + details.num_active_clients;
+              details.client_uuid = uuid;
+              details.cas_now_nanos = now_ms * 1000000;
+              details.override_active = (details.override_enabled && details.override_expires > details.cas_now_nanos);
+              lost_attempts_cleanup_log->trace("{} client details {}", static_cast<void*>(this), details);
+              if (details.override_active) {
+                  lost_attempts_cleanup_log->trace("{} override enabled, will not update record", static_cast<void*>(this));
+                  return details;
+              }
 
-            // update client record, maybe cleanup some as well...
-            couchbase::operations::mutate_in_request mutate_req{ id };
-            mutate_req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
-                                      true,
-                                      true,
-                                      true,
-                                      FIELD_CLIENTS + "." + uuid + "." + FIELD_HEARTBEAT,
-                                      mutate_in_macro::CAS);
-            mutate_req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
-                                      true,
-                                      true,
-                                      false,
-                                      FIELD_CLIENTS + "." + uuid + "." + FIELD_EXPIRES,
-                                      jsonify(config_.cleanup_window().count() / 2 + SAFETY_MARGIN_EXPIRY_MS));
-            mutate_req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
-                                      true,
-                                      true,
-                                      false,
-                                      FIELD_CLIENTS + "." + uuid + "." + FIELD_NUM_ATRS,
-                                      jsonify(atr_ids::all().size()));
-            for (size_t idx = 0; idx < std::min(details.expired_client_ids.size(), static_cast<size_t>(13)); idx++) {
-                mutate_req.specs.add_spec(
-                  protocol::subdoc_opcode::remove, true, FIELD_CLIENTS + "." + jsonify(details.expired_client_ids[idx]));
-            }
-            config_.cleanup_hooks().client_record_before_update(bucket_name);
-            wrap_durable_request(mutate_req, config_);
-            auto mutate_barrier = std::make_shared<std::promise<result>>();
-            auto mutate_f = mutate_barrier->get_future();
-            cluster_.execute(mutate_req, [mutate_barrier](couchbase::operations::mutate_in_response resp) {
-                mutate_barrier->set_value(result::create_from_subdoc_response(resp));
-            });
-            res = wrap_operation_future(mutate_f);
+              // update client record, maybe cleanup some as well...
+              couchbase::operations::mutate_in_request mutate_req{ id };
+              mutate_req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
+                                        true,
+                                        true,
+                                        true,
+                                        FIELD_CLIENTS + "." + uuid + "." + FIELD_HEARTBEAT,
+                                        mutate_in_macro::CAS);
+              mutate_req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
+                                        true,
+                                        true,
+                                        false,
+                                        FIELD_CLIENTS + "." + uuid + "." + FIELD_EXPIRES,
+                                        jsonify(config_.cleanup_window().count() / 2 + SAFETY_MARGIN_EXPIRY_MS));
+              mutate_req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
+                                        true,
+                                        true,
+                                        false,
+                                        FIELD_CLIENTS + "." + uuid + "." + FIELD_NUM_ATRS,
+                                        jsonify(atr_ids::all().size()));
+              for (size_t idx = 0; idx < std::min(details.expired_client_ids.size(), static_cast<size_t>(13)); idx++) {
+                  lost_attempts_cleanup_log->trace("adding {} to list of clients to be removed when updating this client",
+                                                   details.expired_client_ids[idx]);
+                  mutate_req.specs.add_spec(protocol::subdoc_opcode::remove, true, FIELD_CLIENTS + "." + details.expired_client_ids[idx]);
+              }
+              ec = config_.cleanup_hooks().client_record_before_update(bucket_name);
+              if (ec) {
+                  throw client_error(*ec, "client_record_before_update hook raised error");
+              }
+              wrap_durable_request(mutate_req, config_);
+              auto mutate_barrier = std::make_shared<std::promise<result>>();
+              auto mutate_f = mutate_barrier->get_future();
+              lost_attempts_cleanup_log->trace("updating record");
+              cluster_.execute(mutate_req, [mutate_barrier](couchbase::operations::mutate_in_response resp) {
+                  mutate_barrier->set_value(result::create_from_subdoc_response(resp));
+              });
+              res = wrap_operation_future(mutate_f);
 
-            // just update the cas, and return the details
-            details.cas_now_nanos = res.cas;
-            lost_attempts_cleanup_log->debug("{} get_active_clients found {}", static_cast<void*>(this), details);
-            return details;
-        } catch (const tx::client_error& e) {
-            auto ec = e.ec();
-            switch (ec) {
-                case FAIL_DOC_NOT_FOUND:
-                    lost_attempts_cleanup_log->debug("{} client record not found, creating new one", static_cast<void*>(this));
-                    create_client_record(bucket_name);
-                    throw retry_operation("Client record didn't exist. Creating and retrying");
-                default:
-                    throw;
-            }
-        }
-    });
+              // just update the cas, and return the details
+              details.cas_now_nanos = res.cas;
+              lost_attempts_cleanup_log->debug("{} get_active_clients found {}", static_cast<void*>(this), details);
+              return details;
+          } catch (const tx::client_error& e) {
+              auto ec = e.ec();
+              switch (ec) {
+                  case FAIL_DOC_NOT_FOUND:
+                      lost_attempts_cleanup_log->debug("{} client record not found, creating new one", static_cast<void*>(this));
+                      create_client_record(bucket_name);
+                      throw retry_operation("Client record didn't exist. Creating and retrying");
+                  default:
+                      throw; // retry_operation(fmt::format("got error '' while processing client record, retrying...", e.what()));
+              }
+          }
+      });
 }
 
 void
@@ -373,7 +391,10 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
                       // insure a client record document exists...
                       create_client_record(bucket_name);
                       // now, proceed to remove the client uuid if it exists
-                      config_.cleanup_hooks().client_record_before_remove_client(bucket_name);
+                      auto ec = config_.cleanup_hooks().client_record_before_remove_client(bucket_name);
+                      if (ec) {
+                          throw client_error(*ec, "client_record_before_remove_client hook raised error");
+                      }
                       auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
                       couchbase::operations::mutate_in_request req{ id };
                       req.specs.add_spec(protocol::subdoc_opcode::remove, true, FIELD_CLIENTS + "." + uuid);
