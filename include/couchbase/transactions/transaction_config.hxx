@@ -205,6 +205,26 @@ namespace transactions
         {
             return cleanup_client_attempts_;
         }
+        void custom_metadata_collection(const std::string& bucket, const std::string& scope, const std::string& collection)
+        {
+            custom_metadata_collection_.emplace(bucket, scope, collection, "");
+        }
+
+        CB_NODISCARD std::optional<couchbase::document_id> custom_metadata_collection() const
+        {
+            return custom_metadata_collection_;
+        }
+
+        couchbase::document_id atr_id_from_bucket_and_key(const std::string& bucket, const std::string& key) const
+        {
+            if (custom_metadata_collection_) {
+                return { custom_metadata_collection_->bucket(),
+                         custom_metadata_collection_->scope(),
+                         custom_metadata_collection_->collection(),
+                         key };
+            }
+            return { bucket, "_default", "_default", key };
+        }
 
         /** @internal */
         void test_factories(attempt_context_testing_hooks& hooks, cleanup_testing_hooks& cleanup_hooks);
@@ -231,6 +251,7 @@ namespace transactions
         std::unique_ptr<attempt_context_testing_hooks> attempt_context_hooks_;
         std::unique_ptr<cleanup_testing_hooks> cleanup_hooks_;
         couchbase::operations::query_request::scan_consistency_type scan_consistency_;
+        std::optional<couchbase::document_id> custom_metadata_collection_;
     };
 } // namespace transactions
 } // namespace couchbase

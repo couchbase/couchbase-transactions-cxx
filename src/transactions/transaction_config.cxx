@@ -46,6 +46,7 @@ namespace transactions
       , attempt_context_hooks_(new attempt_context_testing_hooks(config.attempt_context_hooks()))
       , cleanup_hooks_(new cleanup_testing_hooks(config.cleanup_hooks()))
       , scan_consistency_(config.scan_consistency())
+      , custom_metadata_collection_(config.custom_metadata_collection())
 
     {
     }
@@ -60,6 +61,7 @@ namespace transactions
         attempt_context_hooks_.reset(new attempt_context_testing_hooks(c.attempt_context_hooks()));
         cleanup_hooks_.reset(new cleanup_testing_hooks(c.cleanup_hooks()));
         scan_consistency_ = c.scan_consistency();
+        custom_metadata_collection_ = c.custom_metadata_collection();
         return *this;
     }
 

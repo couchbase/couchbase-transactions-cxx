@@ -404,11 +404,12 @@ attempt_context_impl::select_atr_if_needed_unlocked(const couchbase::document_id
         size_t vbucket_id = 0;
         std::optional<const std::string> hook_atr = hooks_.random_atr_id_for_vbucket(this);
         if (hook_atr) {
-            atr_id_ = { id.bucket(), "_default", "_default", *hook_atr };
+            atr_id_ = overall_.config().atr_id_from_bucket_and_key(id.bucket(), hook_atr.value());
         } else {
             vbucket_id = atr_ids::vbucket_for_key(id.key());
-            atr_id_ = { id.bucket(), "_default", "_default", atr_ids::atr_id_for_vbucket(vbucket_id) };
+            atr_id_ = overall_.config().atr_id_from_bucket_and_key(id.bucket(), atr_ids::atr_id_for_vbucket(vbucket_id));
         }
+        // TODO: cleanup the transaction_context - this should be set (threadsafe) from the above calls
         overall_.atr_collection(collection_spec_from_id(id));
         overall_.atr_id(atr_id_->key());
         state(attempt_state::NOT_STARTED);
@@ -581,6 +582,12 @@ attempt_context_impl::query_begin_work(Handler&& cb)
         txdata["atr"]["coll"] = atr_id_->collection();
         txdata["atr"]["bkt"] = atr_id_->bucket();
         txdata["atr"]["id"] = atr_id_->key();
+    } else if (overall_.config().custom_metadata_collection()) {
+        auto id = overall_.config().atr_id_from_bucket_and_key("", "");
+        txdata["atr"] = nlohmann::json::object();
+        txdata["atr"]["scp"] = id.scope();
+        txdata["atr"]["coll"] = id.collection();
+        txdata["atr"]["bkt"] = id.bucket();
     }
     txdata["mutations"] = nlohmann::json::array();
     if (!staged_mutations_->empty()) {
@@ -1072,108 +1079,111 @@ attempt_context_impl::rollback_with_query(VoidCallback&& cb)
 void
 attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
 {
-    try {
-        std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
-        couchbase::operations::mutate_in_request req{ atr_id_.value() };
-        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
-                           true,
-                           false,
-                           false,
-                           prefix + ATR_FIELD_STATUS,
-                           jsonify(attempt_state_name(attempt_state::COMMITTED)));
-        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, false, true, prefix + ATR_FIELD_START_COMMIT, mutate_in_macro::CAS);
-        req.specs.add_spec(protocol::subdoc_opcode::dict_add, true, false, false, prefix + ATR_FIELD_PREVENT_COLLLISION, jsonify(0));
-        wrap_durable_request(req, overall_.config());
-        auto ec = error_if_expired_and_not_in_overtime(STAGE_ATR_COMMIT, {});
-        if (ec) {
-            throw client_error(*ec, "atr_commit check for expiry threw error");
+    retry_op<void>([this, &ambiguity_resolution_mode]() {
+        try {
+            std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
+            couchbase::operations::mutate_in_request req{ atr_id_.value() };
+            req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
+                               true,
+                               false,
+                               false,
+                               prefix + ATR_FIELD_STATUS,
+                               jsonify(attempt_state_name(attempt_state::COMMITTED)));
+            req.specs.add_spec(
+              protocol::subdoc_opcode::dict_upsert, true, false, true, prefix + ATR_FIELD_START_COMMIT, mutate_in_macro::CAS);
+            req.specs.add_spec(protocol::subdoc_opcode::dict_add, true, false, false, prefix + ATR_FIELD_PREVENT_COLLLISION, jsonify(0));
+            wrap_durable_request(req, overall_.config());
+            auto ec = error_if_expired_and_not_in_overtime(STAGE_ATR_COMMIT, {});
+            if (ec) {
+                throw client_error(*ec, "atr_commit check for expiry threw error");
+            }
+            if (!!(ec = hooks_.before_atr_commit(this))) {
+                // for now, throw.  Later, if this is async, we will use error handler no doubt.
+                throw client_error(*ec, "before_atr_commit hook raised error");
+            }
+            staged_mutations_->extract_to(prefix, req);
+            auto barrier = std::make_shared<std::promise<result>>();
+            auto f = barrier->get_future();
+            trace("updating atr {}", req.id);
+            overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
+                barrier->set_value(result::create_from_subdoc_response(resp));
+            });
+            auto res = wrap_operation_future(f, false);
+            ec = hooks_.after_atr_commit(this);
+            if (ec) {
+                throw client_error(*ec, "after_atr_commit hook raised error");
+            }
+            state(attempt_state::COMMITTED);
+        } catch (const client_error& e) {
+            error_class ec = e.ec();
+            switch (ec) {
+                case FAIL_EXPIRY: {
+                    expiry_overtime_mode_ = true;
+                    auto out = transaction_operation_failed(ec, e.what()).no_rollback();
+                    if (ambiguity_resolution_mode) {
+                        out.ambiguous();
+                    } else {
+                        out.expired();
+                    }
+                    throw out;
+                }
+                case FAIL_AMBIGUOUS:
+                    debug("atr_commit got FAIL_AMBIGUOUS, resolving ambiguity...");
+                    ambiguity_resolution_mode = true;
+                    throw retry_operation(e.what());
+                case FAIL_TRANSIENT:
+                    throw retry_operation(e.what());
+                case FAIL_PATH_ALREADY_EXISTS:
+                    // Need retry_op as atr_commit_ambiguity_resolution can throw retry_operation
+                    return retry_op<void>([&]() { return atr_commit_ambiguity_resolution(); });
+                case FAIL_HARD: {
+                    auto out = transaction_operation_failed(ec, e.what()).no_rollback();
+                    if (ambiguity_resolution_mode) {
+                        out.ambiguous();
+                    }
+                    throw out;
+                }
+                case FAIL_DOC_NOT_FOUND: {
+                    auto out = transaction_operation_failed(ec, e.what())
+                                 .cause(external_exception::ACTIVE_TRANSACTION_RECORD_NOT_FOUND)
+                                 .no_rollback();
+                    if (ambiguity_resolution_mode) {
+                        out.ambiguous();
+                    }
+                    throw out;
+                }
+                case FAIL_PATH_NOT_FOUND: {
+                    auto out = transaction_operation_failed(ec, e.what())
+                                 .cause(external_exception::ACTIVE_TRANSACTION_RECORD_ENTRY_NOT_FOUND)
+                                 .no_rollback();
+                    if (ambiguity_resolution_mode) {
+                        out.ambiguous();
+                    }
+                    throw out;
+                }
+                case FAIL_ATR_FULL: {
+                    auto out =
+                      transaction_operation_failed(ec, e.what()).cause(external_exception::ACTIVE_TRANSACTION_RECORD_FULL).no_rollback();
+                    if (ambiguity_resolution_mode) {
+                        out.ambiguous();
+                    }
+                    throw out;
+                }
+                default: {
+                    error("failed to commit transaction {}, attempt {}, ambiguity_resolution_mode {}, with error {}",
+                          transaction_id(),
+                          id(),
+                          ambiguity_resolution_mode,
+                          e.what());
+                    auto out = transaction_operation_failed(ec, e.what()).no_rollback();
+                    if (ambiguity_resolution_mode) {
+                        out.ambiguous();
+                    }
+                    throw out;
+                }
+            }
         }
-        if (!!(ec = hooks_.before_atr_commit(this))) {
-            // for now, throw.  Later, if this is async, we will use error handler no doubt.
-            throw client_error(*ec, "before_atr_commit hook raised error");
-        }
-        staged_mutations_->extract_to(prefix, req);
-        auto barrier = std::make_shared<std::promise<result>>();
-        auto f = barrier->get_future();
-        trace("updating atr {}", req.id);
-        overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
-            barrier->set_value(result::create_from_subdoc_response(resp));
-        });
-        auto res = wrap_operation_future(f, false);
-        ec = hooks_.after_atr_commit(this);
-        if (ec) {
-            throw client_error(*ec, "after_atr_commit hook raised error");
-        }
-        state(attempt_state::COMMITTED);
-    } catch (const client_error& e) {
-        error_class ec = e.ec();
-        switch (ec) {
-            case FAIL_EXPIRY: {
-                expiry_overtime_mode_ = true;
-                auto out = transaction_operation_failed(ec, e.what()).no_rollback();
-                if (ambiguity_resolution_mode) {
-                    out.ambiguous();
-                } else {
-                    out.expired();
-                }
-                throw out;
-            }
-            case FAIL_AMBIGUOUS:
-                debug("atr_commit got FAIL_AMBIGUOUS, resolving ambiguity...");
-                std::this_thread::sleep_for(DEFAULT_RETRY_OP_EXP_DELAY);
-                return atr_commit(true);
-            case FAIL_TRANSIENT:
-                std::this_thread::sleep_for(DEFAULT_RETRY_OP_EXP_DELAY);
-                return atr_commit(ambiguity_resolution_mode);
-            case FAIL_PATH_ALREADY_EXISTS:
-                // Need retry_op as atr_commit_ambiguity_resolution can throw retry_operation
-                return retry_op<void>([&]() { return atr_commit_ambiguity_resolution(); });
-            case FAIL_HARD: {
-                auto out = transaction_operation_failed(ec, e.what()).no_rollback();
-                if (ambiguity_resolution_mode) {
-                    out.ambiguous();
-                }
-                throw out;
-            }
-            case FAIL_DOC_NOT_FOUND: {
-                auto out =
-                  transaction_operation_failed(ec, e.what()).cause(external_exception::ACTIVE_TRANSACTION_RECORD_NOT_FOUND).no_rollback();
-                if (ambiguity_resolution_mode) {
-                    out.ambiguous();
-                }
-                throw out;
-            }
-            case FAIL_PATH_NOT_FOUND: {
-                auto out = transaction_operation_failed(ec, e.what())
-                             .cause(external_exception::ACTIVE_TRANSACTION_RECORD_ENTRY_NOT_FOUND)
-                             .no_rollback();
-                if (ambiguity_resolution_mode) {
-                    out.ambiguous();
-                }
-                throw out;
-            }
-            case FAIL_ATR_FULL: {
-                auto out =
-                  transaction_operation_failed(ec, e.what()).cause(external_exception::ACTIVE_TRANSACTION_RECORD_FULL).no_rollback();
-                if (ambiguity_resolution_mode) {
-                    out.ambiguous();
-                }
-                throw out;
-            }
-            default: {
-                error("failed to commit transaction {}, attempt {}, ambiguity_resolution_mode {}, with error {}",
-                      transaction_id(),
-                      id(),
-                      ambiguity_resolution_mode,
-                      e.what());
-                auto out = transaction_operation_failed(ec, e.what()).no_rollback();
-                if (ambiguity_resolution_mode) {
-                    out.ambiguous();
-                }
-                throw out;
-            }
-        }
-    }
+    });
 }
 
 void

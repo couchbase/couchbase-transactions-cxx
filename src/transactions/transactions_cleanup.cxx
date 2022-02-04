@@ -152,7 +152,7 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
             return;
         }
         try {
-            couchbase::document_id id(bucket_name, "_default", "_default", atr_id);
+            auto id = config_.atr_id_from_bucket_and_key(bucket_name, atr_id);
             handle_atr_cleanup(id);
             std::this_thread::sleep_for(delay);
         } catch (const std::runtime_error& err) {
@@ -210,7 +210,7 @@ void
 tx::transactions_cleanup::create_client_record(const std::string& bucket_name)
 {
     try {
-        document_id id(bucket_name, "_default", "_default", CLIENT_RECORD_DOC_ID);
+        auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
         couchbase::operations::mutate_in_request req{ id };
         req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::insert;
         req.specs.add_spec(protocol::subdoc_opcode::dict_add, true, true, false, FIELD_CLIENTS, "{}");
@@ -244,7 +244,7 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
         client_record_details details;
         // Write our client record, return details.
         try {
-            document_id id(bucket_name, "_default", "_default", CLIENT_RECORD_DOC_ID);
+            auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
             couchbase::operations::lookup_in_request req{ id };
             req.specs.add_spec(protocol::subdoc_opcode::get, true, FIELD_RECORDS);
             req.specs.add_spec(protocol::subdoc_opcode::get, true, "$vbucket");
@@ -374,7 +374,7 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
                       create_client_record(bucket_name);
                       // now, proceed to remove the client uuid if it exists
                       config_.cleanup_hooks().client_record_before_remove_client(bucket_name);
-                      document_id id(bucket_name, "_default", "_default", CLIENT_RECORD_DOC_ID);
+                      auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
                       couchbase::operations::mutate_in_request req{ id };
                       req.specs.add_spec(protocol::subdoc_opcode::remove, true, FIELD_CLIENTS + "." + uuid);
                       wrap_durable_request(req, config_);
