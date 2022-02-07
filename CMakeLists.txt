@@ -84,7 +84,11 @@ find_package(Threads)
 include_directories(include)
 file(GLOB_RECURSE transactions_include_FILES ${PROJECT_SOURCE_DIR}/include/couchbase/transactions/*.hxx)
 file(GLOB_RECURSE transactions_src_FILES ${PROJECT_SOURCE_DIR}/src/transactions/*.cxx)
-add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions_src_FILES})
+if(COUCHBASE_TXNS_CXX_BUILD_SHARED)
+  add_library(transactions_cxx SHARED ${transactions_include_FILES} ${transactions_src_FILES})
+else()
+  add_library(transactions_cxx STATIC ${transactions_include_FILES} ${transactions_src_FILES})
+endif()
 target_link_libraries(transactions_cxx
                       ${CMAKE_THREAD_LIBS_INIT}
                       couchbase_cxx_client)
