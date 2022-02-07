@@ -405,16 +405,17 @@ namespace transactions
                                                                         const std::string type,
                                                                         std::optional<std::string> content = std::nullopt);
 
-        template<typename Handler>
-        void create_staged_insert(const couchbase::document_id& id, const std::string& content, uint64_t cas, Handler&& cb);
+        template<typename Handler, typename Delay>
+        void create_staged_insert(const couchbase::document_id& id, const std::string& content, uint64_t cas, Delay&& delay, Handler&& cb);
 
         template<typename Handler>
         void create_staged_replace(const transaction_get_result& document, const std::string& content, Handler&& cb);
 
-        template<typename Handler>
+        template<typename Handler, typename Delay>
         void create_staged_insert_error_handler(const couchbase::document_id& id,
                                                 const std::string& content,
                                                 uint64_t cas,
+                                                Delay&& delay,
                                                 Handler&& cb,
                                                 error_class ec,
                                                 const std::string& message);
