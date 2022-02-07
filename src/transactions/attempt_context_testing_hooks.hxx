@@ -66,6 +66,7 @@ namespace transactions
     static const std::string STAGE_REMOVE_DOC = "removeDoc";
     static const std::string STAGE_COMMIT_DOC = "commitDoc";
     static const std::string STAGE_BEFORE_RETRY = "beforeRetry";
+    static const std::string STAGE_REMOVE_STAGED_INSERT = "removeStagedInsert";
 
     static const std::string STAGE_ATR_COMMIT = "atrCommit";
     static const std::string STAGE_ATR_COMMIT_AMBIGUITY_RESOLUTION = "atrCommitAmbiguityResolution";
@@ -115,6 +116,8 @@ namespace transactions
         error_func2 before_get_doc_in_exists_during_staged_insert = noop_2;
         error_func2 before_query = noop_2;
         error_func2 after_query = noop_2;
+        error_func2 before_remove_staged_insert = noop_2;
+        error_func2 after_remove_staged_insert = noop_2;
 
         error_func1 after_docs_committed = noop_1;
         error_func1 after_docs_removed = noop_1;

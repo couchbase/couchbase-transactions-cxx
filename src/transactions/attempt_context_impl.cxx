@@ -121,7 +121,9 @@ attempt_context_impl::get(const couchbase::document_id& id, Callback&& cb)
                         return op_completed_with_error(std::move(cb),
                                                        transaction_operation_failed(*ec, "transaction expired during get").expired());
                     case FAIL_DOC_NOT_FOUND:
-                        return op_completed_with_error(std::move(cb), transaction_operation_failed(*ec, "document not found"));
+                        return op_completed_with_error(
+                          std::move(cb),
+                          transaction_operation_failed(*ec, "document not found").cause(external_exception::DOCUMENT_NOT_FOUND_EXCEPTION));
                     case FAIL_TRANSIENT:
                         return op_completed_with_error(std::move(cb),
                                                        transaction_operation_failed(*ec, "transient failure in get").retry());
@@ -203,37 +205,43 @@ attempt_context_impl::get_optional(const couchbase::document_id& id, Callback&& 
 }
 
 couchbase::operations::mutate_in_request
-attempt_context_impl::create_staging_request(const transaction_get_result& document,
+attempt_context_impl::create_staging_request(const couchbase::document_id& id,
+                                             const transaction_get_result* document,
                                              const std::string type,
                                              std::optional<std::string> content)
 {
-    couchbase::operations::mutate_in_request req{ document.id() };
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, TRANSACTION_ID, jsonify(overall_.transaction_id()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATTEMPT_ID, jsonify(id()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_ID, jsonify(atr_id()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_BUCKET_NAME, jsonify(document.id().bucket()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_SCOPE_NAME, jsonify(atr_id_->scope()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_COLL_NAME, jsonify(atr_id_->collection()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, true, CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C);
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, TYPE, jsonify(type));
+    couchbase::operations::mutate_in_request req{ id };
+    auto txn = nlohmann::json::object();
+    txn["id"] = nlohmann::json::object();
+    txn["id"]["txn"] = transaction_id();
+    txn["id"]["atmpt"] = this->id();
+    txn["atr"] = nlohmann::json::object();
+    txn["atr"]["id"] = atr_id();
+    txn["atr"]["bkt"] = atr_id_->bucket();
+    txn["atr"]["scp"] = atr_id_->scope();
+    txn["atr"]["coll"] = atr_id_->collection();
+    txn["op"] = nlohmann::json::object();
+    txn["op"]["type"] = type;
 
-    if (document.metadata()) {
-        if (document.metadata()->cas()) {
-            req.specs.add_spec(
-              protocol::subdoc_opcode::dict_upsert, true, true, false, PRE_TXN_CAS, jsonify(document.metadata()->cas().value()));
+    if (document && document->metadata()) {
+        txn["restore"] = nlohmann::json::object();
+        if (document->metadata()->cas()) {
+            txn["restore"]["CAS"] = document->metadata()->cas().value();
         }
-        if (document.metadata()->revid()) {
-            req.specs.add_spec(
-              protocol::subdoc_opcode::dict_upsert, true, true, false, PRE_TXN_REVID, jsonify(document.metadata()->revid().value()));
+        if (document->metadata()->revid()) {
+            txn["restore"]["revid"] = document->metadata()->revid().value();
         }
-        if (document.metadata()->exptime()) {
-            req.specs.add_spec(
-              protocol::subdoc_opcode::dict_upsert, true, true, false, PRE_TXN_EXPTIME, jsonify(document.metadata()->exptime().value()));
+        if (document->metadata()->exptime()) {
+            txn["restore"]["exptime"] = document->metadata()->exptime().value();
         }
     }
+
+    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, "txn", jsonify(txn));
     if (type != "remove") {
-        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, STAGED_DATA, content.value());
+        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, false, false, "txn.op.stgd", content.value());
     }
+    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, true, "txn.op.crc32", mutate_in_macro::VALUE_CRC_32C);
+
     return wrap_durable_request(req, overall_.config());
 }
 
@@ -247,78 +255,39 @@ attempt_context_impl::replace_raw(const transaction_get_result& document, const 
         try {
             trace("replacing {} with {}", document, content);
             check_if_done(cb);
+            staged_mutation* existing_sm = staged_mutations_->find_any(document.id());
+            if (existing_sm != NULL && existing_sm->type() == staged_mutation_type::REMOVE) {
+                debug("found existing REMOVE of {} while replacing", document);
+                return op_completed_with_error(
+                  cb,
+                  transaction_operation_failed(FAIL_DOC_NOT_FOUND,
+                                               "cannot replace a document that has been removed in the same transaction")
+                    .cause(external_exception::DOCUMENT_NOT_FOUND_EXCEPTION));
+            }
             if (check_expiry_pre_commit(STAGE_REPLACE, document.id().key())) {
                 return op_completed_with_error(cb, transaction_operation_failed(FAIL_EXPIRY, "transaction expired").expired());
             }
             check_and_handle_blocking_transactions(
               document,
               forward_compat_stage::WWC_REPLACING,
-              [this, document = std::move(document), cb = std::move(cb), content](std::optional<transaction_operation_failed> err) {
+              [this, existing_sm = std::move(existing_sm), document = std::move(document), cb = std::move(cb), content](
+                std::optional<transaction_operation_failed> err) {
                   if (err) {
                       return op_completed_with_error(cb, *err);
                   }
                   select_atr_if_needed_unlocked(
                     document.id(),
-                    [this, document = std::move(document), cb = std::move(cb), content](std::optional<transaction_operation_failed> err) {
+                    [this, existing_sm = std::move(existing_sm), document = std::move(document), cb = std::move(cb), content](
+                      std::optional<transaction_operation_failed> err) {
                         if (err) {
                             return op_completed_with_error(cb, *err);
                         }
-                        auto req = create_staging_request(document, "replace", content);
-                        req.cas.value = document.cas();
-                        req.access_deleted = true;
-                        auto error_handler = [this, cb](error_class ec, const std::string& msg) {
-                            transaction_operation_failed err(ec, msg);
-                            switch (ec) {
-                                case FAIL_DOC_NOT_FOUND:
-                                case FAIL_DOC_ALREADY_EXISTS:
-                                case FAIL_CAS_MISMATCH:
-                                case FAIL_TRANSIENT:
-                                case FAIL_AMBIGUOUS:
-                                    return op_completed_with_error(std::move(cb), err.retry());
-                                case FAIL_HARD:
-                                    return op_completed_with_error(std::move(cb), err.no_rollback());
-                                default:
-                                    return op_completed_with_error(std::move(cb), err);
-                            }
-                        };
-                        auto ec = hooks_.before_staged_replace(this, document.id().key());
-                        if (ec) {
-                            return error_handler(*ec, "before_staged_replace hook raised error");
+                        if (existing_sm != NULL && existing_sm->type() == staged_mutation_type::INSERT) {
+                            debug("found existing INSERT of {} while replacing", document);
+                            create_staged_insert(document.id(), content, existing_sm->doc().cas(), cb);
+                            return;
                         }
-                        trace("about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
-                        overall_.cluster_ref().execute(
-                          req,
-                          [this, document = std::move(document), content, cb, error_handler = std::move(error_handler)](
-                            couchbase::operations::mutate_in_response resp) {
-                              auto ec = error_class_from_response(resp);
-                              if (!ec) {
-                                  auto err = hooks_.after_staged_replace_complete(this, document.id().key());
-                                  if (err) {
-                                      return error_handler(*err, "after_staged_replace_commit hook returned error");
-                                  }
-                                  transaction_get_result out = document;
-                                  out.cas(resp.cas.value);
-                                  trace("replace staged content, result {}", out);
-                                  staged_mutation* existing_replace = staged_mutations_->find_replace(document.id());
-                                  staged_mutation* existing_insert = staged_mutations_->find_insert(document.id());
-                                  if (existing_replace != nullptr) {
-                                      trace("document {} was replaced already in txn, replacing again", document.id());
-                                      // only thing that we need to change are the content, cas
-                                      existing_replace->content(content);
-                                      existing_replace->doc().cas(out.cas());
-                                  } else if (existing_insert != nullptr) {
-                                      trace("document {} replaced after insert in this txn", document.id());
-                                      // only thing that we need to change are the content, cas
-                                      existing_insert->doc().content(content);
-                                      existing_insert->doc().cas(out.cas());
-                                  } else {
-                                      staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::REPLACE));
-                                  }
-                                  return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>(out));
-                              } else {
-                                  return error_handler(*ec, resp.ctx.ec.message());
-                              }
-                          });
+                        create_staged_replace(document, content, cb);
                     });
               });
         } catch (const client_error& e) {
@@ -332,6 +301,53 @@ attempt_context_impl::replace_raw(const transaction_get_result& document, const 
             }
         }
     });
+}
+
+template<typename Handler>
+void
+attempt_context_impl::create_staged_replace(const transaction_get_result& document, const std::string& content, Handler&& cb)
+{
+    auto req = create_staging_request(document.id(), &document, "replace", content);
+    req.cas.value = document.cas();
+    req.access_deleted = true;
+    auto error_handler = [this, cb](error_class ec, const std::string& msg) {
+        transaction_operation_failed err(ec, msg);
+        switch (ec) {
+            case FAIL_DOC_NOT_FOUND:
+            case FAIL_DOC_ALREADY_EXISTS:
+            case FAIL_CAS_MISMATCH:
+            case FAIL_TRANSIENT:
+            case FAIL_AMBIGUOUS:
+                return op_completed_with_error(std::move(cb), err.retry());
+            case FAIL_HARD:
+                return op_completed_with_error(std::move(cb), err.no_rollback());
+            default:
+                return op_completed_with_error(std::move(cb), err);
+        }
+    };
+    auto ec = hooks_.before_staged_replace(this, document.id().key());
+    if (ec) {
+        return error_handler(*ec, "before_staged_replace hook raised error");
+    }
+    trace("about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
+    overall_.cluster_ref().execute(req,
+                                   [this, document = std::move(document), content, cb, error_handler = std::move(error_handler)](
+                                     couchbase::operations::mutate_in_response resp) {
+                                       auto ec = error_class_from_response(resp);
+                                       if (!ec) {
+                                           auto err = hooks_.after_staged_replace_complete(this, document.id().key());
+                                           if (err) {
+                                               return error_handler(*err, "after_staged_replace_commit hook returned error");
+                                           }
+                                           transaction_get_result out = document;
+                                           out.cas(resp.cas.value);
+                                           trace("replace staged content, result {}", out);
+                                           staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::REPLACE));
+                                           return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>(out));
+                                       } else {
+                                           return error_handler(*ec, resp.ctx.ec.message());
+                                       }
+                                   });
 }
 
 transaction_get_result
@@ -369,21 +385,30 @@ attempt_context_impl::insert_raw(const couchbase::document_id& id, const std::st
     return cache_error_async(std::move(cb), [&]() {
         try {
             check_if_done(cb);
-            if (check_for_own_write(id)) {
+            staged_mutation* existing_sm = staged_mutations_->find_any(id);
+            if ((existing_sm != NULL) &&
+                (existing_sm->type() == staged_mutation_type::INSERT || existing_sm->type() == staged_mutation_type::REPLACE)) {
+                debug("found existing insert or replace of {} while inserting", id);
                 return op_completed_with_error(
                   std::move(cb),
-                  transaction_operation_failed(FAIL_OTHER, "cannot insert a document that has already been mutated in this transaction"));
+                  transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, "found existing insert or replace of same document"));
             }
             if (check_expiry_pre_commit(STAGE_INSERT, id.key())) {
                 return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_EXPIRY, "transaction expired").expired());
             }
-            select_atr_if_needed_unlocked(id, [this, cb = std::move(cb), id, content](std::optional<transaction_operation_failed> err) {
-                if (err) {
-                    return op_completed_with_error(cb, *err);
-                }
-                uint64_t cas = 0;
-                create_staged_insert(id, content, cas, cb);
-            });
+            select_atr_if_needed_unlocked(id,
+                                          [this, existing_sm = std::move(existing_sm), cb = std::move(cb), id, content](
+                                            std::optional<transaction_operation_failed> err) {
+                                              if (err) {
+                                                  return op_completed_with_error(cb, *err);
+                                              }
+                                              if (existing_sm != NULL && existing_sm->type() == staged_mutation_type::REMOVE) {
+                                                  debug("found existing remove of {} while inserting", id);
+                                                  return create_staged_replace(existing_sm->doc(), content, cb);
+                                              }
+                                              uint64_t cas = 0;
+                                              create_staged_insert(id, content, cas, cb);
+                                          });
         } catch (const std::exception& e) {
             return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, e.what()));
         }
@@ -475,6 +500,7 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
     }
     return cache_error_async(std::move(cb), [&]() {
         check_if_done(cb);
+        staged_mutation* existing_sm = staged_mutations_->find_any(document.id());
         auto error_handler = [this, cb](error_class ec, const std::string msg) {
             transaction_operation_failed err(ec, msg);
             switch (ec) {
@@ -496,12 +522,19 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
         if (check_expiry_pre_commit(STAGE_REMOVE, document.id().key())) {
             return error_handler(FAIL_EXPIRY, "transaction expired");
         }
-        if (staged_mutations_->find_insert(document.id())) {
-            error("cannot remove document {}, as it was inserted in this transaction", document.id());
-            return op_completed_with_error(
-              cb, transaction_operation_failed(FAIL_OTHER, "Cannot remove a document inserted in the same transaction"));
+        debug("removing {}", document);
+        if (existing_sm != NULL) {
+            if (existing_sm->type() == staged_mutation_type::REMOVE) {
+                debug("found existing REMOVE of {} while removing", document);
+                return op_completed_with_error(
+                  cb,
+                  transaction_operation_failed(FAIL_DOC_NOT_FOUND, "cannot remove a document that has been removed in the same transaction")
+                    .cause(external_exception::DOCUMENT_NOT_FOUND_EXCEPTION));
+            } else if (existing_sm->type() == staged_mutation_type::INSERT) {
+                remove_staged_insert(document.id(), std::move(cb));
+                return;
+            }
         }
-        trace("removing {}", document);
         check_and_handle_blocking_transactions(
           document,
           forward_compat_stage::WWC_REMOVING,
@@ -519,7 +552,7 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
                         return error_handler(*ec, "before_staged_remove hook raised error");
                     }
                     trace("about to remove doc {} with cas {}", document.id(), document.cas());
-                    auto req = create_staging_request(document, "remove");
+                    auto req = create_staging_request(document.id(), &document, "remove");
                     req.cas.value = document.cas();
                     req.access_deleted = document.links().is_deleted();
                     overall_.cluster_ref().execute(
@@ -543,6 +576,56 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
                 });
           });
     });
+}
+
+void
+attempt_context_impl::remove_staged_insert(const couchbase::document_id& id, VoidCallback&& cb)
+{
+    auto ec = error_if_expired_and_not_in_overtime(STAGE_REMOVE_STAGED_INSERT, id.key());
+    if (ec) {
+        return op_completed_with_error(
+          std::move(cb), transaction_operation_failed(FAIL_EXPIRY, std::string("expired in remove_staged_insert")).no_rollback().expired());
+    }
+
+    auto error_handler = [this, cb](error_class ec, const std::string& msg) {
+        transaction_operation_failed err(ec, msg);
+        switch (ec) {
+            case FAIL_HARD:
+                return op_completed_with_error(std::move(cb), err.no_rollback());
+            default:
+                return op_completed_with_error(std::move(cb), err.retry());
+        }
+    };
+    debug("removing staged insert {}", id);
+
+    auto err = hooks_.before_remove_staged_insert(this, id.key());
+    if (err) {
+        error_handler(*err, "before_remove_staged_insert hook returned error");
+        return;
+    }
+
+    couchbase::operations::mutate_in_request req{ id };
+    req.specs.add_spec(protocol::subdoc_opcode::remove, true, "txn");
+    wrap_durable_request(req, overall_.config());
+    req.access_deleted = true;
+
+    overall_.cluster_ref().execute(
+      req, [this, id = std::move(id), cb, error_handler = std::move(error_handler)](couchbase::operations::mutate_in_response resp) {
+          auto ec = error_class_from_response(resp);
+          if (!ec) {
+              debug("remove_staged_insert got error {}", *ec);
+
+              auto err = hooks_.after_remove_staged_insert(this, id.key());
+              if (err) {
+                  error_handler(*err, "after_remove_staged_insert hook returned error");
+                  return;
+              }
+              staged_mutations_->remove_any(id);
+              op_completed_with_callback(cb);
+              return;
+          }
+          return error_handler(*ec, resp.ctx.ec.message());
+      });
 }
 
 void
@@ -1723,7 +1806,7 @@ attempt_context_impl::do_get(const couchbase::document_id& id, const std::option
         staged_mutation* own_remove = staged_mutations_->find_remove(id);
         if (own_remove) {
             debug("found own-write of removed doc {}", id);
-            return cb(std::nullopt, std::nullopt);
+            return cb(FAIL_DOC_NOT_FOUND, std::nullopt);
         }
 
         auto ec = hooks_.before_doc_get(this, id.key());
@@ -1917,23 +2000,13 @@ attempt_context_impl::create_staged_insert_error_handler(const couchbase::docume
                     return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired());
                 }
                 switch (ec) {
-                    case FAIL_EXPIRY:
-                        expiry_overtime_mode_ = true;
-                        return op_completed_with_error(std::move(cb), transaction_operation_failed(ec, "attempt timed-out").expired());
+                    case FAIL_DOC_NOT_FOUND:
                     case FAIL_TRANSIENT:
-                    case FAIL_PATH_NOT_FOUND:
-                        debug("transient error trying to get doc in insert - retrying txn");
-                        return op_completed_with_error(std::move(cb),
-                                                       transaction_operation_failed(ec, "error handling found doc in insert").retry());
-                    case FAIL_OTHER:
+                        return op_completed_with_error(
+                          std::move(cb), transaction_operation_failed(ec, "error while handling existing doc in insert").retry());
+                    default:
                         return op_completed_with_error(std::move(cb),
                                                        transaction_operation_failed(ec, "failed getting doc in create_staged_insert"));
-                    case FAIL_HARD:
-                        return op_completed_with_error(
-                          std::move(cb), transaction_operation_failed(ec, "failed getting doc in create_staged_insert").no_rollback());
-                    default:
-                        return op_completed_with_error(
-                          std::move(cb), transaction_operation_failed(ec, "failed getting doc in create_staged_insert").retry());
                 }
             };
             auto err = hooks_.before_get_doc_in_exists_during_staged_insert(this, id.key());
@@ -1961,7 +2034,7 @@ attempt_context_impl::create_staged_insert_error_handler(const couchbase::docume
                           }
                           if (!doc->links().is_document_in_transaction()) {
                               // doc was inserted outside txn elsewhere
-                              trace("doc {} not in txn - was inserted outside tnx", id);
+                              trace("doc {} not in txn - was inserted outside txn", id);
                               return op_completed_with_error(
                                 std::move(cb), transaction_operation_failed(FAIL_DOC_ALREADY_EXISTS, "document already exists"));
                           }
@@ -2015,16 +2088,7 @@ attempt_context_impl::create_staged_insert(const couchbase::document_id& id, con
         return create_staged_insert_error_handler(id, content, cas, cb, *ec, "before_staged_insert hook threw error");
     }
     debug("about to insert staged doc {} with cas {}", id, cas);
-    couchbase::operations::mutate_in_request req{ id };
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, TRANSACTION_ID, jsonify(overall_.transaction_id()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATTEMPT_ID, jsonify(this->id()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_ID, jsonify(atr_id()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, STAGED_DATA, content);
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_BUCKET_NAME, jsonify(id.bucket()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_SCOPE_NAME, jsonify(id.scope()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, ATR_COLL_NAME, jsonify(id.collection()));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, TYPE, jsonify("insert"));
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, true, CRC32_OF_STAGING, mutate_in_macro::VALUE_CRC_32C);
+    auto req = create_staging_request(id, NULL, "insert", content);
     req.access_deleted = true;
     req.create_as_deleted = true;
     req.cas.value = cas;

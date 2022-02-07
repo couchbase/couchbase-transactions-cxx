@@ -75,6 +75,8 @@ namespace transactions
         virtual transaction_get_result replace_raw(const transaction_get_result& document, const std::string& content);
         virtual void replace_raw(const transaction_get_result& document, const std::string& content, Callback&& cb);
 
+        void remove_staged_insert(const couchbase::document_id& id, VoidCallback&& cb);
+
         // These are all just stubs for now
         void get_with_query(const couchbase::document_id& id, bool optional, Callback&& cb);
         void insert_raw_with_query(const couchbase::document_id& id, const std::string& content, Callback&& cb);
@@ -398,12 +400,16 @@ namespace transactions
         void get_doc(const couchbase::document_id& id,
                      std::function<void(std::optional<error_class>, std::optional<transaction_get_result>)>&& cb);
 
-        couchbase::operations::mutate_in_request create_staging_request(const transaction_get_result& document,
+        couchbase::operations::mutate_in_request create_staging_request(const couchbase::document_id& in,
+                                                                        const transaction_get_result* document,
                                                                         const std::string type,
                                                                         std::optional<std::string> content = std::nullopt);
 
         template<typename Handler>
         void create_staged_insert(const couchbase::document_id& id, const std::string& content, uint64_t cas, Handler&& cb);
+
+        template<typename Handler>
+        void create_staged_replace(const transaction_get_result& document, const std::string& content, Handler&& cb);
 
         template<typename Handler>
         void create_staged_insert_error_handler(const couchbase::document_id& id,

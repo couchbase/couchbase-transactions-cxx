@@ -89,6 +89,15 @@ namespace transactions
             }
         }
 
+        transaction_get_result& operator=(const transaction_get_result& o)
+        {
+            value_ = o.value_;
+            id_ = o.id_;
+            cas_ = o.cas_;
+            links_ = o.links_;
+            return *this;
+        }
+
         /** @internal */
         template<typename Content>
         static transaction_get_result create_from(const transaction_get_result& document, Content content)

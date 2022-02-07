@@ -46,6 +46,21 @@ namespace transactions
         {
         }
 
+        staged_mutation(const staged_mutation& o) = default;
+
+        CB_NODISCARD staged_mutation& operator=(const staged_mutation& o)
+        {
+            doc_ = o.doc_;
+            type_ = o.type_;
+            content_ = o.content_;
+            return *this;
+        }
+
+        CB_NODISCARD const couchbase::document_id& id() const
+        {
+            return doc_.id();
+        }
+
         transaction_get_result& doc()
         {
             return doc_;
@@ -105,7 +120,9 @@ namespace transactions
         void commit(attempt_context_impl& ctx);
         void rollback(attempt_context_impl& ctx);
         void iterate(std::function<void(staged_mutation&)>);
+        void remove_any(const couchbase::document_id& id);
 
+        staged_mutation* find_any(const couchbase::document_id& id);
         staged_mutation* find_replace(const couchbase::document_id& id);
         staged_mutation* find_insert(const couchbase::document_id& id);
         staged_mutation* find_remove(const couchbase::document_id& id);

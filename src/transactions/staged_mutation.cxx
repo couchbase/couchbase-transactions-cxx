@@ -34,6 +34,10 @@ void
 tx::staged_mutation_queue::add(const tx::staged_mutation& mutation)
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    // Can only have one staged mutation per document.
+    auto new_end = std::remove_if(
+      queue_.begin(), queue_.end(), [&mutation](const staged_mutation& item) { return document_ids_equal(item.id(), mutation.id()); });
+    queue_.erase(new_end, queue_.end());
     queue_.push_back(mutation);
 }
 
@@ -65,6 +69,27 @@ tx::staged_mutation_queue::extract_to(const std::string& prefix, couchbase::oper
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, prefix + ATR_FIELD_DOCS_INSERTED, inserts.dump());
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, prefix + ATR_FIELD_DOCS_REPLACED, replaces.dump());
     req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, prefix + ATR_FIELD_DOCS_REMOVED, removes.dump());
+}
+
+void
+tx::staged_mutation_queue::remove_any(const couchbase::document_id& id)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto new_end =
+      std::remove_if(queue_.begin(), queue_.end(), [id](const staged_mutation& item) { return document_ids_equal(item.id(), id); });
+    queue_.erase(new_end, queue_.end());
+}
+
+tx::staged_mutation*
+tx::staged_mutation_queue::find_any(const couchbase::document_id& id)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto& item : queue_) {
+        if (document_ids_equal(item.doc().id(), id)) {
+            return &item;
+        }
+    }
+    return nullptr;
 }
 
 tx::staged_mutation*
