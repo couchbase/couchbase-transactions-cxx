@@ -49,7 +49,6 @@ tx::transactions_cleanup::transactions_cleanup(couchbase::cluster& cluster, cons
   , client_uuid_(uid_generator::next())
   , running_(false)
 {
-    auto buckets = get_and_open_buckets(cluster);
     if (config.cleanup_client_attempts()) {
         running_ = true;
         cleanup_thr_ = std::thread(std::bind(&transactions_cleanup::attempts_loop, this));
@@ -343,7 +342,7 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
                                         false,
                                         FIELD_CLIENTS + "." + uuid + "." + FIELD_NUM_ATRS,
                                         jsonify(atr_ids::all().size()));
-              for (size_t idx = 0; idx < std::min(details.expired_client_ids.size(), static_cast<size_t>(13)); idx++) {
+              for (size_t idx = 0; idx < std::min(details.expired_client_ids.size(), static_cast<size_t>(12)); idx++) {
                   lost_attempts_cleanup_log->trace("adding {} to list of clients to be removed when updating this client",
                                                    details.expired_client_ids[idx]);
                   mutate_req.specs.add_spec(protocol::subdoc_opcode::remove, true, FIELD_CLIENTS + "." + details.expired_client_ids[idx]);

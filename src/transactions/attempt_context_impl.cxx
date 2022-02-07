@@ -732,7 +732,8 @@ attempt_context_impl::handle_query_error(const couchbase::operations::query_resp
     switch (chosen_error.code) {
         case 1065:
             return std::make_exception_ptr(
-              transaction_operation_failed(FAIL_OTHER, "N1QL Queries in transactions are supported in couchbase server 7.0 and later"));
+              transaction_operation_failed(FAIL_OTHER, "N1QL Queries in transactions are supported in couchbase server 7.0 and later")
+                .cause(FEATURE_NOT_AVAILABLE_EXCEPTION));
         case 3000:
             return std::make_exception_ptr(query_parsing_failure(chosen_error.message));
         case 17004:
@@ -1219,7 +1220,11 @@ attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
                     ambiguity_resolution_mode = true;
                     throw retry_operation(e.what());
                 case FAIL_TRANSIENT:
-                    throw retry_operation(e.what());
+                    if (ambiguity_resolution_mode) {
+                        throw retry_operation(e.what());
+                    }
+                    throw transaction_operation_failed(ec, e.what()).retry();
+
                 case FAIL_PATH_ALREADY_EXISTS:
                     // Need retry_op as atr_commit_ambiguity_resolution can throw retry_operation
                     return retry_op<void>([&]() { return atr_commit_ambiguity_resolution(); });
@@ -1262,9 +1267,9 @@ attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
                           id(),
                           ambiguity_resolution_mode,
                           e.what());
-                    auto out = transaction_operation_failed(ec, e.what()).no_rollback();
+                    auto out = transaction_operation_failed(ec, e.what());
                     if (ambiguity_resolution_mode) {
-                        out.ambiguous();
+                        out.no_rollback().ambiguous();
                     }
                     throw out;
                 }
