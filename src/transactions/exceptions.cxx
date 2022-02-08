@@ -60,10 +60,17 @@ namespace transactions
             if (res.ec == couchbase::error::key_value_errc::durability_ambiguous ||
                 res.ec == couchbase::error::common_errc::ambiguous_timeout || res.ec == couchbase::error::common_errc::request_canceled) {
                 return FAIL_AMBIGUOUS;
-            } else {
-                return FAIL_OTHER;
             }
+            if (res.ec == couchbase::error::key_value_errc::path_not_found) {
+                return FAIL_PATH_NOT_FOUND;
+            }
+            if (res.ec == couchbase::error::key_value_errc::path_exists) {
+                return FAIL_PATH_ALREADY_EXISTS;
+            }
+            return FAIL_OTHER;
         } else {
+            // TODO this section is likely redundant from TXNCXX-230, but leaving it here to be compatible with older
+            // C++ clients.  It can be removed later.
             if (subdoc_status == subdoc_result::status_type::subdoc_path_not_found) {
                 return FAIL_PATH_NOT_FOUND;
             } else if (subdoc_status == subdoc_result::status_type::subdoc_path_exists) {

@@ -219,6 +219,12 @@ namespace transactions
             resp.ctx.ec == couchbase::error::common_errc::request_canceled) {
             return FAIL_AMBIGUOUS;
         }
+        if (resp.ctx.ec == couchbase::error::key_value_errc::path_not_found) {
+            return FAIL_PATH_NOT_FOUND;
+        }
+        if (resp.ctx.ec == couchbase::error::key_value_errc::path_exists) {
+            return FAIL_PATH_ALREADY_EXISTS;
+        }
         if (resp.ctx.ec) {
             return FAIL_OTHER;
         }
