@@ -1725,6 +1725,15 @@ attempt_context_impl::set_atr_pending_locked(const couchbase::document_id& id, s
                 return error_handler(*ec, "before_atr_pending hook raised error", id);
             }
             debug("updating atr {}", atr_id_.value());
+
+            std::chrono::time_point<std::chrono::steady_clock> now = std::chrono::steady_clock::now();
+            std::chrono::nanoseconds remaining = overall_.remaining();
+            // This bounds the value to [0-expirationTime].  It should always be in this range, this is just to protect
+            // against the application clock changing.
+            long remaining_bounded_nanos =
+              std::max(std::min(remaining.count(), overall_.config().expiration_time().count()), std::chrono::nanoseconds::rep(0));
+            long remaining_bounded_msecs = remaining_bounded_nanos / 1000000;
+
             couchbase::operations::mutate_in_request req{ atr_id_.value() };
 
             req.specs.add_spec(
@@ -1742,7 +1751,7 @@ attempt_context_impl::set_atr_pending_locked(const couchbase::document_id& id, s
                                true,
                                false,
                                prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
-                               jsonify(std::chrono::duration_cast<std::chrono::milliseconds>(overall_.config().expiration_time()).count()));
+                               jsonify(remaining_bounded_msecs));
             // ExtStoreDurability
             req.specs.add_spec(protocol::subdoc_opcode::dict_add,
                                true,

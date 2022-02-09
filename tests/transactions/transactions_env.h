@@ -117,29 +117,37 @@ struct conn {
             bool ok = false;
             size_t num_pings = 0;
             auto sleep_time = PING_INTERVAL;
+            // TEMPORARILY: because of CCXCBC-94, we can only sleep for some arbitrary time before pinging,
+            // in hopes that query is up by then.
+            spdlog::info("sleeping for 10 seconds before pinging (CXXCBC-94 workaround/hack)");
+            std::this_thread::sleep_for(std::chrono::seconds(10));
             while (!ok && num_pings++ < MAX_PINGS) {
                 spdlog::info("sleeping {}ms before pinging...", sleep_time.count());
                 std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time));
-                std::set<couchbase::service_type> services{ couchbase::service_type::key_value, couchbase::service_type::query };
+                // TEMPORARILY only ping key_value.   See CCXCBC-94 for details -- ping not returning any service
+                // except KV.
+                std::set<couchbase::service_type> services{ couchbase::service_type::key_value };
                 auto barrier = std::make_shared<std::promise<couchbase::diag::ping_result>>();
                 auto f = barrier->get_future();
                 c.ping(
                   "tests_startup", "default", services, [barrier](couchbase::diag::ping_result result) { barrier->set_value(result); });
                 auto result = f.get();
-                ok = false;
+                ok = true;
                 for (auto& svc : services) {
                     if (result.services.find(svc) != result.services.end()) {
                         if (result.services[svc].size() > 0) {
-                            ok = std::all_of(result.services[svc].begin(),
-                                             result.services[svc].end(),
-                                             [&](const couchbase::diag::endpoint_ping_info& info) {
-                                                 return (!info.error && info.state == couchbase::diag::ping_state::ok);
-                                             });
+                            ok = ok && std::all_of(result.services[svc].begin(),
+                                                   result.services[svc].end(),
+                                                   [&](const couchbase::diag::endpoint_ping_info& info) {
+                                                       return (!info.error && info.state == couchbase::diag::ping_state::ok);
+                                                   });
+                        } else {
+                            ok = false;
                         }
+                    } else {
+                        ok = false;
                     }
                 }
-
-                sleep_time *= 2;
                 spdlog::info("ping after connect {}", ok ? "successful" : "unsuccessful");
             }
             if (!ok) {
