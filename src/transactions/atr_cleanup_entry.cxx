@@ -117,6 +117,10 @@ tx::atr_cleanup_entry::check_atr_and_cleanup(std::shared_ptr<spdlog::logger> log
     if (durability_level_raw.has_value()) {
         durability_level = store_string_to_durability_level(durability_level_raw.value());
     }
+    // Too verbose to log, but leaving here commented as it may be useful later for internal debugging
+    // logger->trace("found attempt {}/{} check_if_expired_={} has_expired={} safety_margin_ms_={}", atr_entry_->atr_id(),
+    // atr_entry_->attempt_id(),
+    //              check_if_expired_, atr_entry_->has_expired(safety_margin_ms_),safety_margin_ms_);
     if (check_if_expired_ && !atr_entry_->has_expired(safety_margin_ms_)) {
         logger->trace("{} not expired, nothing to clean", *this);
         return;
@@ -385,7 +389,10 @@ tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger, dur
             throw client_error(*ec, "before_atr_remove hook threw error");
         }
         couchbase::operations::mutate_in_request req{ atr_id_ };
-        req.specs.add_spec(protocol::subdoc_opcode::replace, true, false, false, "attempts", "{}");
+        if (atr_entry_->state() == tx::attempt_state::PENDING) {
+            req.specs.add_spec(protocol::subdoc_opcode::dict_add, true, false, false, "attempts." + atr_entry_->attempt_id() + ".p", "{}");
+        }
+        req.specs.add_spec(protocol::subdoc_opcode::remove, true, "attempts." + atr_entry_->attempt_id());
         wrap_durable_request(req, cleanup_->config(), dl);
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
@@ -395,8 +402,15 @@ tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger, dur
         tx::wrap_operation_future(f);
         logger->trace("successfully removed attempt {}", attempt_id_);
     } catch (const client_error& e) {
-        logger->error("cleanup couldn't remove attempt {} due to {}", attempt_id_, e.what());
-        throw;
+        error_class ec = e.ec();
+        switch (ec) {
+            case FAIL_PATH_NOT_FOUND:
+                logger->trace("found attempt {} has also inserted 'p' field indicating collision with main algo");
+                return;
+            default:
+                logger->error("cleanup couldn't remove attempt {} due to {} {}", attempt_id_, ec, e.what());
+                throw;
+        }
     }
 }
 

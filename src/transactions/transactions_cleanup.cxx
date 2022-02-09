@@ -131,18 +131,25 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
     auto details = get_active_clients(bucket_name, client_uuid_);
     auto all_atrs = atr_ids::all();
 
-    // we put a delay in between handling each atr, such that the delays add up to the total window time.  This
-    // means this takes longer than the window.
-
-    auto delay =
-      std::chrono::microseconds(1000 * config_.cleanup_window().count()) / std::max(1ul, all_atrs.size() / details.num_active_clients);
-    lost_attempts_cleanup_log->info("{} {} active clients (including this one), {} atrs to check {}us delay between checking each atr",
+    // TXNCXX-232 - dynamically adjust the budget for fetching each ATR, based on how long is left of the cleanup window and how many are
+    // left to fetch
+    auto atrs_handled_by_this_client = all_atrs.size() / details.num_active_clients;
+    std::chrono::microseconds cleanup_window = std::chrono::duration_cast<std::chrono::microseconds>(config_.cleanup_window());
+    auto start = std::chrono::steady_clock::now();
+    lost_attempts_cleanup_log->info("{} {} active clients (including this one), {} atrs to check in {}ms",
                                     static_cast<void*>(this),
                                     details.num_active_clients,
                                     all_atrs.size(),
-                                    delay.count());
-    auto start = std::chrono::system_clock::now();
+                                    config_.cleanup_window().count());
+
     for (auto it = all_atrs.begin() + details.index_of_this_client; it < all_atrs.end(); it += details.num_active_clients) {
+        auto atrs_left_for_this_client = std::distance(it, all_atrs.end()) / std::max((uint32_t)1, details.num_active_clients);
+        auto now = std::chrono::steady_clock::now();
+        std::chrono::microseconds elapsed_in_cleanup_window = std::chrono::duration_cast<std::chrono::microseconds>(now - start);
+        std::chrono::microseconds remaining_in_cleanup_window = cleanup_window - elapsed_in_cleanup_window;
+        std::chrono::microseconds budget_for_this_atr =
+          std::chrono::microseconds(remaining_in_cleanup_window.count() / std::max(1l, atrs_left_for_this_client));
+
         // clean the ATR entry
         std::string atr_id = *it;
         if (!running_.load()) {
@@ -152,13 +159,30 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
         try {
             auto id = config_.atr_id_from_bucket_and_key(bucket_name, atr_id);
             handle_atr_cleanup(id);
-            std::this_thread::sleep_for(delay);
+
         } catch (const std::runtime_error& err) {
             lost_attempts_cleanup_log->error(
               "{} cleanup of atr {} failed with {}, moving on", static_cast<void*>(this), atr_id, err.what());
         }
+
+        auto atr_end = std::chrono::steady_clock::now();
+        std::chrono::microseconds atr_used = std::chrono::duration_cast<std::chrono::microseconds>(atr_end - now);
+        std::chrono::microseconds atr_left = budget_for_this_atr - atr_used;
+
+        // Too verbose to log, but leaving here commented as it may be useful later for internal debugging
+        // lost_attempts_cleanup_log->info("{} {} atrs_left_for_this_client={} elapsed_in_cleanup_window={}us
+        // remaining_in_cleanup_window={}us budget_for_this_atr={}us atr_used={}us atr_left={}us",
+        //                                bucket_name, atr_id,
+        //                                atrs_left_for_this_client,
+        //                                elapsed_in_cleanup_window.count(),
+        //                                remaining_in_cleanup_window.count(),
+        //                                budget_for_this_atr.count(), atr_used.count(), atr_left.count());
+
+        if (atr_left.count() > 0 && atr_left.count() < 1000000000) { // safety check protects against bugs
+            std::this_thread::sleep_for(atr_left);
+        }
     }
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - start);
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start);
     lost_attempts_cleanup_log->info("{} cleanup of {} complete in {}s", static_cast<void*>(this), bucket_name, elapsed.count());
 }
 
