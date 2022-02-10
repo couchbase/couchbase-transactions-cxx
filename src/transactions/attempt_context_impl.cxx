@@ -651,7 +651,10 @@ template<typename Handler>
 void
 attempt_context_impl::query_begin_work(Handler&& cb)
 {
-    // construct the txn_data for the existing transaction
+    // check for expiry
+
+    // construct the txn_data and query options for the existing transaction
+    transaction_query_options opts;
     auto txdata = nlohmann::json::object();
     txdata["id"] = nlohmann::json::object();
     txdata["id"]["atmpt"] = id();
@@ -662,7 +665,9 @@ attempt_context_impl::query_begin_work(Handler&& cb)
     txdata["config"]["kvTimeoutMs"] =
       overall_.config().kv_timeout() ? overall_.config().kv_timeout()->count() : timeout_defaults::key_value_timeout.count();
     txdata["config"]["numAtrs"] = 1024;
+    opts.raw("numatrs", jsonify(1024));
     txdata["config"]["durabilityLevel"] = durability_level_to_string(overall_.config().durability_level());
+    opts.raw("durability_level", jsonify(durability_level_to_string(overall_.config().durability_level())));
     if (atr_id_) {
         txdata["atr"] = nlohmann::json::object();
         txdata["atr"]["scp"] = atr_id_->scope();
@@ -675,6 +680,7 @@ attempt_context_impl::query_begin_work(Handler&& cb)
         txdata["atr"]["scp"] = id.scope();
         txdata["atr"]["coll"] = id.collection();
         txdata["atr"]["bkt"] = id.bucket();
+        opts.raw("atrcollection", fmt::format("\"`{}`.`{}`.`{}`\"", id.bucket(), id.scope(), id.collection()));
     }
     txdata["mutations"] = nlohmann::json::array();
     if (!staged_mutations_->empty()) {
@@ -689,8 +695,6 @@ attempt_context_impl::query_begin_work(Handler&& cb)
             txdata["mutations"].push_back(obj);
         });
     }
-    // TODO: get some stuff (timeouts) from config
-    transaction_query_options opts;
     std::vector<json_string> params;
     trace("begin_work using txdata: {}", txdata.dump());
     wrap_query(BEGIN_WORK,
@@ -698,7 +702,7 @@ attempt_context_impl::query_begin_work(Handler&& cb)
                params,
                txdata,
                STAGE_QUERY_BEGIN_WORK,
-               false,
+               true,
                [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
                    if (resp.ctx.last_dispatched_to) {
                        trace("begin_work setting query node to {}", *resp.ctx.last_dispatched_to);
@@ -720,7 +724,6 @@ attempt_context_impl::handle_query_error(const couchbase::operations::query_resp
         resp.ctx.ec == couchbase::error::common_errc::unambiguous_timeout) {
         return std::make_exception_ptr(query_attempt_expired(resp.ctx.ec.message()));
     }
-    // TODO: txns on the query server can return a serialized transaction_operation_failed -- not currently supported in the client.
     auto chosen_error = resp.meta.errors->front();
     for (auto& err : *resp.meta.errors) {
         if (err.code >= 17000 && err.code <= 18000) {
@@ -855,13 +858,18 @@ attempt_context_impl::wrap_query(const std::string& statement,
     }
     req.statement = statement;
     if (auto ec = hooks_.before_query(this, statement)) {
-        error("have not implemented before_query hook handling");
+        auto err = std::make_exception_ptr(transaction_operation_failed(*ec, "before_query hook raised error"));
+        if (statement == BEGIN_WORK) {
+            return cb(std::make_exception_ptr(transaction_operation_failed(*ec, "before_query hook raised error").no_rollback()), {});
+        }
+        return cb(std::make_exception_ptr(transaction_operation_failed(*ec, "before_query hook raised error")), {});
     }
     trace("http request: {}", dump_request(req));
     overall_.cluster_ref().execute(req, [this, cb = std::move(cb)](couchbase::operations::query_response resp) mutable {
         trace("response: {} status: {}", resp.ctx.http_body, resp.meta.status);
         if (auto ec = hooks_.after_query(this, resp.ctx.statement)) {
-            error("have not implemented after_query handling yet");
+            auto err = std::make_exception_ptr(transaction_operation_failed(*ec, "after_query hook raised error"));
+            return cb(err, {});
         }
         cb(handle_query_error(resp), resp);
     });
