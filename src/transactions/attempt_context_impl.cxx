@@ -724,6 +724,12 @@ attempt_context_impl::handle_query_error(const couchbase::operations::query_resp
         resp.ctx.ec == couchbase::error::common_errc::unambiguous_timeout) {
         return std::make_exception_ptr(query_attempt_expired(resp.ctx.ec.message()));
     }
+    if (!resp.meta.errors) {
+        // can't choose an error, map using the ec...
+        external_exception cause =
+          (resp.ctx.ec == couchbase::error::common_errc::service_not_available ? SERVICE_NOT_AVAILABLE_EXCEPTION : COUCHBASE_EXCEPTION);
+        return std::make_exception_ptr(transaction_operation_failed(FAIL_OTHER, resp.ctx.ec.message()).cause(cause));
+    }
     auto chosen_error = resp.meta.errors->front();
     for (auto& err : *resp.meta.errors) {
         if (err.code >= 17000 && err.code <= 18000) {
