@@ -162,23 +162,23 @@ namespace transactions
         }
 
       private:
-        const std::string atr_bucket_;
-        const std::string atr_id_;
-        const std::string attempt_id_;
-        const attempt_state state_ = attempt_state::NOT_STARTED;
-        const std::optional<std::uint64_t> timestamp_start_ms_;
-        const std::optional<std::uint64_t> timestamp_commit_ms_;
-        const std::optional<std::uint64_t> timestamp_complete_ms_;
-        const std::optional<std::uint64_t> timestamp_rollback_ms_;
-        const std::optional<std::uint64_t> timestamp_rolled_back_ms_;
-        const std::optional<std::uint32_t> expires_after_ms_;
-        const std::optional<std::vector<doc_record>> inserted_ids_;
-        const std::optional<std::vector<doc_record>> replaced_ids_;
-        const std::optional<std::vector<doc_record>> removed_ids_;
-        const std::optional<nlohmann::json> forward_compat_;
-        const std::uint64_t cas_{};
+        std::string atr_bucket_;
+        std::string atr_id_;
+        std::string attempt_id_;
+        attempt_state state_ = attempt_state::NOT_STARTED;
+        std::optional<std::uint64_t> timestamp_start_ms_;
+        std::optional<std::uint64_t> timestamp_commit_ms_;
+        std::optional<std::uint64_t> timestamp_complete_ms_;
+        std::optional<std::uint64_t> timestamp_rollback_ms_;
+        std::optional<std::uint64_t> timestamp_rolled_back_ms_;
+        std::optional<std::uint32_t> expires_after_ms_;
+        std::optional<std::vector<doc_record>> inserted_ids_;
+        std::optional<std::vector<doc_record>> replaced_ids_;
+        std::optional<std::vector<doc_record>> removed_ids_;
+        std::optional<nlohmann::json> forward_compat_;
+        std::uint64_t cas_{};
         // ExtStoreDurability
-        const std::optional<std::string> durability_level_;
+        std::optional<std::string> durability_level_;
     };
 } // namespace transactions
 } // namespace couchbase

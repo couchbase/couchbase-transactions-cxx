@@ -46,6 +46,15 @@ namespace transactions
         const std::optional<document_metadata> metadata_;
 
       public:
+        /**
+        workaround for MSVC standard library deficiency
+        @internal
+        */
+        transaction_get_result()
+          : cas_(0)
+        {
+        }
+
         /** @internal */
         transaction_get_result(const transaction_get_result& doc)
           : value_(doc.value_)
@@ -233,7 +242,6 @@ namespace transactions
         {
             return metadata_;
         }
-
 
         /** @internal */
         template<typename OStream>

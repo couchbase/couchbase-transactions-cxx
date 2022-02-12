@@ -18,7 +18,6 @@
 #include <chrono>
 #include <functional>
 #include <iostream>
-#include <unistd.h>
 
 #include <couchbase/operations/management/bucket_get_all.hxx>
 
@@ -143,12 +142,12 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
                                     config_.cleanup_window().count());
 
     for (auto it = all_atrs.begin() + details.index_of_this_client; it < all_atrs.end(); it += details.num_active_clients) {
-        auto atrs_left_for_this_client = std::distance(it, all_atrs.end()) / std::max((uint32_t)1, details.num_active_clients);
+        auto atrs_left_for_this_client = std::distance(it, all_atrs.end()) / std::max<size_t>(1, details.num_active_clients);
         auto now = std::chrono::steady_clock::now();
         std::chrono::microseconds elapsed_in_cleanup_window = std::chrono::duration_cast<std::chrono::microseconds>(now - start);
         std::chrono::microseconds remaining_in_cleanup_window = cleanup_window - elapsed_in_cleanup_window;
         std::chrono::microseconds budget_for_this_atr =
-          std::chrono::microseconds(remaining_in_cleanup_window.count() / std::max(1l, atrs_left_for_this_client));
+          std::chrono::microseconds(remaining_in_cleanup_window.count() / std::max<size_t>(1, atrs_left_for_this_client));
 
         // clean the ATR entry
         std::string atr_id = *it;

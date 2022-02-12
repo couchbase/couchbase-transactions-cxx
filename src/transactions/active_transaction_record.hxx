@@ -16,9 +16,9 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
-#include <optional>
 
 #include "result.hxx"
 #include <couchbase/cluster.hxx>
@@ -89,8 +89,8 @@ namespace transactions
         }
 
       private:
-        const couchbase::document_id id_;
-        const std::vector<atr_entry> entries_;
+        couchbase::document_id id_;
+        std::vector<atr_entry> entries_;
 
         /**
          * ${Mutation.CAS} is written by kvengine with 'macroToString(htonll(info.cas))'.  Discussed this with KV team and, though there is

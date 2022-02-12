@@ -28,6 +28,9 @@
 #include <couchbase/transactions/transaction_config.hxx>
 #include <couchbase/transactions/transaction_result.hxx>
 
+// workaround for MSVC define overlap with log levels
+#undef ERROR
+
 /**
  * @file
  * Main header file for Couchbase Transactions
