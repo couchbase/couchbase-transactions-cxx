@@ -17,10 +17,6 @@
 #include <algorithm>
 #include <chrono>
 #include <functional>
-#include <iostream>
-
-#include <couchbase/operations/management/bucket_get_all.hxx>
-
 #include "active_transaction_record.hxx"
 #include "atr_ids.hxx"
 #include "attempt_context_impl.hxx"
@@ -169,13 +165,16 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
         std::chrono::microseconds atr_left = budget_for_this_atr - atr_used;
 
         // Too verbose to log, but leaving here commented as it may be useful later for internal debugging
-        // lost_attempts_cleanup_log->info("{} {} atrs_left_for_this_client={} elapsed_in_cleanup_window={}us
-        // remaining_in_cleanup_window={}us budget_for_this_atr={}us atr_used={}us atr_left={}us",
-        //                                bucket_name, atr_id,
-        //                                atrs_left_for_this_client,
-        //                                elapsed_in_cleanup_window.count(),
-        //                                remaining_in_cleanup_window.count(),
-        //                                budget_for_this_atr.count(), atr_used.count(), atr_left.count());
+        /*lost_attempts_cleanup_log->info("{} {} atrs_left_for_this_client={} elapsed_in_cleanup_window={}us "
+                                        "remaining_in_cleanup_window={}us budget_for_this_atr={}us atr_used={}us atr_left={}us",
+                                        bucket_name,
+                                        atr_id,
+                                        atrs_left_for_this_client,
+                                        elapsed_in_cleanup_window.count(),
+                                        remaining_in_cleanup_window.count(),
+                                        budget_for_this_atr.count(),
+                                        atr_used.count(),
+                                        atr_left.count());*/
 
         if (atr_left.count() > 0 && atr_left.count() < 1000000000) { // safety check protects against bugs
             std::this_thread::sleep_for(atr_left);
@@ -189,37 +188,29 @@ const tx::atr_cleanup_stats
 tx::transactions_cleanup::handle_atr_cleanup(const couchbase::document_id& atr_id, std::vector<transactions_cleanup_attempt>* results)
 {
     atr_cleanup_stats stats;
-    couchbase::operations::exists_request req{ atr_id };
-    wrap_request(req, config_);
-    auto barrier = std::make_shared<std::promise<bool>>();
-    auto f = barrier->get_future();
-    cluster_.execute(req, [barrier](couchbase::operations::exists_response resp) { barrier->set_value(resp.exists()); });
-
-    if (f.get()) {
-        auto atr = active_transaction_record::get_atr(cluster_, atr_id);
-        if (atr) {
-            // ok, loop through the attempts and clean them all.  The entry will
-            // check if expired, nothing much to do here except call clean.
-            stats.exists = true;
-            stats.num_entries = atr->entries().size();
-            for (const auto& entry : atr->entries()) {
-                // If we were passed results, then we are testing, and want to set the
-                // check_if_expired to false.
-                atr_cleanup_entry cleanup_entry(entry, atr_id, *this, results == nullptr);
-                try {
-                    if (results) {
-                        results->emplace_back(cleanup_entry);
-                    }
-                    cleanup_entry.clean(lost_attempts_cleanup_log, results ? &results->back() : nullptr);
-                    if (results) {
-                        results->back().success(true);
-                    }
-                } catch (const std::runtime_error& e) {
-                    lost_attempts_cleanup_log->error(
-                      "{} cleanup of {} failed: {}, moving on", static_cast<void*>(this), cleanup_entry, e.what());
-                    if (results) {
-                        results->back().success(false);
-                    }
+    auto atr = active_transaction_record::get_atr(cluster_, atr_id);
+    if (atr) {
+        // ok, loop through the attempts and clean them all.  The entry will
+        // check if expired, nothing much to do here except call clean.
+        stats.exists = true;
+        stats.num_entries = atr->entries().size();
+        for (const auto& entry : atr->entries()) {
+            // If we were passed results, then we are testing, and want to set the
+            // check_if_expired to false.
+            atr_cleanup_entry cleanup_entry(entry, atr_id, *this, results == nullptr);
+            try {
+                if (results) {
+                    results->emplace_back(cleanup_entry);
+                }
+                cleanup_entry.clean(lost_attempts_cleanup_log, results ? &results->back() : nullptr);
+                if (results) {
+                    results->back().success(true);
+                }
+            } catch (const std::exception& e) {
+                lost_attempts_cleanup_log->error(
+                  "{} cleanup of {} failed: {}, moving on", static_cast<void*>(this), cleanup_entry, e.what());
+                if (results) {
+                    results->back().success(false);
                 }
             }
         }

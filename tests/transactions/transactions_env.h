@@ -44,11 +44,11 @@ namespace tx = couchbase::transactions;
 struct conn {
     asio::io_context io;
     std::list<std::thread> io_threads;
-    couchbase::cluster c;
+    std::shared_ptr<couchbase::cluster> c;
 
     conn(const nlohmann::json& conf)
       : io({})
-      , c(io)
+      , c(couchbase::cluster::create(io))
     {
         // for tests, really chatty logs may be useful.
         if (!couchbase::logger::is_initialized()) {
@@ -68,7 +68,7 @@ struct conn {
         // close connection
         auto barrier = std::make_shared<std::promise<void>>();
         auto f = barrier->get_future();
-        c.close([barrier]() { barrier->set_value(); });
+        c->close([barrier]() { barrier->set_value(); });
         f.get();
         for (auto& t : io_threads) {
             if (t.joinable()) {
@@ -92,7 +92,7 @@ struct conn {
             auth.password = "password";
             auto barrier = std::make_shared<std::promise<std::error_code>>();
             auto f = barrier->get_future();
-            c.open(couchbase::origin(auth, connstr), [barrier](std::error_code ec) { barrier->set_value(ec); });
+            c->open(couchbase::origin(auth, connstr), [barrier](std::error_code ec) { barrier->set_value(ec); });
             auto rc = f.get();
             if (rc) {
                 std::cout << "ERROR opening cluster: " << rc.message() << std::endl;
@@ -104,7 +104,7 @@ struct conn {
         {
             auto barrier = std::make_shared<std::promise<std::error_code>>();
             auto f = barrier->get_future();
-            c.open_bucket("default", [barrier](std::error_code ec) { barrier->set_value(ec); });
+            c->open_bucket("default", [barrier](std::error_code ec) { barrier->set_value(ec); });
             auto rc = f.get();
             if (rc) {
                 std::cout << "ERROR opening bucket `default`: " << rc.message() << std::endl;
@@ -129,7 +129,7 @@ struct conn {
                 std::set<couchbase::service_type> services{ couchbase::service_type::key_value };
                 auto barrier = std::make_shared<std::promise<couchbase::diag::ping_result>>();
                 auto f = barrier->get_future();
-                c.ping(
+                c->ping(
                   "tests_startup", "default", services, [barrier](couchbase::diag::ping_result result) { barrier->set_value(result); });
                 auto result = f.get();
                 ok = true;
@@ -230,7 +230,7 @@ class TransactionsTestEnvironment : public ::testing::Environment
     static couchbase::cluster& get_cluster()
     {
         static conn connection(get_conf());
-        return connection.c;
+        return *connection.c;
     }
 
     static couchbase::document_id get_document_id(const std::string& id = {})

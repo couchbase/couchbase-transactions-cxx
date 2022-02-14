@@ -196,7 +196,7 @@ main(int, const char*[])
     string bucket_name = "default";
     couchbase::cluster_credentials auth{};
     asio::io_context io;
-    couchbase::cluster cluster(io);
+    auto cluster = couchbase::cluster::create(io);
     if (!couchbase::logger::is_initialized()) {
         couchbase::logger::create_console_logger();
     }
@@ -218,7 +218,7 @@ main(int, const char*[])
     {
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
-        cluster.open(couchbase::origin(auth, connstr), [barrier](std::error_code ec) { barrier->set_value(ec); });
+        cluster->open(couchbase::origin(auth, connstr), [barrier](std::error_code ec) { barrier->set_value(ec); });
         auto rc = f.get();
         if (rc) {
             cout << "ERROR opening cluster: " << rc.message() << endl;
@@ -229,7 +229,7 @@ main(int, const char*[])
     {
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
-        cluster.open_bucket(bucket_name, [barrier](std::error_code ec) { barrier->set_value(ec); });
+        cluster->open_bucket(bucket_name, [barrier](std::error_code ec) { barrier->set_value(ec); });
         auto rc = f.get();
         if (rc) {
             cout << "ERROR opening bucket `" << bucket_name << "`: " << rc.message() << endl;
@@ -250,7 +250,7 @@ main(int, const char*[])
         to_json(j, player_data);
         req.value = j.dump();
         auto barrier = std::make_shared<std::promise<couchbase::operations::upsert_response>>();
-        cluster.execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp); });
+        cluster->execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp); });
         auto f = barrier->get_future();
         auto resp = f.get();
         cout << "Upserted sample player document: " << player_id.key() << "with cas:" << resp.cas.value << endl;
@@ -263,17 +263,17 @@ main(int, const char*[])
         req.value = j.dump();
         auto barrier = std::make_shared<std::promise<couchbase::operations::upsert_response>>();
         auto f = barrier->get_future();
-        cluster.execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp); });
+        cluster->execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp); });
         auto resp = f.get();
         cout << "Upserted sample monster document: " << monster_id.key() << endl;
     }
-    transactions::get_and_open_buckets(cluster);
+    transactions::get_and_open_buckets(*cluster);
     transactions::transaction_config configuration;
     configuration.durability_level(transactions::durability_level::MAJORITY);
     configuration.cleanup_client_attempts(true);
     configuration.cleanup_lost_attempts(true);
     configuration.cleanup_window(std::chrono::seconds(5));
-    transactions::transactions transactions(cluster, configuration);
+    transactions::transactions transactions(*cluster, configuration);
     GameServer game_server(transactions);
     std::vector<std::thread> threads;
     for (int i = 0; i < NUM_THREADS; i++) {
@@ -295,7 +295,7 @@ main(int, const char*[])
     // close the cluster...
     auto barrier = std::make_shared<std::promise<void>>();
     auto f = barrier->get_future();
-    cluster.close([barrier]() { barrier->set_value(); });
+    cluster->close([barrier]() { barrier->set_value(); });
     f.get();
     for (auto& t : io_threads) {
         if (t.joinable()) {
