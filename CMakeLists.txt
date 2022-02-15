@@ -19,6 +19,11 @@ if (POLICY CMP0063) # Visibility
     cmake_policy(SET CMP0063 NEW)
 endif (POLICY CMP0063)
 
+# Use bigobj on windows to enable builds to succeed.
+if(WIN32)
+  add_definitions(/bigobj)
+endif()
+
 # ============= BEGIN EXTERNAL DEPS ==================================
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(ALLOW_DUPLICATE_CUSTOM_TARGETS TRUE)
