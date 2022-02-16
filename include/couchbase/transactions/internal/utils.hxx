@@ -378,35 +378,33 @@ namespace transactions
         couchbase::operations::management::bucket_get_all_request req{};
         // don't wrap this one, as the kv timeout isn't appropriate here.
         std::mutex mtx;
-        std::condition_variable cv;
+        auto cv = std::make_shared<std::condition_variable>();
         size_t count = 1; // non-zero so we know not to stop waiting immediately
         std::list<std::string> bucket_names;
-        c.execute(req, [&cv, &bucket_names, &c, &mtx, &count](couchbase::operations::management::bucket_get_all_response resp) {
+        c.execute(req, [cv, &bucket_names, &c, &mtx, &count](couchbase::operations::management::bucket_get_all_response resp) {
             std::unique_lock<std::mutex> lock(mtx);
             // now set count to correct # of buckets to try to open
             count = resp.buckets.size();
             lock.unlock();
             for (auto& b : resp.buckets) {
                 // open the bucket
-                c.open_bucket(b.name, [&cv, name = b.name, &bucket_names, &mtx, &count](std::error_code ec) {
+                c.open_bucket(b.name, [cv, name = b.name, &bucket_names, &mtx, &count](std::error_code ec) {
                     std::unique_lock<std::mutex> lock(mtx);
                     if (!ec) {
                         // push bucket name into list only if we successfully opened it
                         bucket_names.push_back(name);
                     }
-                    count--;
-                    bool should_notify = (count == 0);
+                    bool is_done = (--count == 0);
                     lock.unlock();
-                    if (should_notify) {
-                        cv.notify_all();
+                    if (is_done) {
+                        cv->notify_all();
                     }
                 });
             }
         });
         std::unique_lock<std::mutex> lock(mtx);
-        cv.wait(lock, [&count]() { return count == 0; });
+        cv->wait(lock, [&count]() { return count == 0; });
         return bucket_names;
     }
-
 } // namespace transactions
 } // namespace couchbase

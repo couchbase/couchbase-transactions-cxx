@@ -230,3 +230,29 @@ TEST(GetBuckets, CanGetBuckets)
     ASSERT_NE(buckets.end(), std::find(buckets.begin(), buckets.end(), std::string("default")));
     ASSERT_NE(buckets.end(), std::find(buckets.begin(), buckets.end(), std::string("secBucket")));
 }
+TEST(GetBuckets, CanRaceToGetAndOpenBuckets)
+{
+    std::list<std::future<std::list<std::string>>> futures;
+    size_t num_futures = 20;
+    auto& c = TransactionsTestEnvironment::get_cluster();
+    for (int i = 0; i < num_futures; i++) {
+        futures.push_back(std::move(std::async(std::launch::async, [&c] { return get_and_open_buckets(c); })));
+    }
+    for (auto& f : futures) {
+        EXPECT_NO_THROW(f.get());
+    }
+}
+TEST(GetBuckets, CanGetAndOpenBucketsInMultipleThreads)
+{
+    std::list<std::future<std::list<std::string>>> futures;
+    size_t num_futures = 20;
+    for (int i = 0; i < num_futures; i++) {
+        futures.push_back(std::move(std::async(std::launch::async, [&] {
+            auto& c = TransactionsTestEnvironment::get_cluster();
+            return get_and_open_buckets(c);
+        })));
+    }
+    for (auto& f : futures) {
+        EXPECT_NO_THROW(f.get());
+    }
+}

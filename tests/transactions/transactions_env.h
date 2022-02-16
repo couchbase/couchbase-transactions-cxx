@@ -83,7 +83,6 @@ struct conn {
     {
         couchbase::cluster_credentials auth{};
         {
-            couchbase::logger::create_console_logger();
             if (auto env_val = std::getenv("COUCHBASE_CXX_CLIENT_LOG_LEVEL")) {
                 couchbase::logger::set_log_levels(couchbase::logger::level_from_str(env_val));
             }
