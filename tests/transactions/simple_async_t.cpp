@@ -41,7 +41,7 @@ txn_completed(std::optional<transaction_exception> err,
     } else {
         barrier->set_value();
     }
-};
+}
 
 TEST(SimpleAsyncTxns, AsyncGet)
 {
@@ -68,6 +68,29 @@ TEST(SimpleAsyncTxns, AsyncGet)
       });
     f.get();
 }
+TEST(SimpleAsyncTxns, CantGetFromUnknownBucket)
+{
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    couchbase::document_id bad_id{ "secBucket", "_default", "default", uid_generator::next() };
+    std::atomic<bool> cb_called{ false };
+    auto barrier = std::make_shared<std::promise<void>>();
+    auto f = barrier->get_future();
+    txns.run(
+      [&, barrier](async_attempt_context& ctx) {
+          ctx.get(bad_id, [&, barrier](std::exception_ptr err, std::optional<transaction_get_result> result) {
+              cb_called = true;
+              EXPECT_TRUE(err);
+              EXPECT_FALSE(result);
+          });
+      },
+      [barrier, &cb_called](std::optional<transaction_exception> err, std::optional<transaction_result> res) {
+          txn_completed(err, res, barrier);
+          EXPECT_TRUE(cb_called.load());
+      });
+    EXPECT_THROW(f.get(), transaction_exception);
+    EXPECT_TRUE(cb_called);
+}
+
 TEST(SimpleAsyncTxns, AsyncGetFail)
 {
     auto& cluster = TransactionsTestEnvironment::get_cluster();

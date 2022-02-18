@@ -111,40 +111,49 @@ attempt_context_impl::get(const couchbase::document_id& id, Callback&& cb)
     }
     cache_error_async(std::move(cb), [&]() {
         check_if_done(cb);
-        do_get(id, std::nullopt, [this, id, cb = std::move(cb)](std::optional<error_class> ec, std::optional<transaction_get_result> res) {
-            if (!ec) {
-                ec = hooks_.after_get_complete(this, id.key());
-            }
-            if (ec) {
-                switch (*ec) {
-                    case FAIL_EXPIRY:
-                        return op_completed_with_error(std::move(cb),
-                                                       transaction_operation_failed(*ec, "transaction expired during get").expired());
-                    case FAIL_DOC_NOT_FOUND:
-                        return op_completed_with_error(
-                          std::move(cb),
-                          transaction_operation_failed(*ec, "document not found").cause(external_exception::DOCUMENT_NOT_FOUND_EXCEPTION));
-                    case FAIL_TRANSIENT:
-                        return op_completed_with_error(std::move(cb),
-                                                       transaction_operation_failed(*ec, "transient failure in get").retry());
-                    case FAIL_HARD:
-                        return op_completed_with_error(std::move(cb), transaction_operation_failed(*ec, "fail hard in get").no_rollback());
-                    default: {
-                        std::string msg("got error while getting doc ");
-                        return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, msg.append(id.key())));
-                    }
-                }
-            } else {
-                if (!res) {
-                    return op_completed_with_error(std::move(cb), transaction_operation_failed(*ec, "document not found"));
-                }
-                auto err = forward_compat::check(forward_compat_stage::GETS, res->links().forward_compat());
-                if (err) {
-                    return op_completed_with_error(std::move(cb), *err);
-                }
-                return op_completed_with_callback(std::move(cb), res);
-            }
-        });
+        do_get(
+          id,
+          std::nullopt,
+          [this, id, cb = std::move(cb)](
+            std::optional<error_class> ec, std::optional<std::string> err_message, std::optional<transaction_get_result> res) {
+              if (!ec) {
+                  ec = hooks_.after_get_complete(this, id.key());
+              }
+              if (ec) {
+                  switch (*ec) {
+                      case FAIL_EXPIRY:
+                          return op_completed_with_error(std::move(cb),
+                                                         transaction_operation_failed(*ec, "transaction expired during get").expired());
+                      case FAIL_DOC_NOT_FOUND:
+                          return op_completed_with_error(
+                            std::move(cb),
+                            transaction_operation_failed(*ec, fmt::format("document not found {}", err_message.value_or("")))
+                              .cause(external_exception::DOCUMENT_NOT_FOUND_EXCEPTION));
+                      case FAIL_TRANSIENT:
+                          return op_completed_with_error(
+                            std::move(cb),
+                            transaction_operation_failed(*ec, fmt::format("transient failure in get {}", err_message.value_or("")))
+                              .retry());
+                      case FAIL_HARD:
+                          return op_completed_with_error(
+                            std::move(cb),
+                            transaction_operation_failed(*ec, fmt::format("fail hard in get {}", err_message.value_or(""))).no_rollback());
+                      default: {
+                          auto msg = fmt::format("got error {} while getting doc {}", err_message.value_or(""), id.key());
+                          return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, msg));
+                      }
+                  }
+              } else {
+                  if (!res) {
+                      return op_completed_with_error(std::move(cb), transaction_operation_failed(*ec, "document not found"));
+                  }
+                  auto err = forward_compat::check(forward_compat_stage::GETS, res->links().forward_compat());
+                  if (err) {
+                      return op_completed_with_error(std::move(cb), *err);
+                  }
+                  return op_completed_with_callback(std::move(cb), res);
+              }
+          });
     });
 }
 
@@ -170,37 +179,49 @@ attempt_context_impl::get_optional(const couchbase::document_id& id, Callback&& 
     }
     cache_error_async(std::move(cb), [&]() {
         check_if_done(cb);
-        do_get(id, std::nullopt, [this, id, cb = std::move(cb)](std::optional<error_class> ec, std::optional<transaction_get_result> res) {
-            if (!ec) {
-                ec = hooks_.after_get_complete(this, id.key());
-            }
-            if (ec) {
-                switch (*ec) {
-                    case FAIL_EXPIRY:
-                        return op_completed_with_error(std::move(cb),
-                                                       transaction_operation_failed(*ec, "transaction expired during get").expired());
-                    case FAIL_DOC_NOT_FOUND:
-                        return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>());
-                    case FAIL_TRANSIENT:
-                        return op_completed_with_error(std::move(cb),
-                                                       transaction_operation_failed(*ec, "transient failure in get").retry());
-                    case FAIL_HARD:
-                        return op_completed_with_error(std::move(cb), transaction_operation_failed(*ec, "fail hard in get").no_rollback());
-                    default: {
-                        std::string msg("got error while getting doc ");
-                        return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, msg.append(id.key())));
-                    }
-                }
-            } else {
-                if (res) {
-                    auto err = forward_compat::check(forward_compat_stage::GETS, res->links().forward_compat());
-                    if (err) {
-                        return op_completed_with_error(std::move(cb), *err);
-                    }
-                }
-                return op_completed_with_callback(std::move(cb), res);
-            }
-        });
+        do_get(
+          id,
+          std::nullopt,
+          [this, id, cb = std::move(cb)](
+            std::optional<error_class> ec, std::optional<std::string> err_message, std::optional<transaction_get_result> res) {
+              if (!ec) {
+                  ec = hooks_.after_get_complete(this, id.key());
+              }
+              if (ec) {
+                  switch (*ec) {
+                      case FAIL_EXPIRY:
+                          return op_completed_with_error(
+                            std::move(cb),
+                            transaction_operation_failed(*ec, fmt::format("transaction expired during get {}", err_message.value_or("")))
+                              .expired());
+                      case FAIL_DOC_NOT_FOUND:
+                          return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>());
+                      case FAIL_TRANSIENT:
+                          return op_completed_with_error(
+                            std::move(cb),
+                            transaction_operation_failed(*ec, fmt::format("transient failure in get {}", err_message.value_or("")))
+                              .retry());
+                      case FAIL_HARD:
+                          return op_completed_with_error(
+                            std::move(cb),
+                            transaction_operation_failed(*ec, fmt::format("fail hard in get {}", err_message.value_or(""))).no_rollback());
+                      default: {
+                          return op_completed_with_error(
+                            std::move(cb),
+                            transaction_operation_failed(FAIL_OTHER,
+                                                         fmt::format("error getting {} {}", id.key(), err_message.value_or(""))));
+                      }
+                  }
+              } else {
+                  if (res) {
+                      auto err = forward_compat::check(forward_compat_stage::GETS, res->links().forward_compat());
+                      if (err) {
+                          return op_completed_with_error(std::move(cb), *err);
+                      }
+                  }
+                  return op_completed_with_callback(std::move(cb), res);
+              }
+          });
     });
 }
 
@@ -1828,31 +1849,32 @@ attempt_context_impl::do_get(const couchbase::document_id& id, const std::option
 {
     try {
         if (check_expiry_pre_commit(STAGE_GET, id.key())) {
-            return cb(FAIL_EXPIRY, std::nullopt);
+            return cb(FAIL_EXPIRY, "expired in do_get", std::nullopt);
         }
 
         staged_mutation* own_write = check_for_own_write(id);
         if (own_write) {
             debug("found own-write of mutated doc {}", id);
-            return cb(std::nullopt, transaction_get_result::create_from(own_write->doc(), own_write->content()));
+            return cb(std::nullopt, std::nullopt, transaction_get_result::create_from(own_write->doc(), own_write->content()));
         }
         staged_mutation* own_remove = staged_mutations_->find_remove(id);
         if (own_remove) {
-            debug("found own-write of removed doc {}", id);
-            return cb(FAIL_DOC_NOT_FOUND, std::nullopt);
+            auto msg = fmt::format("found own-write of removed doc {}", id);
+            debug(msg);
+            return cb(FAIL_DOC_NOT_FOUND, msg, std::nullopt);
         }
 
         auto ec = hooks_.before_doc_get(this, id.key());
         if (ec) {
-            return cb(ec, std::nullopt);
+            return cb(ec, "before_doc_get hook raised error", std::nullopt);
         }
 
         get_doc(id,
                 [this, id, resolving_missing_atr_entry = std::move(resolving_missing_atr_entry), cb = std::move(cb)](
-                  std::optional<error_class> ec, std::optional<transaction_get_result> doc) {
+                  std::optional<error_class> ec, std::optional<std::string> err_message, std::optional<transaction_get_result> doc) {
                     if (!ec && !doc) {
                         // it just isn't there.
-                        return cb(std::nullopt, std::nullopt);
+                        return cb(std::nullopt, std::nullopt, std::nullopt);
                     }
                     if (!ec) {
                         if (doc->links().is_document_in_transaction()) {
@@ -1864,10 +1886,10 @@ attempt_context_impl::do_get(const couchbase::document_id& id, const std::option
 
                                 if (doc->links().is_document_being_inserted()) {
                                     // this document is being inserted, so should not be visible yet
-                                    return cb(std::nullopt, std::nullopt);
+                                    return cb(std::nullopt, std::nullopt, std::nullopt);
                                 }
 
-                                return cb(std::nullopt, doc);
+                                return cb(std::nullopt, std::nullopt, doc);
                             }
 
                             couchbase::document_id doc_atr_id{ doc->links().atr_bucket_name().value(),
@@ -1898,7 +1920,7 @@ attempt_context_impl::do_get(const couchbase::document_id& id, const std::option
                                               auto err =
                                                 forward_compat::check(forward_compat_stage::GETS_READING_ATR, entry->forward_compat());
                                               if (err) {
-                                                  return cb(FAIL_OTHER, std::nullopt);
+                                                  return cb(FAIL_OTHER, err->what(), std::nullopt);
                                               }
                                               switch (entry->state()) {
                                                   case attempt_state::COMPLETED:
@@ -1924,9 +1946,9 @@ attempt_context_impl::do_get(const couchbase::document_id& id, const std::option
                                           return do_get(id, doc->links().staged_attempt_id(), cb);
                                       }
                                       if (ignore_doc) {
-                                          return cb(std::nullopt, std::nullopt);
+                                          return cb(std::nullopt, std::nullopt, std::nullopt);
                                       } else {
-                                          return cb(std::nullopt, transaction_get_result::create_from(*doc, content));
+                                          return cb(std::nullopt, std::nullopt, transaction_get_result::create_from(*doc, content));
                                       }
                                   } else {
                                       // failed to get the ATR
@@ -1938,12 +1960,12 @@ attempt_context_impl::do_get(const couchbase::document_id& id, const std::option
                             if (doc->links().is_deleted()) {
                                 debug("doc not in txn, and is_deleted, so not returning it.");
                                 // doc has been deleted, not in txn, so don't return it
-                                return cb(std::nullopt, std::nullopt);
+                                return cb(std::nullopt, std::nullopt, std::nullopt);
                             }
-                            return cb(std::nullopt, doc);
+                            return cb(std::nullopt, std::nullopt, doc);
                         }
                     } else {
-                        return cb(ec, std::nullopt);
+                        return cb(ec, err_message, std::nullopt);
                     }
                 });
 
@@ -1957,8 +1979,9 @@ attempt_context_impl::do_get(const couchbase::document_id& id, const std::option
 }
 
 void
-attempt_context_impl::get_doc(const couchbase::document_id& id,
-                              std::function<void(std::optional<error_class>, std::optional<transaction_get_result>)>&& cb)
+attempt_context_impl::get_doc(
+  const couchbase::document_id& id,
+  std::function<void(std::optional<error_class>, std::optional<std::string>, std::optional<transaction_get_result>)>&& cb)
 {
     couchbase::operations::lookup_in_request req{ id };
     req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_ID);
@@ -1980,19 +2003,19 @@ attempt_context_impl::get_doc(const couchbase::document_id& id,
         overall_.cluster_ref().execute(req, [this, id, cb = std::move(cb)](couchbase::operations::lookup_in_response resp) {
             auto ec = error_class_from_response(resp);
             if (ec) {
-                trace("get_doc got error {}", *ec);
+                trace("get_doc got error {} : {}", resp.ctx.ec.message(), *ec);
                 switch (*ec) {
                     case FAIL_PATH_NOT_FOUND:
-                        cb(*ec, transaction_get_result::create_from(resp));
+                        cb(*ec, resp.ctx.ec.message(), transaction_get_result::create_from(resp));
                     default:
-                        cb(*ec, std::nullopt);
+                        cb(*ec, resp.ctx.ec.message(), std::nullopt);
                 }
             } else {
-                cb({}, transaction_get_result::create_from(resp));
+                cb({}, {}, transaction_get_result::create_from(resp));
             }
         });
     } catch (const std::exception& e) {
-        cb(FAIL_OTHER, std::nullopt);
+        cb(FAIL_OTHER, e.what(), std::nullopt);
     }
 }
 
@@ -2028,7 +2051,7 @@ attempt_context_impl::create_staged_insert_error_handler(const couchbase::docume
         case FAIL_CAS_MISMATCH: {
             // special handling for doc already existing
             debug("found existing doc {}, may still be able to insert", id);
-            auto error_handler = [this, id, content, cb](error_class ec) {
+            auto error_handler = [this, id, content, cb](error_class ec, std::string err_message) {
                 trace("after a CAS_MISMATCH or DOC_ALREADY_EXISTS, then got error {} in create_staged_insert", ec);
                 if (expiry_overtime_mode_.load()) {
                     return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired());
@@ -2037,19 +2060,23 @@ attempt_context_impl::create_staged_insert_error_handler(const couchbase::docume
                     case FAIL_DOC_NOT_FOUND:
                     case FAIL_TRANSIENT:
                         return op_completed_with_error(
-                          std::move(cb), transaction_operation_failed(ec, "error while handling existing doc in insert").retry());
+                          std::move(cb),
+                          transaction_operation_failed(ec, fmt::format("error {} while handling existing doc in insert", err_message))
+                            .retry());
                     default:
-                        return op_completed_with_error(std::move(cb),
-                                                       transaction_operation_failed(ec, "failed getting doc in create_staged_insert"));
+                        return op_completed_with_error(
+                          std::move(cb),
+                          transaction_operation_failed(ec, fmt::format("failed getting doc in create_staged_insert with {}", err_message)));
                 }
             };
             auto err = hooks_.before_get_doc_in_exists_during_staged_insert(this, id.key());
             if (err) {
-                trace("before_get_doc_in_exists_during_staged_insert hook raised {}", *err);
-                return error_handler(*err);
+                return error_handler(*err, fmt::format("before_get_doc_in_exists_during_staged_insert hook raised {}", *err));
             }
             return get_doc(
-              id, [this, id, content, cb, error_handler, delay](std::optional<error_class> ec, std::optional<transaction_get_result> doc) {
+              id,
+              [this, id, content, cb, error_handler, delay](
+                std::optional<error_class> ec, std::optional<std::string> err_message, std::optional<transaction_get_result> doc) {
                   if (!ec) {
                       if (doc) {
                           debug("document {} exists, is_in_transaction {}, is_deleted {} ",
@@ -2099,10 +2126,11 @@ attempt_context_impl::create_staged_insert_error_handler(const couchbase::docume
                               .retry());
                       }
                   } else {
-                      return error_handler(*ec);
+                      return error_handler(*ec, *err_message);
                   }
               });
-        } break;
+            break;
+        }
         default:
             return op_completed_with_error(std::move(cb), transaction_operation_failed(ec, "failed in create_staged_insert").retry());
     }
