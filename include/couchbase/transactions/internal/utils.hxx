@@ -377,33 +377,32 @@ namespace transactions
     {
         couchbase::operations::management::bucket_get_all_request req{};
         // don't wrap this one, as the kv timeout isn't appropriate here.
-        std::mutex mtx;
+        auto mtx = std::make_shared<std::mutex>();
         auto cv = std::make_shared<std::condition_variable>();
         size_t count = 1; // non-zero so we know not to stop waiting immediately
         std::list<std::string> bucket_names;
-        c.execute(req, [cv, &bucket_names, &c, &mtx, &count](couchbase::operations::management::bucket_get_all_response resp) {
-            std::unique_lock<std::mutex> lock(mtx);
+        c.execute(req, [cv, &bucket_names, &c, mtx, &count](couchbase::operations::management::bucket_get_all_response resp) {
+            std::unique_lock<std::mutex> lock(*mtx);
             // now set count to correct # of buckets to try to open
             count = resp.buckets.size();
             lock.unlock();
             for (auto& b : resp.buckets) {
                 // open the bucket
-                c.open_bucket(b.name, [cv, name = b.name, &bucket_names, &mtx, &count](std::error_code ec) {
-                    std::unique_lock<std::mutex> lock(mtx);
+                c.open_bucket(b.name, [cv, name = b.name, &bucket_names, mtx, &count](std::error_code ec) {
+                    std::unique_lock<std::mutex> lock(*mtx);
                     if (!ec) {
                         // push bucket name into list only if we successfully opened it
                         bucket_names.push_back(name);
                     }
-                    bool is_done = (--count == 0);
-                    lock.unlock();
-                    if (is_done) {
+                    if (--count == 0) {
                         cv->notify_all();
                     }
+                    lock.unlock();
                 });
             }
         });
-        std::unique_lock<std::mutex> lock(mtx);
-        cv->wait(lock, [&count]() { return count == 0; });
+        std::unique_lock<std::mutex> lock(*mtx);
+        cv->wait(lock);
         return bucket_names;
     }
 } // namespace transactions
