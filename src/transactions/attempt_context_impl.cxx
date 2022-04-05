@@ -725,10 +725,8 @@ attempt_context_impl::query_begin_work(Handler&& cb)
                STAGE_QUERY_BEGIN_WORK,
                true,
                [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
-                   if (resp.ctx.last_dispatched_to) {
-                       trace("begin_work setting query node to {}", *resp.ctx.last_dispatched_to);
-                       op_list_.set_query_node(resp.ctx.last_dispatched_to.value());
-                   }
+                   trace("begin_work setting query node to {}", resp.served_by_node);
+                   op_list_.set_query_node(resp.served_by_node);
                    return cb(err);
                });
 }
