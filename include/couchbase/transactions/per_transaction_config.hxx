@@ -44,12 +44,12 @@ class per_transaction_config
     {
         return durability_;
     }
-    per_transaction_config& scan_consistency(query_request::scan_consistency_type scan_consistency)
+    per_transaction_config& scan_consistency(couchbase::query_scan_consistency scan_consistency)
     {
         scan_consistency_ = scan_consistency;
         return *this;
     }
-    std::optional<query_request::scan_consistency_type> scan_consistency()
+    std::optional<couchbase::query_scan_consistency> scan_consistency()
     {
         return scan_consistency_;
     }
@@ -92,7 +92,7 @@ class per_transaction_config
 
   private:
     std::optional<couchbase::transactions::durability_level> durability_;
-    std::optional<query_request::scan_consistency_type> scan_consistency_;
+    std::optional<couchbase::query_scan_consistency> scan_consistency_;
     std::optional<milliseconds> kv_timeout_;
     std::optional<nanoseconds> expiration_time_;
 };

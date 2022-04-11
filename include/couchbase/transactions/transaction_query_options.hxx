@@ -51,13 +51,13 @@ class transaction_query_options
         return *this;
     }
 
-    transaction_query_options& scan_consistency(couchbase::operations::query_request::scan_consistency_type scan_consistency)
+    transaction_query_options& scan_consistency(couchbase::query_scan_consistency scan_consistency)
     {
         query_req_.scan_consistency = scan_consistency;
         return *this;
     }
 
-    transaction_query_options& profile(couchbase::operations::query_request::profile_mode mode)
+    transaction_query_options& profile(couchbase::query_profile_mode mode)
     {
         query_req_.profile = mode;
         return *this;

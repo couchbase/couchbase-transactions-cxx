@@ -373,7 +373,7 @@ TEST(SimpleTxnContext, CanSetPerTxnConfig)
     auto txns = TransactionsTestEnvironment::get_transactions();
     auto id = TransactionsTestEnvironment::get_document_id();
     per_transaction_config per_txn_cfg;
-    per_txn_cfg.scan_consistency(couchbase::operations::query_request::scan_consistency_type::not_bounded);
+    per_txn_cfg.scan_consistency(couchbase::query_scan_consistency::not_bounded);
     per_txn_cfg.expiration_time(std::chrono::milliseconds(1)).kv_timeout(std::chrono::milliseconds(2));
     per_txn_cfg.durability_level(couchbase::transactions::durability_level::NONE);
     transaction_context tx(txns, per_txn_cfg);

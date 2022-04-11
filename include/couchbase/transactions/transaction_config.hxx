@@ -147,7 +147,7 @@ namespace transactions
          *
          * @param scan_consistency Desired default scan consistency
          */
-        void scan_consistency(couchbase::operations::query_request::scan_consistency_type scan_consistency)
+        void scan_consistency(couchbase::query_scan_consistency scan_consistency)
         {
             scan_consistency_ = scan_consistency;
         }
@@ -156,7 +156,7 @@ namespace transactions
          *
          * @return scan consistency for transactional query operations.
          */
-        CB_NODISCARD operations::query_request::scan_consistency_type scan_consistency() const
+        CB_NODISCARD couchbase::query_scan_consistency scan_consistency() const
         {
             return scan_consistency_;
         }
@@ -250,7 +250,7 @@ namespace transactions
         bool cleanup_client_attempts_;
         std::unique_ptr<attempt_context_testing_hooks> attempt_context_hooks_;
         std::unique_ptr<cleanup_testing_hooks> cleanup_hooks_;
-        couchbase::operations::query_request::scan_consistency_type scan_consistency_;
+        couchbase::query_scan_consistency scan_consistency_;
         std::optional<couchbase::document_id> custom_metadata_collection_;
     };
 } // namespace transactions

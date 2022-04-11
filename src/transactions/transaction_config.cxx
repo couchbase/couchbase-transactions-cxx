@@ -31,7 +31,7 @@ namespace transactions
       , cleanup_client_attempts_(true)
       , attempt_context_hooks_(new attempt_context_testing_hooks())
       , cleanup_hooks_(new cleanup_testing_hooks())
-      , scan_consistency_(operations::query_request::scan_consistency_type::request_plus)
+      , scan_consistency_(couchbase::query_scan_consistency::request_plus)
     {
     }
 
