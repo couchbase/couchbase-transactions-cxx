@@ -77,6 +77,13 @@ configure_file(
     COPYONLY)
 
 if(NOT COUCHBASE_TXNS_CXX_CLIENT_EXTERNAL)
+    if (APPLE AND NOT DEFINED OPENSSL_ROOT_DIR)
+        # look in typical brew location - missed by the openssl finder
+        message(STATUS "no OPENSSL_ROOT_DIR specified, using MacOS, so defaulting to homebrew location")
+        set(OPENSSL_ROOT_DIR "/usr/local/opt/openssl@1.1", CACHE INTERNAL "")
+    endif()
+    message(STATUS "APPLE: '${APPLE}', SSL: '${OPENSSL_ROOT_DIR}'")
+    find_package(OpenSSL REQUIRED)
     set(COUCHBASE_CXX_CLIENT_BUILD_TESTS OFF CACHE INTERNAL "")
     add_subdirectory(deps/couchbase-cxx-client)
 endif()
