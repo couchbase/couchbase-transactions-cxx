@@ -57,6 +57,21 @@ namespace transactions
         return "MAJORITY";
     }
 
+    static std::string durability_level_to_string_for_query(durability_level l)
+    {
+        switch (l) {
+            case durability_level::NONE:
+                return "none";
+            case durability_level::MAJORITY:
+                return "majority";
+            case durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE:
+                return "majorityAndPersistToActive";
+            case durability_level::PERSIST_TO_MAJORITY:
+                return "persistToMajority";
+        }
+        return "majority";
+    }
+
     static std::string store_durability_level_to_string(durability_level l)
     {
         switch (l) {

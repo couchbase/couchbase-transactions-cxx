@@ -688,7 +688,7 @@ attempt_context_impl::query_begin_work(Handler&& cb)
     txdata["config"]["numAtrs"] = 1024;
     opts.raw("numatrs", jsonify(1024));
     txdata["config"]["durabilityLevel"] = durability_level_to_string(overall_.config().durability_level());
-    opts.raw("durability_level", jsonify(durability_level_to_string(overall_.config().durability_level())));
+    opts.raw("durability_level", jsonify(durability_level_to_string_for_query(overall_.config().durability_level())));
     if (atr_id_) {
         txdata["atr"] = nlohmann::json::object();
         txdata["atr"]["scp"] = atr_id_->scope();

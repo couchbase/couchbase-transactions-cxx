@@ -605,6 +605,28 @@ TEST(SimpleQueryTransactions, CanRollbackRetryBadKVReplace)
     ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
 }
 
+TEST(SimpleQueryTransactions, QueryCanSetAnyDurability)
+{
+    // Just be sure that the query service understood the durability
+    std::list<durability_level> levels{ durability_level::NONE,
+                                        durability_level::MAJORITY,
+                                        durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE,
+                                        durability_level::PERSIST_TO_MAJORITY };
+    auto txns = TransactionsTestEnvironment::get_transactions();
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, content.dump()));
+    // doesn't matter if the query is read-only or not, just check that there
+    // is no error making the query.
+    auto query = fmt::format("SELECT * FROM `{}` USE KEYS '{}'", id.bucket(), id.key());
+    for (auto durability : levels) {
+        txns.run([&](attempt_context& ctx) {
+            ctx.query(query);
+            auto doc = ctx.get_optional(id);
+            ASSERT_TRUE(doc);
+        });
+    }
+}
+
 int
 main(int argc, char* argv[])
 {
