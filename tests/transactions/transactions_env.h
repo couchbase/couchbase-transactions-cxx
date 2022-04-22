@@ -55,7 +55,7 @@ struct conn {
             couchbase::logger::create_console_logger();
         }
         couchbase::logger::set_log_levels(couchbase::logger::level::trace);
-        couchbase::transactions::set_transactions_log_level(couchbase::transactions::log_level::TRACE);
+        couchbase::transactions::set_transactions_log_level(couchbase::logger::level::trace);
         size_t num_threads = conf.contains("io_threads") ? conf["io_threads"].get<uint32_t>() : 4;
         couchbase::transactions::txn_log->trace("using {} io completion threads", num_threads);
         for (size_t i = 0; i < num_threads; i++) {

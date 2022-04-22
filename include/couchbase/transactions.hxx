@@ -21,6 +21,7 @@
 #include <thread>
 
 #include <couchbase/cluster.hxx>
+#include <couchbase/logger/logger.hxx>
 #include <couchbase/transactions/async_attempt_context.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/exceptions.hxx>
@@ -54,14 +55,9 @@ namespace transactions
     using txn_complete_callback = std::function<void(std::optional<transaction_exception>, std::optional<transaction_result>)>;
 
     /**
-     * @brief logging levels
-     */
-    enum class log_level { TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL, OFF };
-
-    /**
      * @brief set log level for transactions
      */
-    void set_transactions_log_level(log_level level);
+    void set_transactions_log_level(couchbase::logger::level level);
     /**
      * @mainpage
      * A transaction consists of a lambda containing all the operations you wish to perform within a transaction.

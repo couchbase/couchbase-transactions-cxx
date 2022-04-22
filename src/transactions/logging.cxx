@@ -38,29 +38,32 @@ namespace transactions
         return txnlogger;
     }
 
-    spdlog::level::level_enum cb_to_spdlog_level(couchbase::transactions::log_level level)
+    // TODO: better integration with client, so we don't need to repeat this private
+    // method.
+    spdlog::level::level_enum translate_level(couchbase::logger::level level)
     {
         switch (level) {
-            case log_level::TRACE:
-                return spdlog::level::trace;
-            case log_level::DEBUG:
-                return spdlog::level::debug;
-            case log_level::INFO:
-                return spdlog::level::info;
-            case log_level::WARN:
-                return spdlog::level::warn;
-            case log_level::ERROR:
-                return spdlog::level::err;
-            case log_level::CRITICAL:
-                return spdlog::level::critical;
-            default:
-                return spdlog::level::off;
+            case couchbase::logger::level::trace:
+                return spdlog::level::level_enum::trace;
+            case couchbase::logger::level::debug:
+                return spdlog::level::level_enum::debug;
+            case couchbase::logger::level::info:
+                return spdlog::level::level_enum::info;
+            case couchbase::logger::level::warn:
+                return spdlog::level::level_enum::warn;
+            case couchbase::logger::level::err:
+                return spdlog::level::level_enum::err;
+            case couchbase::logger::level::critical:
+                return spdlog::level::level_enum::critical;
+            case couchbase::logger::level::off:
+                return spdlog::level::level_enum::off;
         }
+        return spdlog::level::level_enum::trace;
     }
 
-    void set_transactions_log_level(log_level level)
+    void set_transactions_log_level(couchbase::logger::level level)
     {
-        spdlog::level::level_enum lvl = cb_to_spdlog_level(level);
+        spdlog::level::level_enum lvl = translate_level(level);
         txn_log->set_level(lvl);
         attempt_cleanup_log->set_level(lvl);
         lost_attempts_cleanup_log->set_level(lvl);
