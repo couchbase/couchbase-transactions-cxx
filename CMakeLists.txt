@@ -34,7 +34,7 @@ project(transactions_cxx)
 set(CB_VERSION_MAJOR 2)
 set(CB_VERSION_MINOR 0)
 set(CB_VERSION_PATCH 0)
-set(CB_VERSION_TWEAK "beta.3")
+set(CB_VERSION_TWEAK "beta.4")
 
 find_program(GIT_EXECUTABLE NAMES git git.exe)
 macro(RUNGIT outvar)
