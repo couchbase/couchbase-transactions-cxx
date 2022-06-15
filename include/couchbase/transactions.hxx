@@ -58,6 +58,12 @@ namespace transactions
      * @brief set log level for transactions
      */
     void set_transactions_log_level(couchbase::logger::level level);
+
+    /**
+     * @brief create the loggers, using a custom spdlog::sink, if desired.
+     */
+    void create_loggers(couchbase::logger::level level = couchbase::logger::level::off, spdlog::sink_ptr = nullptr);
+
     /**
      * @mainpage
      * A transaction consists of a lambda containing all the operations you wish to perform within a transaction.

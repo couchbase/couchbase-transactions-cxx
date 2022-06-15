@@ -21,9 +21,17 @@ namespace couchbase
 {
 namespace transactions
 {
+    // TODO: consider always using async logger?  Makes life easier, I think, in
+    //       wrappers.  For instance, in python the GIL may, or may not, be held
+    //       by the thread that is logging.   So there are deadlock possibilities
+    //       that can only be worked around by making the custom sink asynchronous.
+    //       A single thread in the thread pool that services each async logger would
+    //       keep ordering in place, _and_ make a much simpler sink to implement.
+    //       That would have to also be done in the client, and of course, there is the
+    //       sizing of the queue to take into account, etc...
     std::shared_ptr<spdlog::logger> init_txn_log()
     {
-        static std::shared_ptr<spdlog::logger> txnlogger = spdlog::stdout_logger_mt(TXN_LOG);
+        static auto txnlogger = spdlog::stdout_logger_mt(TXN_LOG);
         return txnlogger;
     }
 
@@ -67,6 +75,27 @@ namespace transactions
         txn_log->set_level(lvl);
         attempt_cleanup_log->set_level(lvl);
         lost_attempts_cleanup_log->set_level(lvl);
+    }
+
+    // This cannot be done in multiple threads at the same time.   We could
+    // consider a mutex, but eventually we will merge with the cxx_client so
+    // this will be fine for now.   Unsure if this will lead to issues if called
+    // while logging is happening in other threads.  Do this once, at startup.
+    void create_loggers(couchbase::logger::level level, spdlog::sink_ptr sink)
+    {
+        if (nullptr != sink) {
+            sink->set_level(translate_level(level));
+            txn_log->flush();
+            txn_log->sinks().clear();
+            txn_log->sinks().push_back(sink);
+            attempt_cleanup_log->flush();
+            attempt_cleanup_log->sinks().clear();
+            attempt_cleanup_log->sinks().push_back(sink);
+            lost_attempts_cleanup_log->flush();
+            lost_attempts_cleanup_log->sinks().clear();
+            lost_attempts_cleanup_log->sinks().push_back(sink);
+        }
+        set_transactions_log_level(level);
     }
 
 } // namespace transactions
