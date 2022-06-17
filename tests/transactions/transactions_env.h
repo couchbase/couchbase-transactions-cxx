@@ -22,8 +22,10 @@
 
 #include <couchbase/cluster.hxx>
 #include <couchbase/operations.hxx>
+#include <couchbase/operations/management/bucket.hxx>
 #include <couchbase/support.hxx>
 
+#include <algorithm>
 #include <couchbase/internal/nlohmann/json.hpp>
 #include <cstdlib>
 #include <fstream>
@@ -107,6 +109,17 @@ struct conn {
             auto rc = f.get();
             if (rc) {
                 std::cout << "ERROR opening bucket `default`: " << rc.message() << std::endl;
+                exit(-1);
+            }
+        }
+        // now open the 'secBucket' bucket
+        {
+            auto barrier = std::make_shared<std::promise<std::error_code>>();
+            auto f = barrier->get_future();
+            c->open_bucket("secBucket", [barrier](std::error_code ec) { barrier->set_value(ec); });
+            auto rc = f.get();
+            if (rc) {
+                std::cout << "ERROR opening bucket `secBucket`: " << rc.message() << std::endl;
                 exit(-1);
             }
         }

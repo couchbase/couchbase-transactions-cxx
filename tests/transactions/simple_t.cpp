@@ -100,6 +100,89 @@ TEST(SimpleTransactions, CanGetReplace)
     ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
 }
 
+TEST(SimpleTransactions, CanUseCustomMetadataCollections)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    nlohmann::json c = nlohmann::json::parse("{\"some number\": 0}");
+    transaction_config cfg;
+    cfg.custom_metadata_collection("secBucket", "_default", "_default");
+    couchbase::transactions::transactions txn(cluster, cfg);
+
+    // upsert initial doc
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+    txn.run([&](attempt_context& ctx) {
+        auto doc = ctx.get(id);
+        auto content = doc.content<nlohmann::json>();
+        content["another one"] = 1;
+        ctx.replace(doc, content);
+    });
+    // now add to the original content, and compare
+    c["another one"] = 1;
+    ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
+}
+
+TEST(SimpleTransactions, NonExistentBucketInCustomMetadataCollections)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    transaction_config cfg;
+    cfg.custom_metadata_collection("idontexist", "_default", "_default");
+    ASSERT_THROW(couchbase::transactions::transactions txn(cluster, cfg), std::runtime_error);
+}
+
+TEST(SimpleTransactions, NonExistentScopeInCustomMetadataCollections)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    transaction_config cfg;
+    nlohmann::json c = nlohmann::json::parse("{\"some number\": 0}");
+    cfg.custom_metadata_collection("secBucket", "idontexist", "_default");
+    cfg.expiration_time(std::chrono::seconds(2));
+    couchbase::transactions::transactions txn(cluster, cfg);
+
+    // upsert initial doc
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+    try {
+        txn.run([&](attempt_context& ctx) {
+            auto doc = ctx.get(id);
+            auto content = doc.content<nlohmann::json>();
+            content["another one"] = 1;
+            ctx.replace(doc, content);
+        });
+        FAIL() << "expected txn to timeout";
+    } catch (const transaction_exception& e) {
+        // type could be expiry or fail, it seems.  The reason is a bit unclear.
+        ASSERT_TRUE(e.type() == failure_type::EXPIRY || e.type() == failure_type::FAIL);
+        ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
+    }
+}
+
+TEST(SimpleTransactions, NonExistentCollectionInCustomMetadataCollections)
+{
+    auto& cluster = TransactionsTestEnvironment::get_cluster();
+    transaction_config cfg;
+    nlohmann::json c = nlohmann::json::parse("{\"some number\": 0}");
+    cfg.custom_metadata_collection("secBucket", "_default", "idontexist");
+    cfg.expiration_time(std::chrono::seconds(2));
+    couchbase::transactions::transactions txn(cluster, cfg);
+
+    // upsert initial doc
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+    try {
+        txn.run([&](attempt_context& ctx) {
+            auto doc = ctx.get(id);
+            auto content = doc.content<nlohmann::json>();
+            content["another one"] = 1;
+            ctx.replace(doc, content);
+        });
+        FAIL() << "expected txn to timeout";
+    } catch (const transaction_exception& e) {
+        ASSERT_TRUE(e.type() == failure_type::EXPIRY || e.type() == failure_type::FAIL);
+        ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
+    }
+}
+
 TEST(SimpleTransactions, CanGetReplaceRawStrings)
 {
     auto& cluster = TransactionsTestEnvironment::get_cluster();
