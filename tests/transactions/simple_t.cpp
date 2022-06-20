@@ -100,6 +100,112 @@ TEST(SimpleTransactions, CanGetReplace)
     ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
 }
 
+TEST(SimpleTransactions, CanUseCustomMetadataCollectionsPerTransaction)
+{
+    nlohmann::json c = nlohmann::json::parse("{\"some number\": 0}");
+    auto txn = TransactionsTestEnvironment::get_transactions();
+
+    // upsert initial doc
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+    per_transaction_config cfg;
+    cfg.custom_metadata_collection({ "secBucket" });
+    txn.run(cfg, [&](attempt_context& ctx) {
+        auto doc = ctx.get(id);
+        auto content = doc.content<nlohmann::json>();
+        content["another one"] = 1;
+        ctx.replace(doc, content);
+    });
+
+    // now add to the original content, and compare
+    c["another one"] = 1;
+    ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
+}
+
+TEST(SimpleTransactions, NonExistentBucketInPerTxnCustomMetadataCollections)
+{
+    nlohmann::json c = nlohmann::json::parse("{\"some number\": 0}");
+    auto txn = TransactionsTestEnvironment::get_transactions();
+
+    // upsert initial doc
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+    per_transaction_config cfg;
+    cfg.expiration_time(std::chrono::seconds(1));
+    cfg.custom_metadata_collection({ "idontexist" });
+    try {
+        txn.run(cfg, [&](attempt_context& ctx) {
+            auto doc = ctx.get(id);
+            auto content = doc.content<nlohmann::json>();
+            content["another one"] = 1;
+            ctx.replace(doc, content);
+        });
+        FAIL() << "expected txn to throw a transaction_exception";
+    } catch (const transaction_exception& e) {
+        ASSERT_EQ(e.type(), failure_type::FAIL);
+    } catch (...) {
+        FAIL() << "expected transaction to throw a transaction_exception";
+    }
+    // check that doc content untouched
+    ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
+}
+
+TEST(SimpleTransactions, NonExistentScopeInPerTxnCustomMetadataCollections)
+{
+    nlohmann::json c = nlohmann::json::parse("{\"some number\": 0}");
+    auto txn = TransactionsTestEnvironment::get_transactions();
+
+    // upsert initial doc
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+    per_transaction_config cfg;
+    cfg.expiration_time(std::chrono::seconds(1));
+    cfg.custom_metadata_collection({ "default", "idontexist", "_default" });
+    try {
+        txn.run(cfg, [&](attempt_context& ctx) {
+            auto doc = ctx.get(id);
+            auto content = doc.content<nlohmann::json>();
+            content["another one"] = 1;
+            ctx.replace(doc, content);
+        });
+        FAIL() << "expected txn to throw a transaction_exception";
+    } catch (const transaction_exception& e) {
+        ASSERT_TRUE(e.type() == failure_type::EXPIRY || e.type() == failure_type::FAIL);
+    } catch (...) {
+        FAIL() << "expected transaction to throw a transaction_exception";
+    }
+    // check that doc content untouched
+    ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
+}
+
+TEST(SimpleTransactions, NonExistentCollectionInPerTxnCustomMetadataCollections)
+{
+    nlohmann::json c = nlohmann::json::parse("{\"some number\": 0}");
+    auto txn = TransactionsTestEnvironment::get_transactions();
+
+    // upsert initial doc
+    auto id = TransactionsTestEnvironment::get_document_id();
+    ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, c.dump()));
+    per_transaction_config cfg;
+    cfg.expiration_time(std::chrono::seconds(1));
+    cfg.custom_metadata_collection({ "default", "_default", "idontexist" });
+    try {
+        txn.run(cfg, [&](attempt_context& ctx) {
+            auto doc = ctx.get(id);
+            auto content = doc.content<nlohmann::json>();
+            content["another one"] = 1;
+            ctx.replace(doc, content);
+        });
+        FAIL() << "expected txn to throw a transaction_exception";
+    } catch (const transaction_exception& e) {
+        ASSERT_TRUE(e.type() == failure_type::EXPIRY || e.type() == failure_type::FAIL);
+    } catch (...) {
+        FAIL() << "expected transaction to throw a transaction_exception";
+    }
+    // check that doc content untouched
+    ASSERT_EQ(c, TransactionsTestEnvironment::get_doc(id).content_as<nlohmann::json>());
+}
+
 TEST(SimpleTransactions, CanUseCustomMetadataCollections)
 {
     auto& cluster = TransactionsTestEnvironment::get_cluster();

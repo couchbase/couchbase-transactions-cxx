@@ -19,6 +19,7 @@
 #include <couchbase/operations/document_query.hxx>
 #include <couchbase/support.hxx>
 #include <couchbase/transactions/durability_level.hxx>
+#include <couchbase/transactions/transaction_keyspace.hxx>
 #include <memory>
 #include <optional>
 
@@ -205,12 +206,18 @@ namespace transactions
         {
             return cleanup_client_attempts_;
         }
-        void custom_metadata_collection(const std::string& bucket, const std::string& scope, const std::string& collection)
+
+        void custom_metadata_collection(const transaction_keyspace& keyspace)
         {
-            custom_metadata_collection_.emplace(bucket, scope, collection, "");
+            custom_metadata_collection_ = keyspace;
         }
 
-        CB_NODISCARD std::optional<couchbase::document_id> custom_metadata_collection() const
+        void custom_metadata_collection(const std::string& bucket, const std::string& scope, const std::string& collection)
+        {
+            custom_metadata_collection_.emplace(bucket, scope, collection);
+        }
+
+        CB_NODISCARD std::optional<transaction_keyspace> custom_metadata_collection() const
         {
             return custom_metadata_collection_;
         }
@@ -218,10 +225,9 @@ namespace transactions
         couchbase::document_id atr_id_from_bucket_and_key(const std::string& bucket, const std::string& key) const
         {
             if (custom_metadata_collection_) {
-                return { custom_metadata_collection_->bucket(),
-                         custom_metadata_collection_->scope(),
-                         custom_metadata_collection_->collection(),
-                         key };
+                return {
+                    custom_metadata_collection_->bucket, custom_metadata_collection_->scope, custom_metadata_collection_->collection, key
+                };
             }
             return { bucket, "_default", "_default", key };
         }
@@ -251,7 +257,7 @@ namespace transactions
         std::unique_ptr<attempt_context_testing_hooks> attempt_context_hooks_;
         std::unique_ptr<cleanup_testing_hooks> cleanup_hooks_;
         couchbase::query_scan_consistency scan_consistency_;
-        std::optional<couchbase::document_id> custom_metadata_collection_;
+        std::optional<transaction_keyspace> custom_metadata_collection_;
     };
 } // namespace transactions
 } // namespace couchbase

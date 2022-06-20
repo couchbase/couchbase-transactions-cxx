@@ -39,7 +39,7 @@ tx::transactions::transactions(cluster& cluster, const transaction_config& confi
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
         std::atomic<bool> callback_called{ false };
-        cluster_.open_bucket(config_.custom_metadata_collection()->bucket(), [&callback_called, barrier](std::error_code ec) {
+        cluster_.open_bucket(config_.custom_metadata_collection()->bucket, [&callback_called, barrier](std::error_code ec) {
             if (callback_called.load()) {
                 return;
             }
@@ -49,7 +49,7 @@ tx::transactions::transactions(cluster& cluster, const transaction_config& confi
         auto err = f.get();
         if (err) {
             auto err_msg = fmt::format("error opening custom_metadata_collection bucket '{}' specified in the config!",
-                                       config_.custom_metadata_collection()->bucket());
+                                       config_.custom_metadata_collection()->bucket);
             txn_log->error(err_msg);
             throw std::runtime_error(err_msg);
         }

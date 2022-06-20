@@ -72,6 +72,18 @@ class per_transaction_config
     {
         return expiration_time_;
     }
+
+    per_transaction_config& custom_metadata_collection(const transaction_keyspace& keyspace)
+    {
+        custom_metadata_collection_.emplace(keyspace);
+        return *this;
+    }
+
+    std::optional<transaction_keyspace> custom_metadata_collection()
+    {
+        return custom_metadata_collection_;
+    }
+
     transaction_config apply(const transaction_config& conf) const
     {
         transaction_config retval = conf;
@@ -87,6 +99,9 @@ class per_transaction_config
         if (expiration_time_) {
             retval.expiration_time(*expiration_time_);
         }
+        if (custom_metadata_collection_) {
+            retval.custom_metadata_collection(*custom_metadata_collection_);
+        }
         return retval;
     }
 
@@ -95,6 +110,7 @@ class per_transaction_config
     std::optional<couchbase::query_scan_consistency> scan_consistency_;
     std::optional<milliseconds> kv_timeout_;
     std::optional<nanoseconds> expiration_time_;
+    std::optional<transaction_keyspace> custom_metadata_collection_;
 };
 
 } // namespace couchbase::transactions
