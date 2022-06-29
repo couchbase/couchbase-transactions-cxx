@@ -203,7 +203,7 @@ class TransactionsTestEnvironment : public ::testing::Environment
     {
         auto& c = get_cluster();
         couchbase::operations::upsert_request req{ id };
-        req.value = content;
+        req.value = couchbase::utils::to_binary(content);
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
         c.execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp.ctx.ec); });
@@ -218,7 +218,7 @@ class TransactionsTestEnvironment : public ::testing::Environment
     {
         auto& c = get_cluster();
         couchbase::operations::insert_request req{ id };
-        req.value = content;
+        req.value = couchbase::utils::to_binary(content);
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
         c.execute(req, [barrier](couchbase::operations::insert_response resp) { barrier->set_value(resp.ctx.ec); });

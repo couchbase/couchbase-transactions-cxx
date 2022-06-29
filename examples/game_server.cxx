@@ -248,7 +248,7 @@ main(int, const char*[])
         couchbase::operations::upsert_request req{ player_id };
         nlohmann::json j;
         to_json(j, player_data);
-        req.value = j.dump();
+        req.value = couchbase::utils::to_binary(j.dump());
         auto barrier = std::make_shared<std::promise<couchbase::operations::upsert_response>>();
         cluster->execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp); });
         auto f = barrier->get_future();
@@ -260,7 +260,7 @@ main(int, const char*[])
         couchbase::operations::upsert_request req{ monster_id };
         nlohmann::json j;
         to_json(j, monster_data);
-        req.value = j.dump();
+        req.value = couchbase::utils::to_binary(j.dump());
         auto barrier = std::make_shared<std::promise<couchbase::operations::upsert_response>>();
         auto f = barrier->get_future();
         cluster->execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp); });

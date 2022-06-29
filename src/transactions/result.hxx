@@ -191,12 +191,16 @@ namespace transactions
         template<typename Resp>
         static result create_from_response(const Resp& resp)
         {
+            std::string content;
+            content.resize(resp.value.size());
+            memcpy(content.data(), resp.value.data(), resp.value.size());
+
             result res{};
             res.ec = resp.ctx.ec;
             res.cas = resp.cas.value;
             res.key = resp.ctx.id.key();
             res.flags = resp.flags;
-            res.raw_value = resp.value;
+            res.raw_value = std::move(content);
             return res;
         }
 

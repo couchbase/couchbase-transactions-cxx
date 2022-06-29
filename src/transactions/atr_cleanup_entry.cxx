@@ -256,7 +256,7 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger,
                 }
                 if (doc.links().is_deleted()) {
                     couchbase::operations::insert_request req{ doc.id() };
-                    req.value = content;
+                    req.value = couchbase::utils::to_binary(content);
                     auto barrier = std::make_shared<std::promise<result>>();
                     auto f = barrier->get_future();
                     cleanup_->cluster_ref().execute(wrap_durable_request(req, cleanup_->config(), dl),

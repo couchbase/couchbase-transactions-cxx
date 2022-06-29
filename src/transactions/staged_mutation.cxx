@@ -294,7 +294,8 @@ tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation
             result res;
             if (item.type() == staged_mutation_type::INSERT && !cas_zero_mode) {
                 couchbase::operations::insert_request req{ item.doc().id() };
-                req.value = item.doc().content<nlohmann::json>().dump();
+                auto content = item.doc().content<nlohmann::json>().dump();
+                req.value = couchbase::utils::to_binary(content);
                 wrap_durable_request(req, ctx.overall_.config());
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
