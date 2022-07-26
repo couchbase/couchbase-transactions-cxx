@@ -182,9 +182,9 @@ namespace transactions
         static result create_from_mutation_response(const Resp& resp)
         {
             result res{};
-            res.ec = resp.ctx.ec;
-            res.cas = resp.cas.value;
-            res.key = resp.ctx.id.key();
+            res.ec = resp.ctx.ec();
+            res.cas = resp.cas.value();
+            res.key = resp.ctx.id();
             return res;
         }
 
@@ -196,9 +196,9 @@ namespace transactions
             memcpy(content.data(), resp.value.data(), resp.value.size());
 
             result res{};
-            res.ec = resp.ctx.ec;
-            res.cas = resp.cas.value;
-            res.key = resp.ctx.id.key();
+            res.ec = resp.ctx.ec();
+            res.cas = resp.cas.value();
+            res.key = resp.ctx.id();
             res.flags = resp.flags;
             res.raw_value = std::move(content);
             return res;
@@ -208,9 +208,9 @@ namespace transactions
         static result create_from_subdoc_response(const Resp& resp)
         {
             result res{};
-            res.ec = resp.ctx.ec;
-            res.cas = resp.cas.value;
-            res.key = resp.ctx.id.key();
+            res.ec = resp.ctx.ec();
+            res.cas = resp.cas.value();
+            res.key = resp.ctx.id();
             res.is_deleted = resp.deleted;
             for (auto& field : resp.fields) {
                 res.values.emplace_back(field.value, static_cast<uint32_t>(field.status));

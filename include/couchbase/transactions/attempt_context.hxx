@@ -18,7 +18,7 @@
 #include <optional>
 #include <string>
 
-#include <couchbase/cluster.hxx>
+#include <core/cluster.hxx>
 #include <couchbase/transactions/transaction_get_result.hxx>
 #include <couchbase/transactions/transaction_query_options.hxx>
 
@@ -49,7 +49,7 @@ namespace transactions
          * @throws transaction_operation_failed which either should not be caught by the lambda, or
          *         rethrown if it is caught.
          */
-        virtual transaction_get_result get(const couchbase::document_id& id) = 0;
+        virtual transaction_get_result get(const core::document_id& id) = 0;
 
         /**
          * Gets a document from the specified Couchbase collection matching the specified id.
@@ -62,7 +62,7 @@ namespace transactions
          * @throws transaction_operation_failed which either should not be caught by the lambda, or
          *         rethrown if it is caught.
          */
-        virtual std::optional<transaction_get_result> get_optional(const couchbase::document_id& id) = 0;
+        virtual std::optional<transaction_get_result> get_optional(const core::document_id& id) = 0;
 
         /**
          * Mutates the specified document with new content, using the document's last TransactionDocument#cas().
@@ -105,7 +105,7 @@ namespace transactions
          *         rethrown if it is caught.
          */
         template<typename Content>
-        transaction_get_result insert(const couchbase::document_id& id, const Content& content)
+        transaction_get_result insert(const core::document_id& id, const Content& content)
         {
             return insert_raw(id, default_json_serializer::serialize(content));
         }
@@ -131,14 +131,14 @@ namespace transactions
          * @param options options to apply to the query.
          * @returns result of the query.
          */
-        virtual operations::query_response query(const std::string& statement, const transaction_query_options& options) = 0;
+        virtual core::operations::query_response query(const std::string& statement, const transaction_query_options& options) = 0;
         /**
          * Performs a Query, within the current transaction.
          *
          * @param statement query statement to execute.
          * @return result of the query
          */
-        virtual operations::query_response query(const std::string& statement)
+        virtual core::operations::query_response query(const std::string& statement)
         {
             transaction_query_options opts;
             return query(statement, opts);
@@ -170,7 +170,7 @@ namespace transactions
 
       protected:
         /** @internal */
-        virtual transaction_get_result insert_raw(const couchbase::document_id& id, const std::string& content) = 0;
+        virtual transaction_get_result insert_raw(const core::document_id& id, const std::string& content) = 0;
 
         /** @internal */
         virtual transaction_get_result replace_raw(const transaction_get_result& document, const std::string& content) = 0;

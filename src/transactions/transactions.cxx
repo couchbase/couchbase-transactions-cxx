@@ -24,7 +24,7 @@
 
 namespace tx = couchbase::transactions;
 
-tx::transactions::transactions(cluster& cluster, const transaction_config& config)
+tx::transactions::transactions(core::cluster& cluster, const transaction_config& config)
   : cluster_(cluster)
   , config_(config)
   , cleanup_(new transactions_cleanup(cluster_, config_))

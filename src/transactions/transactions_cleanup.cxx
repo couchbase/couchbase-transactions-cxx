@@ -38,7 +38,7 @@ tx::transactions_cleanup_attempt::transactions_cleanup_attempt(const tx::atr_cle
 {
 }
 
-tx::transactions_cleanup::transactions_cleanup(couchbase::cluster& cluster, const tx::transaction_config& config)
+tx::transactions_cleanup::transactions_cleanup(core::cluster& cluster, const tx::transaction_config& config)
   : cluster_(cluster)
   , config_(config)
   , client_uuid_(uid_generator::next())
@@ -185,7 +185,7 @@ tx::transactions_cleanup::clean_lost_attempts_in_bucket(const std::string& bucke
 }
 
 const tx::atr_cleanup_stats
-tx::transactions_cleanup::handle_atr_cleanup(const couchbase::document_id& atr_id, std::vector<transactions_cleanup_attempt>* results)
+tx::transactions_cleanup::handle_atr_cleanup(const core::document_id& atr_id, std::vector<transactions_cleanup_attempt>* results)
 {
     atr_cleanup_stats stats;
     auto atr = active_transaction_record::get_atr(cluster_, atr_id);
@@ -223,11 +223,11 @@ tx::transactions_cleanup::create_client_record(const std::string& bucket_name)
 {
     try {
         auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
-        couchbase::operations::mutate_in_request req{ id };
-        req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::insert;
-        req.specs.add_spec(protocol::subdoc_opcode::dict_add, true, true, false, FIELD_CLIENTS, "{}");
+        core::operations::mutate_in_request req{ id };
+        req.store_semantics = core::protocol::mutate_in_request_body::store_semantics_type::insert;
+        req.specs.add_spec(core::protocol::subdoc_opcode::dict_add, true, true, false, FIELD_CLIENTS, "{}");
         // ExtBinaryMetadata
-        req.specs.add_spec(protocol::subdoc_opcode::set_doc, false, false, false, std::string(""), jsonify(std::string({ 0x00 })));
+        req.specs.add_spec(core::protocol::subdoc_opcode::set_doc, false, false, false, std::string(""), jsonify(std::string({ 0x00 })));
         wrap_durable_request(req, config_);
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
@@ -235,9 +235,8 @@ tx::transactions_cleanup::create_client_record(const std::string& bucket_name)
         if (ec) {
             throw client_error(*ec, "client_record_before_create hook raised error");
         }
-        cluster_.execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
-            barrier->set_value(result::create_from_subdoc_response(resp));
-        });
+        cluster_.execute(
+          req, [barrier](core::operations::mutate_in_response resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
         wrap_operation_future(f);
 
     } catch (const tx::client_error& e) {
@@ -266,9 +265,9 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
           // Write our client record, return details.
           try {
               auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
-              couchbase::operations::lookup_in_request req{ id };
-              req.specs.add_spec(protocol::subdoc_opcode::get, true, FIELD_RECORDS);
-              req.specs.add_spec(protocol::subdoc_opcode::get, true, "$vbucket");
+              core::operations::lookup_in_request req{ id };
+              req.specs.add_spec(core::protocol::subdoc_opcode::get, true, FIELD_RECORDS);
+              req.specs.add_spec(core::protocol::subdoc_opcode::get, true, "$vbucket");
               wrap_request(req, config_);
               auto barrier = std::make_shared<std::promise<result>>();
               auto f = barrier->get_future();
@@ -276,7 +275,7 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
               if (ec) {
                   throw client_error(*ec, "client_record_before_get hook raised error");
               }
-              cluster_.execute(req, [barrier](couchbase::operations::lookup_in_response resp) {
+              cluster_.execute(req, [barrier](core::operations::lookup_in_response resp) {
                   barrier->set_value(result::create_from_subdoc_response(resp));
               });
               auto res = wrap_operation_future(f);
@@ -337,20 +336,20 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
               }
 
               // update client record, maybe cleanup some as well...
-              couchbase::operations::mutate_in_request mutate_req{ id };
-              mutate_req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
+              core::operations::mutate_in_request mutate_req{ id };
+              mutate_req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert,
                                         true,
                                         true,
                                         true,
                                         FIELD_CLIENTS + "." + uuid + "." + FIELD_HEARTBEAT,
                                         mutate_in_macro::CAS);
-              mutate_req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
+              mutate_req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert,
                                         true,
                                         true,
                                         false,
                                         FIELD_CLIENTS + "." + uuid + "." + FIELD_EXPIRES,
                                         jsonify(config_.cleanup_window().count() / 2 + SAFETY_MARGIN_EXPIRY_MS));
-              mutate_req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
+              mutate_req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert,
                                         true,
                                         true,
                                         false,
@@ -359,7 +358,8 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
               for (size_t idx = 0; idx < std::min(details.expired_client_ids.size(), static_cast<size_t>(12)); idx++) {
                   lost_attempts_cleanup_log->trace("adding {} to list of clients to be removed when updating this client",
                                                    details.expired_client_ids[idx]);
-                  mutate_req.specs.add_spec(protocol::subdoc_opcode::remove, true, FIELD_CLIENTS + "." + details.expired_client_ids[idx]);
+                  mutate_req.specs.add_spec(
+                    core::protocol::subdoc_opcode::remove, true, FIELD_CLIENTS + "." + details.expired_client_ids[idx]);
               }
               ec = config_.cleanup_hooks().client_record_before_update(bucket_name);
               if (ec) {
@@ -369,7 +369,7 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
               auto mutate_barrier = std::make_shared<std::promise<result>>();
               auto mutate_f = mutate_barrier->get_future();
               lost_attempts_cleanup_log->trace("updating record");
-              cluster_.execute(mutate_req, [mutate_barrier](couchbase::operations::mutate_in_response resp) {
+              cluster_.execute(mutate_req, [mutate_barrier](core::operations::mutate_in_response resp) {
                   mutate_barrier->set_value(result::create_from_subdoc_response(resp));
               });
               res = wrap_operation_future(mutate_f);
@@ -409,12 +409,12 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
                           throw client_error(*ec, "client_record_before_remove_client hook raised error");
                       }
                       auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
-                      couchbase::operations::mutate_in_request req{ id };
-                      req.specs.add_spec(protocol::subdoc_opcode::remove, true, FIELD_CLIENTS + "." + uuid);
+                      core::operations::mutate_in_request req{ id };
+                      req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, FIELD_CLIENTS + "." + uuid);
                       wrap_durable_request(req, config_);
                       auto barrier = std::make_shared<std::promise<result>>();
                       auto f = barrier->get_future();
-                      cluster_.execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
+                      cluster_.execute(req, [barrier](core::operations::mutate_in_response resp) {
                           barrier->set_value(result::create_from_subdoc_response(resp));
                       });
                       wrap_operation_future(f);
@@ -478,7 +478,7 @@ tx::transactions_cleanup::lost_attempts_loop()
 }
 
 const tx::atr_cleanup_stats
-tx::transactions_cleanup::force_cleanup_atr(const couchbase::document_id& atr_id, std::vector<transactions_cleanup_attempt>& results)
+tx::transactions_cleanup::force_cleanup_atr(const core::document_id& atr_id, std::vector<transactions_cleanup_attempt>& results)
 {
     lost_attempts_cleanup_log->trace("{} starting force_cleanup_atr: atr_id {}", static_cast<void*>(this), atr_id);
     return handle_atr_cleanup(atr_id, &results);

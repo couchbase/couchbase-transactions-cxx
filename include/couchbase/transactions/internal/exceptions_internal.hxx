@@ -19,6 +19,7 @@
 #include "../../../../src/transactions/result.hxx"
 #include "couchbase/transactions/internal/transaction_context.hxx"
 #include <couchbase/transactions/exceptions.hxx>
+#include <list>
 
 namespace couchbase
 {

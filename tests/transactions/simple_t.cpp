@@ -16,7 +16,7 @@
 
 #include "helpers.hxx"
 #include "transactions_env.h"
-#include <couchbase/errors.hxx>
+#include <couchbase/error_codes.hxx>
 #include <couchbase/transactions.hxx>
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
@@ -430,7 +430,7 @@ TEST(SimpleTransactions, CanRollbackInsert)
         FAIL() << "expect a client_error with document_not_found, got result instead";
 
     } catch (const client_error& e) {
-        ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+        ASSERT_EQ(e.res()->ec, couchbase::errc::key_value::document_not_found);
     }
 }
 
@@ -652,7 +652,7 @@ TEST(SimpleQueryTransactions, CanRollbackKVInsert)
         auto doc = TransactionsTestEnvironment::get_doc(id);
         FAIL() << "expected doc to not exist";
     } catch (const client_error& e) {
-        ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+        ASSERT_EQ(e.res()->ec, couchbase::errc::key_value::document_not_found);
     }
 }
 
@@ -736,7 +736,7 @@ TEST(SimpleQueryTransactions, CanKVRemove)
         auto doc = TransactionsTestEnvironment::get_doc(id);
         FAIL() << "expected doc to not exist";
     } catch (const client_error& e) {
-        ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+        ASSERT_EQ(e.res()->ec, couchbase::errc::key_value::document_not_found);
     }
 }
 

@@ -18,7 +18,7 @@
 #include "../../src/transactions/attempt_context_testing_hooks.hxx"
 #include "helpers.hxx"
 #include "transactions_env.h"
-#include <couchbase/errors.hxx>
+#include <couchbase/error_codes.hxx>
 #include <couchbase/transactions.hxx>
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
@@ -71,7 +71,7 @@ TEST(SimpleAsyncTxns, AsyncGet)
 TEST(SimpleAsyncTxns, CantGetFromUnknownBucket)
 {
     auto txns = TransactionsTestEnvironment::get_transactions();
-    couchbase::document_id bad_id{ "secBucket", "_default", "default", uid_generator::next() };
+    couchbase::core::document_id bad_id{ "secBucket", "_default", "default", uid_generator::next() };
     std::atomic<bool> cb_called{ false };
     auto barrier = std::make_shared<std::promise<void>>();
     auto f = barrier->get_future();
@@ -136,7 +136,7 @@ TEST(SimpleAsyncTxns, AsyncRemoveFail)
         txns.run(
           [&cb_called, id](async_attempt_context& ctx) {
               ctx.get(id, [&ctx, &cb_called](std::exception_ptr err, std::optional<transaction_get_result> res) {
-                  // lets just change the cas to make it fail, which it should
+                  // let's just change the cas to make it fail, which it should
                   // do until timeout
                   if (!err) {
                       res->cas(100);
@@ -170,7 +170,7 @@ TEST(SimpleAsyncTxns, RYOWOnInsert)
           ctx.insert(id, async_content, [&ctx, &cb_called, id](std::exception_ptr err, std::optional<transaction_get_result> res) {
               EXPECT_FALSE(err);
               EXPECT_TRUE(res);
-              ctx.get(id, [&ctx, &cb_called, id](std::exception_ptr err, std::optional<transaction_get_result> res) {
+              ctx.get(id, [&cb_called, id](std::exception_ptr err, std::optional<transaction_get_result> res) {
                   EXPECT_FALSE(err);
                   EXPECT_TRUE(res);
                   EXPECT_EQ(res->content<nlohmann::json>(), async_content);
@@ -218,7 +218,7 @@ TEST(SimpleAsyncTxns, AsyncRemove)
         TransactionsTestEnvironment::get_doc(id);
         FAIL() << "expected get_doc to raise client exception";
     } catch (const client_error& e) {
-        ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+        ASSERT_EQ(e.res()->ec, couchbase::errc::key_value::document_not_found);
     }
 }
 
@@ -354,7 +354,7 @@ TEST(SimpleAsyncTxns, AsyncInsertFail)
             TransactionsTestEnvironment::get_doc(id);
             FAIL() << "expected get_doc to raise client exception";
         } catch (const client_error& e) {
-            ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+            ASSERT_EQ(e.res()->ec, couchbase::errc::key_value::document_not_found);
         }
     }
 }
@@ -370,7 +370,7 @@ TEST(SimpleQueryAsyncTxns, AsyncQuery)
     std::atomic<bool> query_called = false;
     txns.run(
       [&query_called, &query](async_attempt_context& ctx) {
-          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
               if (!err) {
                   query_called = true;
               }
@@ -398,17 +398,17 @@ TEST(SimpleQueryAsyncTxns, MultipleRacingQueries)
     std::atomic<int> query_called = 0;
     txns.run(
       [&query_called, &query](async_attempt_context& ctx) {
-          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
               if (!err) {
                   query_called++;
               }
           });
-          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
               if (!err) {
                   query_called++;
               }
           });
-          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
               if (!err) {
                   query_called++;
               }
@@ -436,7 +436,7 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncQuery)
     std::atomic<bool> query_called = false;
     txns.run(
       [&query_called, &query](async_attempt_context& ctx) {
-          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+          ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
               if (!err) {
                   query_called = true;
                   // now rollback by throwing arbitrary exception
@@ -466,7 +466,7 @@ TEST(SimpleQueryAsyncTxns, AsyncKVGet)
     txns.run(
       [&get_called, &query, &id](async_attempt_context& ctx) {
           ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
-              ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+              ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
                   if (!err) {
                       ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
                           if (!err) {
@@ -499,7 +499,7 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVGet)
     txns.run(
       [&get_called, &query, &id](async_attempt_context& ctx) {
           ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
-              ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+              ctx.query(query, [&](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
                   if (!err) {
                       ctx.get(id, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
                           if (!err) {
@@ -532,7 +532,7 @@ TEST(SimpleQueryAsyncTxns, AsyncKVInsert)
     txns.run(
       [&, barrier](async_attempt_context& ctx) {
           ctx.query("Select 'Yo' as greeting",
-                    [&, barrier](std::exception_ptr err, std::optional<couchbase::operations::query_response> resp) {
+                    [&, barrier](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> resp) {
                         if (!err) {
                             ctx.insert(id, async_content.dump(), [&](std::exception_ptr err, std::optional<transaction_get_result> res) {
                                 insert_called = !err;
@@ -560,7 +560,7 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVInsert)
     txns.run(
       [&, barrier](async_attempt_context& ctx) {
           ctx.query("Select 'Yo' as greeting",
-                    [&, barrier](std::exception_ptr err, std::optional<couchbase::operations::query_response> resp) {
+                    [&, barrier](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> resp) {
                         if (!err) {
                             ctx.insert(id, async_content.dump(), [&](std::exception_ptr err, std::optional<transaction_get_result> res) {
                                 insert_called = !err;
@@ -580,7 +580,7 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVInsert)
     try {
         TransactionsTestEnvironment::get_doc(id);
     } catch (const client_error& e) {
-        ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+        ASSERT_EQ(e.res()->ec, couchbase::errc::key_value::document_not_found);
     }
 }
 
@@ -601,7 +601,7 @@ TEST(SimpleQueryAsyncTxns, AsyncKVReplace)
               if (!err) {
                   EXPECT_TRUE(result);
                   ctx.query(
-                    query, [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+                    query, [&, doc = *result](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
                         if (!err) {
                             ctx.replace(doc, new_content, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
                                 if (!err) {
@@ -640,7 +640,7 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVReplace)
               if (!err) {
                   EXPECT_TRUE(result);
                   ctx.query(
-                    query, [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+                    query, [&, doc = *result](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
                         if (!err) {
                             ctx.replace(doc, new_content, [&](std::exception_ptr err, std::optional<transaction_get_result> result) {
                                 if (!err) {
@@ -679,7 +679,7 @@ TEST(SimpleQueryAsyncTxns, AsyncKVRemove)
               if (!err) {
                   EXPECT_TRUE(result);
                   ctx.query(query,
-                            [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+                            [&, doc = *result](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
                                 if (!err) {
                                     ctx.remove(doc, [&](std::exception_ptr err) {
                                         if (!err) {
@@ -701,7 +701,7 @@ TEST(SimpleQueryAsyncTxns, AsyncKVRemove)
     try {
         TransactionsTestEnvironment::get_doc(id);
     } catch (const client_error& e) {
-        ASSERT_EQ(e.res()->ec, couchbase::error::key_value_errc::document_not_found);
+        ASSERT_EQ(e.res()->ec, couchbase::errc::key_value::document_not_found);
     }
 }
 TEST(SimpleQueryAsyncTxns, RollbackAsyncKVRemove)
@@ -720,7 +720,7 @@ TEST(SimpleQueryAsyncTxns, RollbackAsyncKVRemove)
               if (!err) {
                   EXPECT_TRUE(result);
                   ctx.query(query,
-                            [&, doc = *result](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+                            [&, doc = *result](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
                                 if (!err) {
                                     ctx.remove(doc, [&](std::exception_ptr err) {
                                         ASSERT_FALSE(err);

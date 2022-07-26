@@ -15,7 +15,8 @@
  */
 #pragma once
 
-#include <couchbase/operations/document_query.hxx>
+#include <core/operations/document_query.hxx>
+
 namespace couchbase::transactions
 {
 
@@ -29,17 +30,17 @@ class transaction_query_options
         // set defaults specific to query in transactions.
         query_req_.metrics = true;
     }
-    transaction_query_options(const couchbase::operations::query_request& req)
+    transaction_query_options(const core::operations::query_request& req)
       : query_req_(req)
     {
     }
 
-    couchbase::operations::query_request query_request() const
+    core::operations::query_request query_request() const
     {
         return query_req_;
     }
 
-    transaction_query_options& raw(const std::string& key, const couchbase::json_string& value)
+    transaction_query_options& raw(const std::string& key, const core::json_string& value)
     {
         query_req_.raw[key] = value;
         return *this;
@@ -51,13 +52,13 @@ class transaction_query_options
         return *this;
     }
 
-    transaction_query_options& scan_consistency(couchbase::query_scan_consistency scan_consistency)
+    transaction_query_options& scan_consistency(core::query_scan_consistency scan_consistency)
     {
         query_req_.scan_consistency = scan_consistency;
         return *this;
     }
 
-    transaction_query_options& profile(couchbase::query_profile_mode mode)
+    transaction_query_options& profile(core::query_profile_mode mode)
     {
         query_req_.profile = mode;
         return *this;
@@ -99,13 +100,13 @@ class transaction_query_options
         return *this;
     }
 
-    transaction_query_options& positional_parameters(std::vector<couchbase::json_string> params)
+    transaction_query_options& positional_parameters(std::vector<core::json_string> params)
     {
         query_req_.positional_parameters = params;
         return *this;
     }
 
-    transaction_query_options& named_parameters(std::map<std::string, couchbase::json_string> params)
+    transaction_query_options& named_parameters(std::map<std::string, core::json_string> params)
     {
         query_req_.named_parameters = params;
         return *this;
@@ -135,9 +136,9 @@ class transaction_query_options
         return *this;
     }
 
-    couchbase::operations::query_request wrap_request(const transaction_context& txn_ctx) const;
+    core::operations::query_request wrap_request(const transaction_context& txn_ctx) const;
 
   private:
-    couchbase::operations::query_request query_req_;
+    core::operations::query_request query_req_;
 };
 } // namespace couchbase::transactions

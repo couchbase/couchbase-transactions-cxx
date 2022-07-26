@@ -14,12 +14,14 @@
  *   limitations under the License.
  */
 
-#include <couchbase/platform/uuid.h>
+#include <core/platform/uuid.h>
 
 #include "uid_generator.hxx"
+
+// TODO: Remove this, and just use client directly
 
 std::string
 couchbase::transactions::uid_generator::next()
 {
-    return couchbase::uuid::to_string(couchbase::uuid::random());
+    return core::uuid::to_string(core::uuid::random());
 }

@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include <couchbase/cluster.hxx>
+#include <core/cluster.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 
 #include <atomic>
@@ -26,20 +26,13 @@
 #include "atr_cleanup_entry.hxx"
 #include "client_record.hxx"
 
-namespace couchbase
-{
-namespace client
-{
-    class cluster;
-}
-
-namespace transactions
+namespace couchbase::transactions
 {
     // only really used when we force cleanup, in tests
     class transactions_cleanup_attempt
     {
       private:
-        const couchbase::document_id atr_id_;
+        const core::document_id atr_id_;
         const std::string attempt_id_;
         const std::string atr_bucket_name_;
         bool success_;
@@ -56,7 +49,7 @@ namespace transactions
         {
             success_ = success;
         }
-        CB_NODISCARD const couchbase::document_id& atr_id() const
+        CB_NODISCARD const core::document_id& atr_id() const
         {
             return atr_id_;
         }
@@ -92,10 +85,10 @@ namespace transactions
     class transactions_cleanup
     {
       public:
-        transactions_cleanup(couchbase::cluster& cluster, const transaction_config& config);
+        transactions_cleanup(core::cluster& cluster, const transaction_config& config);
         ~transactions_cleanup();
 
-        CB_NODISCARD couchbase::cluster& cluster_ref() const
+        CB_NODISCARD core::cluster& cluster_ref() const
         {
             return cluster_;
         };
@@ -118,13 +111,13 @@ namespace transactions
         // only used for testing
         void force_cleanup_entry(atr_cleanup_entry& entry, transactions_cleanup_attempt& attempt);
         // only used for testing
-        const atr_cleanup_stats force_cleanup_atr(const couchbase::document_id& atr_id, std::vector<transactions_cleanup_attempt>& results);
+        const atr_cleanup_stats force_cleanup_atr(const core::document_id& atr_id, std::vector<transactions_cleanup_attempt>& results);
         const client_record_details get_active_clients(const std::string& bucket_name, const std::string& uuid);
         void remove_client_record_from_all_buckets(const std::string& uuid);
         void close();
 
       private:
-        couchbase::cluster& cluster_;
+        core::cluster& cluster_;
         const transaction_config& config_;
         const std::chrono::milliseconds cleanup_loop_delay_{ 100 };
 
@@ -144,9 +137,8 @@ namespace transactions
         void lost_attempts_loop();
         void clean_lost_attempts_in_bucket(const std::string& bucket_name);
         void create_client_record(const std::string& bucket_name);
-        const atr_cleanup_stats handle_atr_cleanup(const couchbase::document_id& atr_id,
+        const atr_cleanup_stats handle_atr_cleanup(const core::document_id& atr_id,
                                                    std::vector<transactions_cleanup_attempt>* result = nullptr);
         std::atomic<bool> running_{ false };
     };
-} // namespace transactions
-} // namespace couchbase
+    } // namespace couchbase::transactions

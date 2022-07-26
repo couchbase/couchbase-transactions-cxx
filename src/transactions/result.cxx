@@ -15,7 +15,7 @@
  */
 
 #include "result.hxx"
-#include <couchbase/errors.hxx>
+#include <couchbase/error_codes.hxx>
 #include <couchbase/transactions/transcoder.hxx>
 #include <sstream>
 

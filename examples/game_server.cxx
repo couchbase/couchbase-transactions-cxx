@@ -19,7 +19,7 @@
 #include <random>
 #include <string>
 
-#include <couchbase/cluster.hxx>
+#include <core/cluster.hxx>
 #include <couchbase/transactions.hxx>
 #include <spdlog/spdlog.h>
 
@@ -133,8 +133,8 @@ class GameServer
 
     void player_hits_monster(const string&,
                              int damage_,
-                             const couchbase::document_id& player_id,
-                             const couchbase::document_id& monster_id,
+                             const core::document_id& player_id,
+                             const core::document_id& monster_id,
                              atomic<bool>& exists)
     {
         try {
@@ -191,16 +191,16 @@ int
 main(int, const char*[])
 {
     const int NUM_THREADS = 4;
-    couchbase::logger::set_log_levels(couchbase::logger::level::trace);
+    core::logger::set_log_levels(core::logger::level::trace);
     atomic<bool> monster_exists = true;
     string bucket_name = "default";
-    couchbase::cluster_credentials auth{};
+    core::cluster_credentials auth{};
     asio::io_context io;
-    auto cluster = couchbase::cluster::create(io);
-    if (!couchbase::logger::is_initialized()) {
-        couchbase::logger::create_console_logger();
+    auto cluster = core::cluster::create(io);
+    if (!core::logger::is_initialized()) {
+        core::logger::create_console_logger();
     }
-    couchbase::logger::set_log_levels(couchbase::logger::level::trace);
+    core::logger::set_log_levels(core::logger::level::trace);
 
     std::list<std::thread> io_threads;
     for (int i = 0; i < 2 * NUM_THREADS; i++) {
@@ -211,14 +211,14 @@ main(int, const char*[])
     std::mt19937 random_number_engine; // pseudorandom number generator
     auto rand = std::bind(hit_distribution, random_number_engine);
 
-    auto connstr = couchbase::utils::parse_connection_string("couchbase://127.0.0.1");
+    auto connstr = core::utils::parse_connection_string("couchbase://127.0.0.1");
     auth.username = "Administrator";
     auth.password = "password";
     // first, open it.
     {
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
-        cluster->open(couchbase::origin(auth, connstr), [barrier](std::error_code ec) { barrier->set_value(ec); });
+        cluster->open(core::origin(auth, connstr), [barrier](std::error_code ec) { barrier->set_value(ec); });
         auto rc = f.get();
         if (rc) {
             cout << "ERROR opening cluster: " << rc.message() << endl;
@@ -237,33 +237,33 @@ main(int, const char*[])
         }
     }
 
-    couchbase::document_id player_id = { "default", "_default", "_default", "player_data" };
+    core::document_id player_id = { "default", "_default", "_default", "player_data" };
     Player player_data{ 14248, 23832, "player", 141, true, "Jane", make_uuid() };
 
-    couchbase::document_id monster_id = { "default", "_default", "_default", "a_grue" };
+    core::document_id monster_id = { "default", "_default", "_default", "a_grue" };
     Monster monster_data{ 91, 40000, 0.19239324085462631, "monster", "Grue", make_uuid() };
 
     // upsert a player document
     {
-        couchbase::operations::upsert_request req{ player_id };
+        core::operations::upsert_request req{ player_id };
         nlohmann::json j;
         to_json(j, player_data);
-        req.value = couchbase::utils::to_binary(j.dump());
-        auto barrier = std::make_shared<std::promise<couchbase::operations::upsert_response>>();
-        cluster->execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp); });
+        req.value = core::utils::to_binary(j.dump());
+        auto barrier = std::make_shared<std::promise<core::operations::upsert_response>>();
+        cluster->execute(req, [barrier](core::operations::upsert_response resp) { barrier->set_value(resp); });
         auto f = barrier->get_future();
         auto resp = f.get();
-        cout << "Upserted sample player document: " << player_id.key() << "with cas:" << resp.cas.value << endl;
+        cout << "Upserted sample player document: " << player_id.key() << "with cas:" << resp.cas.value() << endl;
     }
     // upsert a monster document
     {
-        couchbase::operations::upsert_request req{ monster_id };
+        core::operations::upsert_request req{ monster_id };
         nlohmann::json j;
         to_json(j, monster_data);
-        req.value = couchbase::utils::to_binary(j.dump());
-        auto barrier = std::make_shared<std::promise<couchbase::operations::upsert_response>>();
+        req.value = core::utils::to_binary(j.dump());
+        auto barrier = std::make_shared<std::promise<core::operations::upsert_response>>();
         auto f = barrier->get_future();
-        cluster->execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp); });
+        cluster->execute(req, [barrier](core::operations::upsert_response resp) { barrier->set_value(resp); });
         auto resp = f.get();
         cout << "Upserted sample monster document: " << monster_id.key() << endl;
     }

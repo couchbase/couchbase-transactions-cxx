@@ -100,7 +100,7 @@ namespace transactions
         return current_attempt_context_;
     }
 
-    void transaction_context::get(const couchbase::document_id& id, async_attempt_context::Callback&& cb)
+    void transaction_context::get(const core::document_id& id, async_attempt_context::Callback&& cb)
     {
         if (current_attempt_context_) {
             return current_attempt_context_->get(id, std::move(cb));
@@ -108,7 +108,7 @@ namespace transactions
         throw transaction_operation_failed(FAIL_OTHER, "no current attempt context");
     }
 
-    void transaction_context::get_optional(const couchbase::document_id& id, async_attempt_context::Callback&& cb)
+    void transaction_context::get_optional(const core::document_id& id, async_attempt_context::Callback&& cb)
     {
         if (current_attempt_context_) {
             return current_attempt_context_->get_optional(id, std::move(cb));
@@ -116,7 +116,7 @@ namespace transactions
         throw transaction_operation_failed(FAIL_OTHER, "no current attempt context");
     }
 
-    void transaction_context::insert(const couchbase::document_id& id, const std::string& content, async_attempt_context::Callback&& cb)
+    void transaction_context::insert(const core::document_id& id, const std::string& content, async_attempt_context::Callback&& cb)
     {
         if (current_attempt_context_) {
             return current_attempt_context_->insert_raw(id, content, std::move(cb));

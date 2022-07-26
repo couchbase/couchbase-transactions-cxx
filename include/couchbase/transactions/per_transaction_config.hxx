@@ -19,11 +19,11 @@
 #include <chrono>
 #include <optional>
 
-#include <couchbase/operations/document_query.hxx>
+#include <core/operations/document_query.hxx>
 #include <couchbase/transactions/durability_level.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 
-using couchbase::operations::query_request;
+using couchbase::core::operations::query_request;
 using couchbase::transactions::durability_level;
 using std::chrono::milliseconds;
 using std::chrono::nanoseconds;
@@ -44,12 +44,12 @@ class per_transaction_config
     {
         return durability_;
     }
-    per_transaction_config& scan_consistency(couchbase::query_scan_consistency scan_consistency)
+    per_transaction_config& scan_consistency(core::query_scan_consistency scan_consistency)
     {
         scan_consistency_ = scan_consistency;
         return *this;
     }
-    std::optional<couchbase::query_scan_consistency> scan_consistency()
+    std::optional<core::query_scan_consistency> scan_consistency()
     {
         return scan_consistency_;
     }
@@ -107,7 +107,7 @@ class per_transaction_config
 
   private:
     std::optional<couchbase::transactions::durability_level> durability_;
-    std::optional<couchbase::query_scan_consistency> scan_consistency_;
+    std::optional<couchbase::core::query_scan_consistency> scan_consistency_;
     std::optional<milliseconds> kv_timeout_;
     std::optional<nanoseconds> expiration_time_;
     std::optional<transaction_keyspace> custom_metadata_collection_;

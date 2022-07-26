@@ -16,7 +16,6 @@
 
 #include "helpers.hxx"
 #include "transactions_env.h"
-#include <couchbase/errors.hxx>
 #include <couchbase/transactions/internal/logging.hxx>
 #include <filesystem>
 #include <fstream>
@@ -48,37 +47,37 @@ class TrivialFileSink : public spdlog::sinks::base_sink<std::mutex>
 
 TEST(LoggingTests, CanLogToStdoutByDefault)
 {
-    couchbase::logger::create_blackhole_logger();
+    couchbase::core::logger::create_blackhole_logger();
     std::string log_message = "I am a log";
-    couchbase::transactions::set_transactions_log_level(couchbase::logger::level::debug);
+    couchbase::transactions::set_transactions_log_level(couchbase::core::logger::level::debug);
     testing::internal::CaptureStdout();
     txn_log->debug(log_message);
     txn_log->flush();
     auto out = testing::internal::GetCapturedStdout();
     ASSERT_FALSE(out.empty());
     ASSERT_NE(std::string::npos, out.find(log_message));
-    couchbase::logger::create_console_logger();
+    couchbase::core::logger::create_console_logger();
 }
 
 TEST(LoggingTests, LogLevelsWork)
 {
-    couchbase::logger::create_blackhole_logger();
+    couchbase::core::logger::create_blackhole_logger();
     std::string log_message = "I am a log";
-    couchbase::transactions::set_transactions_log_level(couchbase::logger::level::info);
+    couchbase::transactions::set_transactions_log_level(couchbase::core::logger::level::info);
     testing::internal::CaptureStdout();
     txn_log->debug(log_message);
     txn_log->flush();
     auto out = testing::internal::GetCapturedStdout();
     ASSERT_TRUE(out.empty());
-    couchbase::logger::create_console_logger();
+    couchbase::core::logger::create_console_logger();
 }
 
 TEST(LoggingTests, CanUseCustomSink)
 {
-    couchbase::logger::create_blackhole_logger();
+    couchbase::core::logger::create_blackhole_logger();
     std::string log_message = "I am a log";
     auto sink = std::make_shared<TrivialFileSink>();
-    couchbase::transactions::create_loggers(couchbase::logger::level::debug, sink);
+    couchbase::transactions::create_loggers(couchbase::core::logger::level::debug, sink);
     testing::internal::CaptureStdout();
     testing::internal::CaptureStderr();
     txn_log->debug(log_message);
@@ -88,15 +87,15 @@ TEST(LoggingTests, CanUseCustomSink)
     auto err = testing::internal::GetCapturedStderr();
     ASSERT_FALSE(err.empty());
     ASSERT_NE(std::string::npos, err.find(log_message)) << "err = " << err;
-    couchbase::logger::create_console_logger();
+    couchbase::core::logger::create_console_logger();
 }
 
 TEST(LoggingTests, CustomSinkRespectsLogLevels)
 {
-    couchbase::logger::create_blackhole_logger();
+    couchbase::core::logger::create_blackhole_logger();
     std::string log_message = "I am a log";
     auto sink = std::make_shared<TrivialFileSink>();
-    couchbase::transactions::create_loggers(couchbase::logger::level::info, sink);
+    couchbase::transactions::create_loggers(couchbase::core::logger::level::info, sink);
     testing::internal::CaptureStdout();
     testing::internal::CaptureStderr();
     txn_log->debug(log_message);
@@ -105,16 +104,16 @@ TEST(LoggingTests, CustomSinkRespectsLogLevels)
     ASSERT_TRUE(out.empty()) << "out = " << out;
     auto err = testing::internal::GetCapturedStderr();
     ASSERT_TRUE(err.empty()) << "err = " << err;
-    couchbase::logger::create_console_logger();
+    couchbase::core::logger::create_console_logger();
 }
 
 TEST(LoggingTests, CustomSinkRespectsLogLevelChanges)
 {
-    couchbase::logger::create_blackhole_logger();
+    couchbase::core::logger::create_blackhole_logger();
     std::string log_message = "I am a log";
     auto sink = std::make_shared<TrivialFileSink>();
-    couchbase::transactions::create_loggers(couchbase::logger::level::debug, sink);
-    couchbase::transactions::set_transactions_log_level(couchbase::logger::level::info);
+    couchbase::transactions::create_loggers(couchbase::core::logger::level::debug, sink);
+    couchbase::transactions::set_transactions_log_level(couchbase::core::logger::level::info);
     testing::internal::CaptureStdout();
     testing::internal::CaptureStderr();
     txn_log->debug(log_message);
@@ -123,5 +122,5 @@ TEST(LoggingTests, CustomSinkRespectsLogLevelChanges)
     ASSERT_TRUE(out.empty()) << "out = " << out;
     auto err = testing::internal::GetCapturedStderr();
     ASSERT_TRUE(err.empty()) << "err = " << err;
-    couchbase::logger::create_console_logger();
+    couchbase::core::logger::create_console_logger();
 }

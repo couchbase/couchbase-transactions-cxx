@@ -21,7 +21,7 @@
 #include <utility>
 
 #include "result.hxx"
-#include <couchbase/cluster.hxx>
+#include <core/cluster.hxx>
 #include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 
@@ -37,35 +37,35 @@ namespace transactions
       public:
         // TODO: we should get the kv_timeout and put it in the request (pass in the transaction_config)
         template<typename Callback>
-        static void get_atr(cluster& cluster, const couchbase::document_id& atr_id, Callback&& cb)
+        static void get_atr(core::cluster& cluster, const core::document_id& atr_id, Callback&& cb)
         {
-            couchbase::operations::lookup_in_request req{ atr_id };
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_FIELD_ATTEMPTS);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, "$vbucket");
-            cluster.execute(req, [atr_id, cb = std::move(cb)](couchbase::operations::lookup_in_response resp) {
+            core::operations::lookup_in_request req{ atr_id };
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_FIELD_ATTEMPTS);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, "$vbucket");
+            cluster.execute(req, [atr_id, cb = std::move(cb)](core::operations::lookup_in_response resp) {
                 try {
-                    if (resp.ctx.ec == couchbase::error::key_value_errc::document_not_found) {
+                    if (resp.ctx.ec() == couchbase::errc::key_value::document_not_found) {
                         // that's ok, just return an empty one.
                         return cb({}, {});
                     }
-                    if (!resp.ctx.ec) {
+                    if (!resp.ctx.ec()) {
                         // success
-                        return cb(resp.ctx.ec, map_to_atr(resp));
+                        return cb(resp.ctx.ec(), map_to_atr(resp));
                     }
                     // otherwise, raise an error.
-                    cb(resp.ctx.ec, {});
+                    cb(resp.ctx.ec(), {});
                 } catch (const std::exception& e) {
                     // ok - we have a corrupt ATR.  The question is:  what should we return for an error?
                     // Turns out, we don't much care in the code what this error is.  Since we cannot parse
                     // the atr, but there wasn't an error, lets select this one for now.
                     // TODO: consider a different mechanism - not an error_code.  Or, perhaps we need txn-specific
                     // error codes?
-                    cb(couchbase::error::key_value_errc::path_invalid, std::nullopt);
+                    cb(couchbase::errc::key_value::path_invalid, std::nullopt);
                 }
             });
         }
 
-        static std::optional<active_transaction_record> get_atr(cluster& cluster, const couchbase::document_id& atr_id)
+        static std::optional<active_transaction_record> get_atr(core::cluster& cluster, const core::document_id& atr_id)
         {
             auto barrier = std::promise<std::optional<active_transaction_record>>();
             auto f = barrier.get_future();
@@ -77,7 +77,8 @@ namespace transactions
             });
             return f.get();
         }
-        active_transaction_record(const couchbase::document_id& id, uint64_t, std::vector<atr_entry> entries)
+
+        active_transaction_record(const core::document_id& id, uint64_t, std::vector<atr_entry> entries)
           : id_(std::move(id))
           , entries_(std::move(entries))
         {
@@ -89,7 +90,7 @@ namespace transactions
         }
 
       private:
-        couchbase::document_id id_;
+        core::document_id id_;
         std::vector<atr_entry> entries_;
 
         /**
@@ -133,10 +134,10 @@ namespace transactions
             }
             return std::move(records);
         }
-        static inline active_transaction_record map_to_atr(const couchbase::operations::lookup_in_response& resp)
+        static inline active_transaction_record map_to_atr(const core::operations::lookup_in_response& resp)
         {
             std::vector<atr_entry> entries;
-            if (resp.fields[0].status == protocol::status::success) {
+            if (resp.fields[0].status == key_value_status_code::success) {
                 auto attempts = nlohmann::json::parse(resp.fields[0].value);
                 auto vbucket = default_json_serializer::deserialize<nlohmann::json>(resp.fields[1].value);
                 auto now_ns = now_ns_from_vbucket(vbucket);
@@ -144,8 +145,8 @@ namespace transactions
                 for (auto& element : attempts.items()) {
                     auto& val = element.value();
                     entries.emplace_back(
-                      resp.ctx.id.bucket(),
-                      resp.ctx.id.key(),
+                      resp.ctx.bucket(),
+                      resp.ctx.id(),
                       element.key(),
                       attempt_state_value(val[ATR_FIELD_STATUS].get<std::string>()),
                       parse_mutation_cas(val.value(ATR_FIELD_START_TIMESTAMP, "")),
@@ -165,7 +166,8 @@ namespace transactions
                                                                : std::nullopt);
                 }
             }
-            return active_transaction_record(resp.ctx.id, resp.cas.value, std::move(entries));
+            return active_transaction_record(
+              { resp.ctx.bucket(), resp.ctx.scope(), resp.ctx.collection(), resp.ctx.id() }, resp.cas.value(), std::move(entries));
         }
     };
 

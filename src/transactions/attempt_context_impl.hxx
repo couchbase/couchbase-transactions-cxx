@@ -54,7 +54,7 @@ namespace transactions
     {
       private:
         transaction_context& overall_;
-        std::optional<couchbase::document_id> atr_id_;
+        std::optional<core::document_id> atr_id_;
         bool is_done_;
         std::unique_ptr<staged_mutation_queue> staged_mutations_;
         attempt_context_testing_hooks& hooks_;
@@ -69,17 +69,17 @@ namespace transactions
         // transaction_context needs access to the two functions below
         friend class transaction_context;
 
-        virtual transaction_get_result insert_raw(const couchbase::document_id& id, const std::string& content);
-        virtual void insert_raw(const couchbase::document_id& id, const std::string& content, Callback&& cb);
+        virtual transaction_get_result insert_raw(const core::document_id& id, const std::string& content);
+        virtual void insert_raw(const core::document_id& id, const std::string& content, Callback&& cb);
 
         virtual transaction_get_result replace_raw(const transaction_get_result& document, const std::string& content);
         virtual void replace_raw(const transaction_get_result& document, const std::string& content, Callback&& cb);
 
-        void remove_staged_insert(const couchbase::document_id& id, VoidCallback&& cb);
+        void remove_staged_insert(const core::document_id& id, VoidCallback&& cb);
 
         // These are all just stubs for now
-        void get_with_query(const couchbase::document_id& id, bool optional, Callback&& cb);
-        void insert_raw_with_query(const couchbase::document_id& id, const std::string& content, Callback&& cb);
+        void get_with_query(const core::document_id& id, bool optional, Callback&& cb);
+        void insert_raw_with_query(const core::document_id& id, const std::string& content, Callback&& cb);
         void replace_raw_with_query(const transaction_get_result& document, const std::string& content, Callback&& cb);
         void remove_with_query(const transaction_get_result& document, VoidCallback&& cb);
 
@@ -90,14 +90,14 @@ namespace transactions
         void query_begin_work(Handler&& cb);
 
         void do_query(const std::string& statement, const transaction_query_options& opts, QueryCallback&& cb);
-        std::exception_ptr handle_query_error(const couchbase::operations::query_response& resp);
+        std::exception_ptr handle_query_error(const core::operations::query_response& resp);
         void wrap_query(const std::string& statement,
                         const transaction_query_options& opts,
-                        const std::vector<json_string>& params,
+                        const std::vector<core::json_string>& params,
                         const nlohmann::json& txdata,
                         const std::string& hook_point,
                         bool check_expiry,
-                        std::function<void(std::exception_ptr, couchbase::operations::query_response)>&& cb);
+                        std::function<void(std::exception_ptr, core::operations::query_response)>&& cb);
 
         void handle_err_from_callback(std::exception_ptr e)
         {
@@ -281,23 +281,23 @@ namespace transactions
             txn_log->error(attempt_format_string + fmt, this->transaction_id(), this->id(), args...);
         }
 
-        cluster& cluster_ref();
+        core::cluster& cluster_ref();
 
       public:
         attempt_context_impl(transaction_context& transaction_ctx);
         ~attempt_context_impl();
 
-        virtual transaction_get_result get(const couchbase::document_id& id);
-        virtual void get(const couchbase::document_id& id, Callback&& cb);
+        virtual transaction_get_result get(const core::document_id& id);
+        virtual void get(const core::document_id& id, Callback&& cb);
 
-        virtual std::optional<transaction_get_result> get_optional(const couchbase::document_id& id);
-        virtual void get_optional(const couchbase::document_id& id, Callback&& cb);
+        virtual std::optional<transaction_get_result> get_optional(const core::document_id& id);
+        virtual void get_optional(const core::document_id& id, Callback&& cb);
 
         virtual void remove(const transaction_get_result& document);
         virtual void remove(const transaction_get_result& document, VoidCallback&& cb);
 
         virtual void query(const std::string& statement, const transaction_query_options& opts, QueryCallback&& cb);
-        virtual operations::query_response query(const std::string& statement, const transaction_query_options& opts);
+        virtual core::operations::query_response query(const std::string& statement, const transaction_query_options& opts);
 
         virtual void commit();
         virtual void commit(VoidCallback&& cb);
@@ -366,11 +366,11 @@ namespace transactions
         void check_expiry_during_commit_or_rollback(const std::string& stage, std::optional<const std::string> doc_id);
 
         template<typename Handler>
-        void set_atr_pending_locked(const couchbase::document_id& collection, std::unique_lock<std::mutex>&& lock, Handler&& cb);
+        void set_atr_pending_locked(const core::document_id& collection, std::unique_lock<std::mutex>&& lock, Handler&& cb);
 
         std::optional<error_class> error_if_expired_and_not_in_overtime(const std::string& stage, std::optional<const std::string> doc_id);
 
-        staged_mutation* check_for_own_write(const couchbase::document_id& id);
+        staged_mutation* check_for_own_write(const core::document_id& id);
 
         template<typename Handler>
         void check_and_handle_blocking_transactions(const transaction_get_result& doc, forward_compat_stage stage, Handler&& cb);
@@ -391,29 +391,29 @@ namespace transactions
 
         void atr_rollback_complete();
 
-        void select_atr_if_needed_unlocked(const couchbase::document_id& id,
+        void select_atr_if_needed_unlocked(const core::document_id& id,
                                            std::function<void(std::optional<transaction_operation_failed>)>&& cb);
 
         template<typename Handler>
-        void do_get(const couchbase::document_id& id, const std::optional<std::string> resolving_missing_atr_entry, Handler&& cb);
+        void do_get(const core::document_id& id, const std::optional<std::string> resolving_missing_atr_entry, Handler&& cb);
 
         void get_doc(
-          const couchbase::document_id& id,
+          const core::document_id& id,
           std::function<void(std::optional<error_class>, std::optional<std::string>, std::optional<transaction_get_result>)>&& cb);
 
-        couchbase::operations::mutate_in_request create_staging_request(const couchbase::document_id& in,
-                                                                        const transaction_get_result* document,
-                                                                        const std::string type,
-                                                                        std::optional<std::string> content = std::nullopt);
+        core::operations::mutate_in_request create_staging_request(const core::document_id& in,
+                                                                   const transaction_get_result* document,
+                                                                   const std::string type,
+                                                                   std::optional<std::string> content = std::nullopt);
 
         template<typename Handler, typename Delay>
-        void create_staged_insert(const couchbase::document_id& id, const std::string& content, uint64_t cas, Delay&& delay, Handler&& cb);
+        void create_staged_insert(const core::document_id& id, const std::string& content, uint64_t cas, Delay&& delay, Handler&& cb);
 
         template<typename Handler>
         void create_staged_replace(const transaction_get_result& document, const std::string& content, Handler&& cb);
 
         template<typename Handler, typename Delay>
-        void create_staged_insert_error_handler(const couchbase::document_id& id,
+        void create_staged_insert_error_handler(const core::document_id& id,
                                                 const std::string& content,
                                                 uint64_t cas,
                                                 Delay&& delay,

@@ -55,7 +55,7 @@ namespace transactions
         friend class transactions_cleanup_attempt;
 
       private:
-        couchbase::document_id atr_id_;
+        core::document_id atr_id_;
         std::string attempt_id_;
         std::chrono::time_point<std::chrono::steady_clock> min_start_time_;
         bool check_if_expired_;
@@ -85,13 +85,11 @@ namespace transactions
       public:
         explicit atr_cleanup_entry(attempt_context& ctx);
         explicit atr_cleanup_entry(const atr_entry& entry,
-                                   const couchbase::document_id& atr_coll,
+                                   const core::document_id& atr_coll,
                                    const transactions_cleanup& cleanup,
                                    bool check_if_expired = true);
 
-        explicit atr_cleanup_entry(const couchbase::document_id& atr_id,
-                                   const std::string& attempt_id,
-                                   const transactions_cleanup& cleanup);
+        explicit atr_cleanup_entry(const core::document_id& atr_id, const std::string& attempt_id, const transactions_cleanup& cleanup);
 
         void clean(std::shared_ptr<spdlog::logger> logger, transactions_cleanup_attempt* result = nullptr);
         bool ready() const;

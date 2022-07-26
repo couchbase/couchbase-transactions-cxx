@@ -19,14 +19,14 @@
 namespace couchbase::transactions
 {
 
-couchbase::operations::query_request
+core::operations::query_request
 transaction_query_options::wrap_request(const couchbase::transactions::transaction_context& txn_context) const
 {
     // set timeout stuff using the config/context.
     // extra time so we don't timeout right at expiry.
-    auto extra = txn_context.config().kv_timeout() ? txn_context.config().kv_timeout().value()
-                                                   : couchbase::timeout_defaults::key_value_durable_timeout;
-    couchbase::operations::query_request req = query_req_;
+    auto extra =
+      txn_context.config().kv_timeout() ? txn_context.config().kv_timeout().value() : core::timeout_defaults::key_value_durable_timeout;
+    core::operations::query_request req = query_req_;
     if (!req.scan_consistency) {
         req.scan_consistency = txn_context.config().scan_consistency();
     }

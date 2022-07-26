@@ -19,7 +19,7 @@
 #include <string>
 
 #include "transaction_fields.hxx"
-#include <couchbase/document_id.hxx>
+#include <core/document_id.hxx>
 #include <couchbase/internal/nlohmann/json.hpp>
 #include <couchbase/support.hxx>
 
@@ -49,7 +49,7 @@ namespace transactions
             return id_.collection();
         }
 
-        CB_NODISCARD const couchbase::document_id& document_id() const
+        CB_NODISCARD const core::document_id& document_id() const
         {
             return id_;
         }
@@ -76,7 +76,7 @@ namespace transactions
         }
 
       private:
-        couchbase::document_id id_;
+        core::document_id id_;
     };
 } // namespace transactions
 } // namespace couchbase

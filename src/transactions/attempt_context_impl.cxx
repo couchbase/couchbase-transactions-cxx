@@ -38,7 +38,7 @@ static const std::string KV_REPLACE{ "EXECUTE __update" };
 static const std::string KV_REMOVE{ "EXECUTE __delete" };
 static const nlohmann::json KV_TXDATA{ { "kv", true } };
 
-cluster&
+core::cluster&
 attempt_context_impl::cluster_ref()
 {
     return overall_.cluster_ref();
@@ -90,7 +90,7 @@ attempt_context_impl::check_and_handle_blocking_transactions(const transaction_g
 }
 
 transaction_get_result
-attempt_context_impl::get(const couchbase::document_id& id)
+attempt_context_impl::get(const core::document_id& id)
 {
     auto barrier = std::make_shared<std::promise<transaction_get_result>>();
     auto f = barrier->get_future();
@@ -104,7 +104,7 @@ attempt_context_impl::get(const couchbase::document_id& id)
     return f.get();
 }
 void
-attempt_context_impl::get(const couchbase::document_id& id, Callback&& cb)
+attempt_context_impl::get(const core::document_id& id, Callback&& cb)
 {
     if (op_list_.get_mode().is_query()) {
         return get_with_query(id, false, std::move(cb));
@@ -158,7 +158,7 @@ attempt_context_impl::get(const couchbase::document_id& id, Callback&& cb)
 }
 
 std::optional<transaction_get_result>
-attempt_context_impl::get_optional(const couchbase::document_id& id)
+attempt_context_impl::get_optional(const core::document_id& id)
 {
     auto barrier = std::make_shared<std::promise<std::optional<transaction_get_result>>>();
     auto f = barrier->get_future();
@@ -172,7 +172,7 @@ attempt_context_impl::get_optional(const couchbase::document_id& id)
 }
 
 void
-attempt_context_impl::get_optional(const couchbase::document_id& id, Callback&& cb)
+attempt_context_impl::get_optional(const core::document_id& id, Callback&& cb)
 {
     if (op_list_.get_mode().is_query()) {
         return get_with_query(id, true, std::move(cb));
@@ -225,13 +225,13 @@ attempt_context_impl::get_optional(const couchbase::document_id& id, Callback&& 
     });
 }
 
-couchbase::operations::mutate_in_request
-attempt_context_impl::create_staging_request(const couchbase::document_id& id,
+core::operations::mutate_in_request
+attempt_context_impl::create_staging_request(const core::document_id& id,
                                              const transaction_get_result* document,
                                              const std::string type,
                                              std::optional<std::string> content)
 {
-    couchbase::operations::mutate_in_request req{ id };
+    core::operations::mutate_in_request req{ id };
     auto txn = nlohmann::json::object();
     txn["id"] = nlohmann::json::object();
     txn["id"]["txn"] = transaction_id();
@@ -257,11 +257,11 @@ attempt_context_impl::create_staging_request(const couchbase::document_id& id,
         }
     }
 
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, false, "txn", jsonify(txn));
+    req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert, true, true, false, "txn", jsonify(txn));
     if (type != "remove") {
-        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, false, false, "txn.op.stgd", content.value());
+        req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert, true, false, false, "txn.op.stgd", content.value());
     }
-    req.specs.add_spec(protocol::subdoc_opcode::dict_upsert, true, true, true, "txn.op.crc32", mutate_in_macro::VALUE_CRC_32C);
+    req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert, true, true, true, "txn.op.crc32", mutate_in_macro::VALUE_CRC_32C);
 
     return wrap_durable_request(req, overall_.config());
 }
@@ -331,7 +331,7 @@ void
 attempt_context_impl::create_staged_replace(const transaction_get_result& document, const std::string& content, Handler&& cb)
 {
     auto req = create_staging_request(document.id(), &document, "replace", content);
-    req.cas.value = document.cas();
+    req.cas = couchbase::cas(document.cas());
     req.access_deleted = true;
     auto error_handler = [this, cb](error_class ec, const std::string& msg) {
         transaction_operation_failed err(ec, msg);
@@ -355,7 +355,7 @@ attempt_context_impl::create_staged_replace(const transaction_get_result& docume
     trace("about to replace doc {} with cas {} in txn {}", document.id(), document.cas(), overall_.transaction_id());
     overall_.cluster_ref().execute(req,
                                    [this, document = std::move(document), content, cb, error_handler = std::move(error_handler)](
-                                     couchbase::operations::mutate_in_response resp) {
+                                     core::operations::mutate_in_response resp) {
                                        auto ec = error_class_from_response(resp);
                                        if (!ec) {
                                            auto err = hooks_.after_staged_replace_complete(this, document.id().key());
@@ -363,12 +363,12 @@ attempt_context_impl::create_staged_replace(const transaction_get_result& docume
                                                return error_handler(*err, "after_staged_replace_commit hook returned error");
                                            }
                                            transaction_get_result out = document;
-                                           out.cas(resp.cas.value);
+                                           out.cas(resp.cas.value());
                                            trace("replace staged content, result {}", out);
                                            staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::REPLACE));
                                            return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>(out));
                                        } else {
-                                           return error_handler(*ec, resp.ctx.ec.message());
+                                           return error_handler(*ec, resp.ctx.ec().message());
                                        }
                                    });
 }
@@ -387,7 +387,7 @@ attempt_context_impl::replace_raw(const transaction_get_result& document, const 
     return f.get();
 }
 transaction_get_result
-attempt_context_impl::insert_raw(const couchbase::document_id& id, const std::string& content)
+attempt_context_impl::insert_raw(const core::document_id& id, const std::string& content)
 {
     auto barrier = std::make_shared<std::promise<transaction_get_result>>();
     auto f = barrier->get_future();
@@ -400,7 +400,7 @@ attempt_context_impl::insert_raw(const couchbase::document_id& id, const std::st
     return f.get();
 }
 void
-attempt_context_impl::insert_raw(const couchbase::document_id& id, const std::string& content, Callback&& cb)
+attempt_context_impl::insert_raw(const core::document_id& id, const std::string& content, Callback&& cb)
 {
     if (op_list_.get_mode().is_query()) {
         return insert_raw_with_query(id, content, std::move(cb));
@@ -442,7 +442,7 @@ attempt_context_impl::insert_raw(const couchbase::document_id& id, const std::st
 }
 
 void
-attempt_context_impl::select_atr_if_needed_unlocked(const couchbase::document_id& id,
+attempt_context_impl::select_atr_if_needed_unlocked(const core::document_id& id,
                                                     std::function<void(std::optional<transaction_operation_failed>)>&& cb)
 {
     try {
@@ -478,10 +478,10 @@ attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_ge
         if (auto ec = hooks_.before_check_atr_entry_for_blocking_doc(this, doc.id().key())) {
             return cb(transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT, "document is in another transaction").retry());
         }
-        couchbase::document_id atr_id(doc.links().atr_bucket_name().value(),
-                                      doc.links().atr_scope_name().value(),
-                                      doc.links().atr_collection_name().value(),
-                                      doc.links().atr_id().value());
+        core::document_id atr_id(doc.links().atr_bucket_name().value(),
+                                 doc.links().atr_scope_name().value(),
+                                 doc.links().atr_collection_name().value(),
+                                 doc.links().atr_id().value());
         active_transaction_record::get_atr(
           cluster_ref(),
           atr_id,
@@ -493,9 +493,9 @@ attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_ge
                       return e.attempt_id() == doc.links().staged_attempt_id();
                   });
                   if (it != entries.end()) {
-                      auto err = forward_compat::check(forward_compat_stage::WWC_READING_ATR, it->forward_compat());
-                      if (err) {
-                          return cb(err);
+                      auto fwd_err = forward_compat::check(forward_compat_stage::WWC_READING_ATR, it->forward_compat());
+                      if (fwd_err) {
+                          return cb(fwd_err);
                       }
                       switch (it->state()) {
                           case attempt_state::COMPLETED:
@@ -579,25 +579,25 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
                     }
                     trace("about to remove doc {} with cas {}", document.id(), document.cas());
                     auto req = create_staging_request(document.id(), &document, "remove");
-                    req.cas.value = document.cas();
+                    req.cas = couchbase::cas(document.cas());
                     req.access_deleted = document.links().is_deleted();
                     overall_.cluster_ref().execute(
                       req,
                       [this, document = std::move(document), cb = std::move(cb), error_handler = std::move(error_handler)](
-                        couchbase::operations::mutate_in_response resp) {
+                        core::operations::mutate_in_response resp) {
                           auto ec = error_class_from_response(resp);
                           if (!ec) {
                               ec = hooks_.after_staged_remove_complete(this, document.id().key());
                           }
                           if (!ec) {
-                              trace("removed doc {} CAS={}, rc={}", document.id(), resp.cas.value, resp.ctx.ec.message());
+                              trace("removed doc {} CAS={}, rc={}", document.id(), resp.cas.value(), resp.ctx.ec().message());
                               // TODO: this copy...  can we do better?
                               transaction_get_result new_res = document;
-                              new_res.cas(resp.cas.value);
+                              new_res.cas(resp.cas.value());
                               staged_mutations_->add(staged_mutation(new_res, "", staged_mutation_type::REMOVE));
                               return op_completed_with_callback(cb);
                           }
-                          return error_handler(*ec, resp.ctx.ec.message());
+                          return error_handler(*ec, resp.ctx.ec().message());
                       });
                 });
           });
@@ -605,7 +605,7 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
 }
 
 void
-attempt_context_impl::remove_staged_insert(const couchbase::document_id& id, VoidCallback&& cb)
+attempt_context_impl::remove_staged_insert(const core::document_id& id, VoidCallback&& cb)
 {
     auto ec = error_if_expired_and_not_in_overtime(STAGE_REMOVE_STAGED_INSERT, id.key());
     if (ec) {
@@ -630,13 +630,13 @@ attempt_context_impl::remove_staged_insert(const couchbase::document_id& id, Voi
         return;
     }
 
-    couchbase::operations::mutate_in_request req{ id };
-    req.specs.add_spec(protocol::subdoc_opcode::remove, true, "txn");
+    core::operations::mutate_in_request req{ id };
+    req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, "txn");
     wrap_durable_request(req, overall_.config());
     req.access_deleted = true;
 
     overall_.cluster_ref().execute(
-      req, [this, id = std::move(id), cb, error_handler = std::move(error_handler)](couchbase::operations::mutate_in_response resp) {
+      req, [this, id = std::move(id), cb, error_handler = std::move(error_handler)](core::operations::mutate_in_response resp) {
           auto ec = error_class_from_response(resp);
           if (!ec) {
               debug("remove_staged_insert got error {}", *ec);
@@ -650,7 +650,7 @@ attempt_context_impl::remove_staged_insert(const couchbase::document_id& id, Voi
               op_completed_with_callback(cb);
               return;
           }
-          return error_handler(*ec, resp.ctx.ec.message());
+          return error_handler(*ec, resp.ctx.ec().message());
       });
 }
 
@@ -684,7 +684,7 @@ attempt_context_impl::query_begin_work(Handler&& cb)
     txdata["state"]["timeLeftMs"] = overall_.remaining().count() / 1000000;
     txdata["config"] = nlohmann::json::object();
     txdata["config"]["kvTimeoutMs"] =
-      overall_.config().kv_timeout() ? overall_.config().kv_timeout()->count() : timeout_defaults::key_value_timeout.count();
+      overall_.config().kv_timeout() ? overall_.config().kv_timeout()->count() : core::timeout_defaults::key_value_timeout.count();
     txdata["config"]["numAtrs"] = 1024;
     opts.raw("numatrs", jsonify(1024));
     txdata["config"]["durabilityLevel"] = durability_level_to_string(overall_.config().durability_level());
@@ -716,7 +716,7 @@ attempt_context_impl::query_begin_work(Handler&& cb)
             txdata["mutations"].push_back(obj);
         });
     }
-    std::vector<json_string> params;
+    std::vector<core::json_string> params;
     trace("begin_work using txdata: {}", txdata.dump());
     wrap_query(BEGIN_WORK,
                opts,
@@ -724,7 +724,7 @@ attempt_context_impl::query_begin_work(Handler&& cb)
                txdata,
                STAGE_QUERY_BEGIN_WORK,
                true,
-               [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
+               [this, cb = std::move(cb)](std::exception_ptr err, core::operations::query_response resp) mutable {
                    trace("begin_work setting query node to {}", resp.served_by_node);
                    op_list_.set_query_node(resp.served_by_node);
                    return cb(err);
@@ -732,21 +732,20 @@ attempt_context_impl::query_begin_work(Handler&& cb)
 }
 
 std::exception_ptr
-attempt_context_impl::handle_query_error(const couchbase::operations::query_response& resp)
+attempt_context_impl::handle_query_error(const core::operations::query_response& resp)
 {
     if (!resp.ctx.ec && !resp.meta.errors) {
         return {};
     }
     // TODO: look at ambiguous and unambiguous timeout errors vs the codes, etc...
     trace("handling query error {}, {} errors in meta_data", resp.ctx.ec.message(), resp.meta.errors ? "has" : "no");
-    if (resp.ctx.ec == couchbase::error::common_errc::ambiguous_timeout ||
-        resp.ctx.ec == couchbase::error::common_errc::unambiguous_timeout) {
+    if (resp.ctx.ec == couchbase::errc::common::ambiguous_timeout || resp.ctx.ec == couchbase::errc::common::unambiguous_timeout) {
         return std::make_exception_ptr(query_attempt_expired(resp.ctx.ec.message()));
     }
     if (!resp.meta.errors) {
         // can't choose an error, map using the ec...
         external_exception cause =
-          (resp.ctx.ec == couchbase::error::common_errc::service_not_available ? SERVICE_NOT_AVAILABLE_EXCEPTION : COUCHBASE_EXCEPTION);
+          (resp.ctx.ec == couchbase::errc::common::service_not_available ? SERVICE_NOT_AVAILABLE_EXCEPTION : COUCHBASE_EXCEPTION);
         return std::make_exception_ptr(transaction_operation_failed(FAIL_OTHER, resp.ctx.ec.message()).cause(cause));
     }
     auto chosen_error = resp.meta.errors->front();
@@ -812,7 +811,7 @@ attempt_context_impl::handle_query_error(const couchbase::operations::query_resp
 void
 attempt_context_impl::do_query(const std::string& statement, const transaction_query_options& opts, QueryCallback&& cb)
 {
-    std::vector<json_string> params;
+    std::vector<core::json_string> params;
     nlohmann::json txdata;
     trace("do_query called with statement {}", statement);
     wrap_query(statement,
@@ -821,15 +820,15 @@ attempt_context_impl::do_query(const std::string& statement, const transaction_q
                txdata,
                STAGE_QUERY,
                true,
-               [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) {
+               [this, cb = std::move(cb)](std::exception_ptr err, core::operations::query_response resp) {
                    if (err) {
                        return op_completed_with_error(std::move(cb), err);
                    }
-                   op_completed_with_callback(std::move(cb), std::optional<operations::query_response>(resp));
+                   op_completed_with_callback(std::move(cb), std::optional<core::operations::query_response>(resp));
                });
 }
 std::string
-dump_request(const couchbase::operations::query_request& req)
+dump_request(const core::operations::query_request& req)
 {
     std::string raw = "{";
     for (const auto& x : req.raw) {
@@ -848,11 +847,11 @@ dump_request(const couchbase::operations::query_request& req)
 void
 attempt_context_impl::wrap_query(const std::string& statement,
                                  const transaction_query_options& opts,
-                                 const std::vector<json_string>& params,
+                                 const std::vector<core::json_string>& params,
                                  const nlohmann::json& txdata,
                                  const std::string& hook_point,
                                  bool check_expiry,
-                                 std::function<void(std::exception_ptr, couchbase::operations::query_response)>&& cb)
+                                 std::function<void(std::exception_ptr, core::operations::query_response)>&& cb)
 {
     auto req = opts.wrap_request(overall_);
     if (statement != BEGIN_WORK) {
@@ -890,7 +889,7 @@ attempt_context_impl::wrap_query(const std::string& statement,
         return cb(std::make_exception_ptr(transaction_operation_failed(*ec, "before_query hook raised error")), {});
     }
     trace("http request: {}", dump_request(req));
-    overall_.cluster_ref().execute(req, [this, cb = std::move(cb)](couchbase::operations::query_response resp) mutable {
+    overall_.cluster_ref().execute(req, [this, cb = std::move(cb)](core::operations::query_response resp) mutable {
         trace("response: {} status: {}", resp.ctx.http_body, resp.meta.status);
         if (auto ec = hooks_.after_query(this, resp.ctx.statement)) {
             auto err = std::make_exception_ptr(transaction_operation_failed(*ec, "after_query hook raised error"));
@@ -919,12 +918,12 @@ attempt_context_impl::query(const std::string& statement, const transaction_quer
     });
 }
 
-operations::query_response
+core::operations::query_response
 attempt_context_impl::query(const std::string& statement, const transaction_query_options& opts)
 {
-    auto barrier = std::make_shared<std::promise<operations::query_response>>();
+    auto barrier = std::make_shared<std::promise<core::operations::query_response>>();
     auto f = barrier->get_future();
-    query(statement, opts, [barrier](std::exception_ptr err, std::optional<operations::query_response> resp) {
+    query(statement, opts, [barrier](std::exception_ptr err, std::optional<core::operations::query_response> resp) {
         if (err) {
             return barrier->set_exception(err);
         }
@@ -933,10 +932,10 @@ attempt_context_impl::query(const std::string& statement, const transaction_quer
     return f.get();
 }
 
-std::vector<json_string>
-make_params(const couchbase::document_id& id, const json_string& content)
+std::vector<core::json_string>
+make_params(const core::document_id& id, const core::json_string& content)
 {
-    std::vector<json_string> retval;
+    std::vector<core::json_string> retval;
     auto keyspace = fmt::format("default:`{}`.`{}`.`{}`", id.bucket(), id.scope(), id.collection());
     retval.push_back(jsonify(keyspace));
     if (!id.key().empty()) {
@@ -961,7 +960,7 @@ make_kv_txdata(std::optional<transaction_get_result> doc = std::nullopt)
 }
 
 void
-attempt_context_impl::get_with_query(const couchbase::document_id& id, bool optional, Callback&& cb)
+attempt_context_impl::get_with_query(const core::document_id& id, bool optional, Callback&& cb)
 {
     cache_error_async(std::move(cb), [&] {
         auto params = make_params(id, {});
@@ -973,8 +972,8 @@ attempt_context_impl::get_with_query(const couchbase::document_id& id, bool opti
                           make_kv_txdata(),
                           STAGE_QUERY_KV_GET,
                           true,
-                          [this, id, optional, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
-                              if (resp.ctx.ec == error::key_value_errc::document_not_found) {
+                          [this, id, optional, cb = std::move(cb)](std::exception_ptr err, core::operations::query_response resp) mutable {
+                              if (resp.ctx.ec == couchbase::errc::key_value::document_not_found) {
                                   return op_completed_with_callback(std::move(cb), std::optional<transaction_get_result>());
                               }
                               if (!err) {
@@ -1009,7 +1008,7 @@ attempt_context_impl::get_with_query(const couchbase::document_id& id, bool opti
 }
 
 void
-attempt_context_impl::insert_raw_with_query(const couchbase::document_id& id, const std::string& content, Callback&& cb)
+attempt_context_impl::insert_raw_with_query(const core::document_id& id, const std::string& content, Callback&& cb)
 {
     cache_error_async(std::move(cb), [&] {
         std::string content_copy = content;
@@ -1021,7 +1020,7 @@ attempt_context_impl::insert_raw_with_query(const couchbase::document_id& id, co
                           make_kv_txdata(),
                           STAGE_QUERY_KV_INSERT,
                           true,
-                          [this, id, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
+                          [this, id, cb = std::move(cb)](std::exception_ptr err, core::operations::query_response resp) mutable {
                               if (err) {
                                   try {
                                       std::rethrow_exception(err);
@@ -1064,7 +1063,7 @@ attempt_context_impl::replace_raw_with_query(const transaction_get_result& docum
           make_kv_txdata(document),
           STAGE_QUERY_KV_REPLACE,
           true,
-          [this, id = document.id(), cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
+          [this, id = document.id(), cb = std::move(cb)](std::exception_ptr err, core::operations::query_response resp) mutable {
               if (err) {
                   try {
                       std::rethrow_exception(err);
@@ -1107,7 +1106,7 @@ attempt_context_impl::remove_with_query(const transaction_get_result& document, 
           make_kv_txdata(document),
           STAGE_QUERY_KV_REMOVE,
           true,
-          [this, id = document.id(), cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
+          [this, id = document.id(), cb = std::move(cb)](std::exception_ptr err, core::operations::query_response resp) mutable {
               if (err) {
                   try {
                       std::rethrow_exception(err);
@@ -1132,10 +1131,10 @@ attempt_context_impl::remove_with_query(const transaction_get_result& document, 
 void
 attempt_context_impl::commit_with_query(VoidCallback&& cb)
 {
-    couchbase::operations::query_request req;
+    core::operations::query_request req;
     trace("commit_with_query called");
     transaction_query_options opts;
-    std::vector<json_string> params;
+    std::vector<core::json_string> params;
     wrap_query(
       COMMIT,
       opts,
@@ -1143,7 +1142,7 @@ attempt_context_impl::commit_with_query(VoidCallback&& cb)
       make_kv_txdata(std::nullopt),
       STAGE_QUERY_COMMIT,
       true,
-      [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
+      [this, cb = std::move(cb)](std::exception_ptr err, core::operations::query_response resp) mutable {
           is_done_ = true;
           if (err) {
               try {
@@ -1169,17 +1168,17 @@ attempt_context_impl::commit_with_query(VoidCallback&& cb)
 void
 attempt_context_impl::rollback_with_query(VoidCallback&& cb)
 {
-    couchbase::operations::query_request req;
+    core::operations::query_request req;
     trace("rollback_with_query called");
     transaction_query_options opts;
-    std::vector<json_string> params;
+    std::vector<core::json_string> params;
     wrap_query(ROLLBACK,
                opts,
                params,
                make_kv_txdata(std::nullopt),
                STAGE_QUERY_ROLLBACK,
                true,
-               [this, cb = std::move(cb)](std::exception_ptr err, operations::query_response resp) mutable {
+               [this, cb = std::move(cb)](std::exception_ptr err, core::operations::query_response resp) mutable {
                    is_done_ = true;
                    if (err) {
                        try {
@@ -1203,16 +1202,17 @@ attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
     retry_op<void>([this, &ambiguity_resolution_mode]() {
         try {
             std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
-            couchbase::operations::mutate_in_request req{ atr_id_.value() };
-            req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
+            core::operations::mutate_in_request req{ atr_id_.value() };
+            req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert,
                                true,
                                false,
                                false,
                                prefix + ATR_FIELD_STATUS,
                                jsonify(attempt_state_name(attempt_state::COMMITTED)));
             req.specs.add_spec(
-              protocol::subdoc_opcode::dict_upsert, true, false, true, prefix + ATR_FIELD_START_COMMIT, mutate_in_macro::CAS);
-            req.specs.add_spec(protocol::subdoc_opcode::dict_add, true, false, false, prefix + ATR_FIELD_PREVENT_COLLLISION, jsonify(0));
+              core::protocol::subdoc_opcode::dict_upsert, true, false, true, prefix + ATR_FIELD_START_COMMIT, mutate_in_macro::CAS);
+            req.specs.add_spec(
+              core::protocol::subdoc_opcode::dict_add, true, false, false, prefix + ATR_FIELD_PREVENT_COLLLISION, jsonify(0));
             wrap_durable_request(req, overall_.config());
             auto ec = error_if_expired_and_not_in_overtime(STAGE_ATR_COMMIT, {});
             if (ec) {
@@ -1226,9 +1226,8 @@ attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
             trace("updating atr {}", req.id);
-            overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
-                barrier->set_value(result::create_from_subdoc_response(resp));
-            });
+            overall_.cluster_ref().execute(
+              req, [barrier](core::operations::mutate_in_response resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
             auto res = wrap_operation_future(f, false);
             ec = hooks_.after_atr_commit(this);
             if (ec) {
@@ -1323,14 +1322,13 @@ attempt_context_impl::atr_commit_ambiguity_resolution()
             throw client_error(*ec, "before_atr_commit_ambiguity_resolution hook threw error");
         }
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
-        couchbase::operations::lookup_in_request req{ atr_id_.value() };
-        req.specs.add_spec(protocol::subdoc_opcode::get, true, prefix + ATR_FIELD_STATUS);
+        core::operations::lookup_in_request req{ atr_id_.value() };
+        req.specs.add_spec(core::protocol::subdoc_opcode::get, true, prefix + ATR_FIELD_STATUS);
         wrap_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
-        overall_.cluster_ref().execute(req, [barrier](couchbase::operations::lookup_in_response resp) {
-            barrier->set_value(result::create_from_subdoc_response(resp));
-        });
+        overall_.cluster_ref().execute(
+          req, [barrier](core::operations::lookup_in_response resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
         auto res = wrap_operation_future(f);
         auto atr_status_raw = res.values[0].content_as<std::string>();
         debug("atr_commit_ambiguity_resolution read atr state {}", atr_status_raw);
@@ -1381,14 +1379,13 @@ attempt_context_impl::atr_complete()
         }
         debug("removing attempt {} from atr", atr_id_.value());
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id());
-        couchbase::operations::mutate_in_request req{ atr_id_.value() };
-        req.specs.add_spec(protocol::subdoc_opcode::remove, true, prefix);
+        core::operations::mutate_in_request req{ atr_id_.value() };
+        req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, prefix);
         wrap_durable_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
-        overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
-            barrier->set_value(result::create_from_subdoc_response(resp));
-        });
+        overall_.cluster_ref().execute(
+          req, [barrier](core::operations::mutate_in_response resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
         wrap_operation_future(f);
         ec = hooks_.after_atr_complete(this);
         if (ec) {
@@ -1475,22 +1472,21 @@ attempt_context_impl::atr_abort()
             throw client_error(*ec, "before_atr_aborted hook threw error");
         }
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
-        couchbase::operations::mutate_in_request req{ atr_id_.value() };
-        req.specs.add_spec(protocol::subdoc_opcode::dict_upsert,
+        core::operations::mutate_in_request req{ atr_id_.value() };
+        req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert,
                            true,
                            true,
                            false,
                            prefix + ATR_FIELD_STATUS,
                            jsonify(attempt_state_name(attempt_state::ABORTED)));
         req.specs.add_spec(
-          protocol::subdoc_opcode::dict_upsert, true, true, true, prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, mutate_in_macro::CAS);
+          core::protocol::subdoc_opcode::dict_upsert, true, true, true, prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, mutate_in_macro::CAS);
         staged_mutations_->extract_to(prefix, req);
         wrap_durable_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
-        overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
-            barrier->set_value(result::create_from_subdoc_response(resp));
-        });
+        overall_.cluster_ref().execute(
+          req, [barrier](core::operations::mutate_in_response resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
         wrap_operation_future(f);
         state(attempt_state::ABORTED);
         ec = hooks_.after_atr_aborted(this);
@@ -1538,14 +1534,13 @@ attempt_context_impl::atr_rollback_complete()
             throw client_error(*ec, "before_atr_rolled_back hook threw error");
         }
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id());
-        couchbase::operations::mutate_in_request req{ atr_id_.value() };
-        req.specs.add_spec(protocol::subdoc_opcode::remove, true, prefix);
+        core::operations::mutate_in_request req{ atr_id_.value() };
+        req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, prefix);
         wrap_durable_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
-        overall_.cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
-            barrier->set_value(result::create_from_subdoc_response(resp));
-        });
+        overall_.cluster_ref().execute(
+          req, [barrier](core::operations::mutate_in_response resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
         wrap_operation_future(f);
         state(attempt_state::ROLLED_BACK);
         ec = hooks_.after_atr_rolled_back(this);
@@ -1711,7 +1706,7 @@ attempt_context_impl::check_expiry_during_commit_or_rollback(const std::string& 
 }
 template<typename Handler>
 void
-attempt_context_impl::set_atr_pending_locked(const couchbase::document_id& id, std::unique_lock<std::mutex>&& lock, Handler&& fn)
+attempt_context_impl::set_atr_pending_locked(const core::document_id& id, std::unique_lock<std::mutex>&& lock, Handler&& fn)
 {
     try {
         if (staged_mutations_->empty()) {
@@ -1722,7 +1717,7 @@ attempt_context_impl::set_atr_pending_locked(const couchbase::document_id& id, s
             if (auto ec = error_if_expired_and_not_in_overtime(STAGE_ATR_PENDING, {})) {
                 return fn(transaction_operation_failed(*ec, "transaction expired setting ATR").expired());
             }
-            auto error_handler = [this, &lock, fn](error_class ec, const std::string& message, const couchbase::document_id& id) {
+            auto error_handler = [this, &lock, fn](error_class ec, const std::string& message, const core::document_id& id) {
                 transaction_operation_failed err(ec, message);
                 trace("got {} trying to set atr to pending", message);
                 if (expiry_overtime_mode_.load()) {
@@ -1767,47 +1762,53 @@ attempt_context_impl::set_atr_pending_locked(const couchbase::document_id& id, s
               std::max(std::min(remaining.count(), overall_.config().expiration_time().count()), std::chrono::nanoseconds::rep(0));
             long remaining_bounded_msecs = remaining_bounded_nanos / 1000000;
 
-            couchbase::operations::mutate_in_request req{ atr_id_.value() };
+            core::operations::mutate_in_request req{ atr_id_.value() };
 
-            req.specs.add_spec(
-              protocol::subdoc_opcode::dict_add, true, true, false, prefix + ATR_FIELD_TRANSACTION_ID, jsonify(overall_.transaction_id()));
-            req.specs.add_spec(protocol::subdoc_opcode::dict_add,
+            req.specs.add_spec(core::protocol::subdoc_opcode::dict_add,
+                               true,
+                               true,
+                               false,
+                               prefix + ATR_FIELD_TRANSACTION_ID,
+                               jsonify(overall_.transaction_id()));
+            req.specs.add_spec(core::protocol::subdoc_opcode::dict_add,
                                true,
                                true,
                                false,
                                prefix + ATR_FIELD_STATUS,
                                jsonify(attempt_state_name(attempt_state::PENDING)));
             req.specs.add_spec(
-              protocol::subdoc_opcode::dict_add, true, true, true, prefix + ATR_FIELD_START_TIMESTAMP, mutate_in_macro::CAS);
-            req.specs.add_spec(protocol::subdoc_opcode::dict_add,
+              core::protocol::subdoc_opcode::dict_add, true, true, true, prefix + ATR_FIELD_START_TIMESTAMP, mutate_in_macro::CAS);
+            req.specs.add_spec(core::protocol::subdoc_opcode::dict_add,
                                true,
                                true,
                                false,
                                prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
                                jsonify(remaining_bounded_msecs));
             // ExtStoreDurability
-            req.specs.add_spec(protocol::subdoc_opcode::dict_add,
+            req.specs.add_spec(core::protocol::subdoc_opcode::dict_add,
                                true,
                                true,
                                false,
                                prefix + ATR_FIELD_DURABILITY_LEVEL,
                                jsonify(store_durability_level_to_string(overall_.config().durability_level())));
             // ExtBinaryMetadata
-            req.specs.add_spec(protocol::subdoc_opcode::set_doc, false, false, false, std::string(""), jsonify(std::string({ 0x00 })));
-            req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::upsert;
+            req.specs.add_spec(
+              core::protocol::subdoc_opcode::set_doc, false, false, false, std::string(""), jsonify(std::string({ 0x00 })));
+            req.store_semantics = core::protocol::mutate_in_request_body::store_semantics_type::upsert;
 
             wrap_durable_request(req, overall_.config());
-            overall_.cluster_ref().execute(req, [this, fn, error_handler](couchbase::operations::mutate_in_response resp) {
+            overall_.cluster_ref().execute(req, [this, fn, error_handler](core::operations::mutate_in_response resp) {
                 auto ec = error_class_from_response(resp);
                 if (!ec) {
                     ec = hooks_.after_atr_pending(this);
                 }
                 if (!ec) {
                     state(attempt_state::PENDING);
-                    debug("set ATR {} to Pending, got CAS (start time) {}", atr_id_.value(), resp.cas.value);
+                    debug("set ATR {} to Pending, got CAS (start time) {}", atr_id_.value(), resp.cas.value());
                     return fn(std::nullopt);
                 }
-                return error_handler(*ec, resp.ctx.ec.message(), resp.ctx.id);
+                return error_handler(
+                  *ec, resp.ctx.ec().message(), { resp.ctx.bucket(), resp.ctx.scope(), resp.ctx.collection(), resp.ctx.id() });
             });
         }
     } catch (const std::exception& e) {
@@ -1817,7 +1818,7 @@ attempt_context_impl::set_atr_pending_locked(const couchbase::document_id& id, s
 }
 
 staged_mutation*
-attempt_context_impl::check_for_own_write(const couchbase::document_id& id)
+attempt_context_impl::check_for_own_write(const core::document_id& id)
 {
     staged_mutation* own_replace = staged_mutations_->find_replace(id);
     if (own_replace) {
@@ -1843,7 +1844,7 @@ attempt_context_impl::check_if_done(Handler& cb)
 }
 template<typename Handler>
 void
-attempt_context_impl::do_get(const couchbase::document_id& id, const std::optional<std::string> resolving_missing_atr_entry, Handler&& cb)
+attempt_context_impl::do_get(const core::document_id& id, const std::optional<std::string> resolving_missing_atr_entry, Handler&& cb)
 {
     try {
         if (check_expiry_pre_commit(STAGE_GET, id.key())) {
@@ -1890,10 +1891,10 @@ attempt_context_impl::do_get(const couchbase::document_id& id, const std::option
                                 return cb(std::nullopt, std::nullopt, doc);
                             }
 
-                            couchbase::document_id doc_atr_id{ doc->links().atr_bucket_name().value(),
-                                                               doc->links().atr_scope_name().value(),
-                                                               doc->links().atr_collection_name().value(),
-                                                               doc->links().atr_id().value() };
+                            core::document_id doc_atr_id{ doc->links().atr_bucket_name().value(),
+                                                          doc->links().atr_scope_name().value(),
+                                                          doc->links().atr_collection_name().value(),
+                                                          doc->links().atr_id().value() };
                             active_transaction_record::get_atr(
                               cluster_ref(),
                               doc_atr_id,
@@ -1978,35 +1979,35 @@ attempt_context_impl::do_get(const couchbase::document_id& id, const std::option
 
 void
 attempt_context_impl::get_doc(
-  const couchbase::document_id& id,
+  const core::document_id& id,
   std::function<void(std::optional<error_class>, std::optional<std::string>, std::optional<transaction_get_result>)>&& cb)
 {
-    couchbase::operations::lookup_in_request req{ id };
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_ID);
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, TRANSACTION_ID);
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, ATTEMPT_ID);
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, STAGED_DATA);
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_BUCKET_NAME);
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_SCOPE_NAME);
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_COLL_NAME);
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, TRANSACTION_RESTORE_PREFIX_ONLY);
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, TYPE);
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, "$document");
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, CRC32_OF_STAGING);
-    req.specs.add_spec(protocol::subdoc_opcode::get, true, FORWARD_COMPAT);
-    req.specs.add_spec(protocol::subdoc_opcode::get_doc, false, "");
+    core::operations::lookup_in_request req{ id };
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_ID);
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TRANSACTION_ID);
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATTEMPT_ID);
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, STAGED_DATA);
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_BUCKET_NAME);
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_SCOPE_NAME);
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_COLL_NAME);
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TRANSACTION_RESTORE_PREFIX_ONLY);
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TYPE);
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, "$document");
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, CRC32_OF_STAGING);
+    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, FORWARD_COMPAT);
+    req.specs.add_spec(core::protocol::subdoc_opcode::get_doc, false, "");
     req.access_deleted = true;
     wrap_request(req, overall_.config());
     try {
-        overall_.cluster_ref().execute(req, [this, id, cb = std::move(cb)](couchbase::operations::lookup_in_response resp) {
+        overall_.cluster_ref().execute(req, [this, id, cb = std::move(cb)](core::operations::lookup_in_response resp) {
             auto ec = error_class_from_response(resp);
             if (ec) {
-                trace("get_doc got error {} : {}", resp.ctx.ec.message(), *ec);
+                trace("get_doc got error {} : {}", resp.ctx.ec().message(), *ec);
                 switch (*ec) {
                     case FAIL_PATH_NOT_FOUND:
-                        cb(*ec, resp.ctx.ec.message(), transaction_get_result::create_from(resp));
+                        cb(*ec, resp.ctx.ec().message(), transaction_get_result::create_from(resp));
                     default:
-                        cb(*ec, resp.ctx.ec.message(), std::nullopt);
+                        cb(*ec, resp.ctx.ec().message(), std::nullopt);
                 }
             } else {
                 cb({}, {}, transaction_get_result::create_from(resp));
@@ -2019,7 +2020,7 @@ attempt_context_impl::get_doc(
 
 template<typename Handler, typename Delay>
 void
-attempt_context_impl::create_staged_insert_error_handler(const couchbase::document_id& id,
+attempt_context_impl::create_staged_insert_error_handler(const core::document_id& id,
                                                          const std::string& content,
                                                          uint64_t cas,
                                                          Delay&& delay,
@@ -2136,7 +2137,7 @@ attempt_context_impl::create_staged_insert_error_handler(const couchbase::docume
 
 template<typename Handler, typename Delay>
 void
-attempt_context_impl::create_staged_insert(const couchbase::document_id& id,
+attempt_context_impl::create_staged_insert(const core::document_id& id,
                                            const std::string& content,
                                            uint64_t cas,
                                            Delay&& delay,
@@ -2156,17 +2157,17 @@ attempt_context_impl::create_staged_insert(const couchbase::document_id& id,
     auto req = create_staging_request(id, NULL, "insert", content);
     req.access_deleted = true;
     req.create_as_deleted = true;
-    req.cas.value = cas;
-    req.store_semantics = cas == 0 ? protocol::mutate_in_request_body::store_semantics_type::insert
-                                   : protocol::mutate_in_request_body::store_semantics_type::replace;
+    req.cas = couchbase::cas(cas);
+    req.store_semantics = cas == 0 ? core::protocol::mutate_in_request_body::store_semantics_type::insert
+                                   : core::protocol::mutate_in_request_body::store_semantics_type::replace;
     wrap_durable_request(req, overall_.config());
-    overall_.cluster_ref().execute(req, [this, id, content, cas, cb, delay](couchbase::operations::mutate_in_response resp) {
+    overall_.cluster_ref().execute(req, [this, id, content, cas, cb, delay](core::operations::mutate_in_response resp) {
         auto ec = hooks_.after_staged_insert_complete(this, id.key());
         if (ec) {
             return create_staged_insert_error_handler(id, content, cas, std::move(delay), cb, *ec, "after_staged_insert hook threw error");
         }
-        if (!resp.ctx.ec) {
-            debug("inserted doc {} CAS={}, {}", id, resp.cas.value, resp.ctx.ec.message());
+        if (!resp.ctx.ec()) {
+            debug("inserted doc {} CAS={}, {}", id, resp.cas.value(), resp.ctx.ec().message());
 
             // TODO: clean this up (do most of this in transactions_document(...))
             transaction_links links(atr_id_->key(),
@@ -2183,12 +2184,12 @@ attempt_context_impl::create_staged_insert(const couchbase::document_id& id,
                                     std::string("insert"),
                                     std::nullopt,
                                     true);
-            transaction_get_result out(id, content, resp.cas.value, links, std::nullopt);
+            transaction_get_result out(id, content, resp.cas.value(), links, std::nullopt);
             staged_mutations_->add(staged_mutation(out, content, staged_mutation_type::INSERT));
             return op_completed_with_callback(cb, std::optional<transaction_get_result>(out));
         }
         ec = error_class_from_response(resp);
-        return create_staged_insert_error_handler(id, content, cas, std::move(delay), cb, *ec, resp.ctx.ec.message());
+        return create_staged_insert_error_handler(id, content, cas, std::move(delay), cb, *ec, resp.ctx.ec().message());
     });
 }
 

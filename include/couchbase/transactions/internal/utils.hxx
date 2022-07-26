@@ -17,9 +17,10 @@
 #include "../../../../src/transactions/result.hxx"
 #include "couchbase/transactions/internal/exceptions_internal.hxx"
 #include <chrono>
-#include <couchbase/errors.hxx>
-#include <couchbase/operations.hxx>
-#include <couchbase/operations/management/bucket_get_all.hxx>
+#include <core/cluster.hxx>
+#include <core/operations.hxx>
+#include <core/operations/management/bucket_get_all.hxx>
+#include <couchbase/error_codes.hxx>
 #include <couchbase/transactions/transaction_config.hxx>
 #include <functional>
 #include <future>
@@ -61,39 +62,39 @@ namespace transactions
         return obj.dump();
     }
 
-    static inline std::string collection_spec_from_id(const couchbase::document_id& id)
+    static inline std::string collection_spec_from_id(const core::document_id& id)
     {
         std::string retval = id.scope();
         return retval.append(".").append(id.collection());
     }
 
-    static inline bool document_ids_equal(const couchbase::document_id& id1, const couchbase::document_id& id2)
+    static inline bool document_ids_equal(const core::document_id& id1, const core::document_id& id2)
     {
         return id1.key() == id2.key() && id1.bucket() == id2.bucket() && id1.scope() == id2.scope() && id1.collection() == id2.collection();
     }
 
     template<typename OStream>
-    OStream& operator<<(OStream& os, const couchbase::document_id& id)
+    OStream& operator<<(OStream& os, const core::document_id& id)
     {
         os << "document_id{bucket: " << id.bucket() << ", scope: " << id.scope() << ", collection: " << id.collection()
            << ", key: " << id.key() << "}";
         return os;
     }
 
-    static inline protocol::durability_level durability(durability_level level)
+    static inline core::protocol::durability_level durability(durability_level level)
     {
         switch (level) {
             case durability_level::NONE:
-                return protocol::durability_level::none;
+                return core::protocol::durability_level::none;
             case durability_level::MAJORITY:
-                return protocol::durability_level::majority;
+                return core::protocol::durability_level::majority;
             case durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE:
-                return protocol::durability_level::majority_and_persist_to_active;
+                return core::protocol::durability_level::majority_and_persist_to_active;
             case durability_level::PERSIST_TO_MAJORITY:
-                return protocol::durability_level::persist_to_majority;
+                return core::protocol::durability_level::persist_to_majority;
             default:
                 // mimic java here
-                return protocol::durability_level::majority;
+                return core::protocol::durability_level::majority;
         }
     }
 
@@ -131,7 +132,7 @@ namespace transactions
         // we should raise here, as we are doing a non-subdoc request and can't specify
         // access_deleted.  TODO: consider changing client to return document_not_found
         if (res.is_deleted && res.values.empty()) {
-            res.ec = couchbase::error::key_value_errc::document_not_found;
+            res.ec = couchbase::errc::key_value::document_not_found;
             throw client_error(res);
         }
         if (!res.values.empty() && !ignore_subdoc_errors) {
@@ -161,12 +162,12 @@ namespace transactions
     template<typename Resp>
     static bool is_error(const Resp& resp)
     {
-        return !!resp.ctx.ec;
+        return !!resp.ctx.ec();
     }
     template<>
-    bool is_error(const couchbase::operations::mutate_in_response& resp)
+    bool is_error(const core::operations::mutate_in_response& resp)
     {
-        return resp.ctx.ec || resp.first_error_index;
+        return resp.ctx.ec() || resp.first_error_index;
     }
 
     template<typename Resp>
@@ -176,16 +177,16 @@ namespace transactions
     }
 
     template<>
-    std::optional<error_class> error_class_from_response_extras(const couchbase::operations::mutate_in_response& resp)
+    std::optional<error_class> error_class_from_response_extras(const core::operations::mutate_in_response& resp)
     {
         if (!resp.first_error_index) {
             return {};
         }
         auto status = resp.fields.at(*resp.first_error_index).status;
-        if (status == couchbase::protocol::status::subdoc_path_not_found) {
+        if (status == key_value_status_code::subdoc_path_not_found) {
             return FAIL_PATH_NOT_FOUND;
         }
-        if (status == couchbase::protocol::status::subdoc_path_exists) {
+        if (status == key_value_status_code::subdoc_path_exists) {
             return FAIL_PATH_ALREADY_EXISTS;
         }
         return FAIL_OTHER;
@@ -197,35 +198,33 @@ namespace transactions
         if (!is_error(resp)) {
             return {};
         }
-        if (resp.ctx.ec == couchbase::error::key_value_errc::document_not_found) {
+        if (resp.ctx.ec() == couchbase::errc::key_value::document_not_found) {
             return FAIL_DOC_NOT_FOUND;
         }
-        if (resp.ctx.ec == couchbase::error::key_value_errc::document_exists) {
+        if (resp.ctx.ec() == couchbase::errc::key_value::document_exists) {
             return FAIL_DOC_ALREADY_EXISTS;
         }
-        if (resp.ctx.ec == couchbase::error::common_errc::cas_mismatch) {
+        if (resp.ctx.ec() == couchbase::errc::common::cas_mismatch) {
             return FAIL_CAS_MISMATCH;
         }
-        if (resp.ctx.ec == couchbase::error::key_value_errc::value_too_large) {
+        if (resp.ctx.ec() == couchbase::errc::key_value::value_too_large) {
             return FAIL_ATR_FULL;
         }
-        if (resp.ctx.ec == couchbase::error::common_errc::unambiguous_timeout ||
-            resp.ctx.ec == couchbase::error::common_errc::temporary_failure ||
-            resp.ctx.ec == couchbase::error::key_value_errc::durable_write_in_progress) {
+        if (resp.ctx.ec() == couchbase::errc::common::unambiguous_timeout || resp.ctx.ec() == couchbase::errc::common::temporary_failure ||
+            resp.ctx.ec() == couchbase::errc::key_value::durable_write_in_progress) {
             return FAIL_TRANSIENT;
         }
-        if (resp.ctx.ec == couchbase::error::key_value_errc::durability_ambiguous ||
-            resp.ctx.ec == couchbase::error::common_errc::ambiguous_timeout ||
-            resp.ctx.ec == couchbase::error::common_errc::request_canceled) {
+        if (resp.ctx.ec() == couchbase::errc::key_value::durability_ambiguous ||
+            resp.ctx.ec() == couchbase::errc::common::ambiguous_timeout || resp.ctx.ec() == couchbase::errc::common::request_canceled) {
             return FAIL_AMBIGUOUS;
         }
-        if (resp.ctx.ec == couchbase::error::key_value_errc::path_not_found) {
+        if (resp.ctx.ec() == couchbase::errc::key_value::path_not_found) {
             return FAIL_PATH_NOT_FOUND;
         }
-        if (resp.ctx.ec == couchbase::error::key_value_errc::path_exists) {
+        if (resp.ctx.ec() == couchbase::errc::key_value::path_exists) {
             return FAIL_PATH_ALREADY_EXISTS;
         }
-        if (resp.ctx.ec) {
+        if (resp.ctx.ec()) {
             return FAIL_OTHER;
         }
         return error_class_from_response_extras(resp);
@@ -373,15 +372,15 @@ namespace transactions
         }
     };
 
-    static std::list<std::string> get_and_open_buckets(cluster& c)
+    static std::list<std::string> get_and_open_buckets(core::cluster& c)
     {
-        couchbase::operations::management::bucket_get_all_request req{};
+        core::operations::management::bucket_get_all_request req{};
         // don't wrap this one, as the kv timeout isn't appropriate here.
         auto mtx = std::make_shared<std::mutex>();
         auto cv = std::make_shared<std::condition_variable>();
         size_t count = 1; // non-zero so we know not to stop waiting immediately
         std::list<std::string> bucket_names;
-        c.execute(req, [cv, &bucket_names, &c, mtx, &count](couchbase::operations::management::bucket_get_all_response resp) {
+        c.execute(req, [cv, &bucket_names, &c, mtx, &count](core::operations::management::bucket_get_all_response resp) {
             std::unique_lock<std::mutex> lock(*mtx);
             // now set count to correct # of buckets to try to open
             count = resp.buckets.size();

@@ -19,7 +19,7 @@
 #include <vector>
 
 #include "atr_ids.hxx"
-#include <couchbase/utils/crc32.hxx>
+#include <core/utils/crc32.hxx>
 
 namespace tx = couchbase::transactions;
 
@@ -216,6 +216,6 @@ size_t
 tx::atr_ids::vbucket_for_key(const std::string& key)
 {
     static const int num_vbuckets = 1024;
-    uint32_t digest = utils::hash_crc32(key.data(), key.size());
+    uint32_t digest = core::utils::hash_crc32(key.data(), key.size());
     return static_cast<size_t>(digest % num_vbuckets);
 }

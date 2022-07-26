@@ -17,7 +17,6 @@
 #include "../../src/transactions/attempt_context_impl.hxx"
 #include "helpers.hxx"
 #include "transactions_env.h"
-#include <couchbase/errors.hxx>
 #include <couchbase/transactions.hxx>
 #include <couchbase/transactions/internal/transaction_context.hxx>
 #include <gtest/gtest.h>
@@ -319,7 +318,7 @@ TEST(SimpleTxnContext, CanDoQuery)
     ASSERT_TRUE(TransactionsTestEnvironment::upsert_doc(id, tx_content.dump()));
     auto query = fmt::format("SELECT * FROM `{}` USE KEYS '{}'", id.bucket(), id.key());
     transaction_query_options opts;
-    tx.query(query, opts, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
+    tx.query(query, opts, [&](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
         // this should result in a transaction_operation_failed exception since the doc isn't there
         EXPECT_TRUE(payload);
         EXPECT_FALSE(err);
@@ -344,16 +343,17 @@ TEST(SimpleTxnContext, CanSeeSomeQueryErrorsButNoTxnFailed)
     auto barrier = std::make_shared<std::promise<void>>();
     auto f = barrier->get_future();
     transaction_query_options opts;
-    tx.query("jkjkjl;kjlk;  jfjjffjfj", opts, [&](std::exception_ptr err, std::optional<couchbase::operations::query_response> payload) {
-        // this should result in a query_exception since the query isn't parseable.
-        EXPECT_TRUE(err);
-        EXPECT_FALSE(payload);
-        if (err) {
-            barrier->set_exception(err);
-        } else {
-            barrier->set_value();
-        }
-    });
+    tx.query(
+      "jkjkjl;kjlk;  jfjjffjfj", opts, [&](std::exception_ptr err, std::optional<couchbase::core::operations::query_response> payload) {
+          // this should result in a query_exception since the query isn't parseable.
+          EXPECT_TRUE(err);
+          EXPECT_FALSE(payload);
+          if (err) {
+              barrier->set_exception(err);
+          } else {
+              barrier->set_value();
+          }
+      });
     try {
         f.get();
         FAIL() << "expected future to throw exception";
@@ -373,7 +373,7 @@ TEST(SimpleTxnContext, CanSetPerTxnConfig)
     auto txns = TransactionsTestEnvironment::get_transactions();
     auto id = TransactionsTestEnvironment::get_document_id();
     per_transaction_config per_txn_cfg;
-    per_txn_cfg.scan_consistency(couchbase::query_scan_consistency::not_bounded);
+    per_txn_cfg.scan_consistency(couchbase::core::query_scan_consistency::not_bounded);
     per_txn_cfg.expiration_time(std::chrono::milliseconds(1)).kv_timeout(std::chrono::milliseconds(2));
     per_txn_cfg.durability_level(couchbase::transactions::durability_level::NONE);
     transaction_context tx(txns, per_txn_cfg);

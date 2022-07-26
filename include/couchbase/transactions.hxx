@@ -20,8 +20,8 @@
 #include <functional>
 #include <thread>
 
-#include <couchbase/cluster.hxx>
-#include <couchbase/logger/logger.hxx>
+#include <core/cluster.hxx>
+#include <core/logger/logger.hxx>
 #include <couchbase/transactions/async_attempt_context.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
 #include <couchbase/transactions/exceptions.hxx>
@@ -57,12 +57,12 @@ namespace transactions
     /**
      * @brief set log level for transactions
      */
-    void set_transactions_log_level(couchbase::logger::level level);
+    void set_transactions_log_level(core::logger::level level);
 
     /**
      * @brief create the loggers, using a custom spdlog::sink, if desired.
      */
-    void create_loggers(couchbase::logger::level level = couchbase::logger::level::off, spdlog::sink_ptr = nullptr);
+    void create_loggers(core::logger::level level = core::logger::level::off, spdlog::sink_ptr = nullptr);
 
     /**
      * @mainpage
@@ -137,7 +137,7 @@ namespace transactions
          * @param cluster The cluster to use for the transactions.
          * @param config The configuration parameters to use for the transactions.
          */
-        transactions(cluster& cluster, const transaction_config& config);
+        transactions(core::cluster& cluster, const transaction_config& config);
 
         /**
          * @brief Destructor
@@ -230,17 +230,17 @@ namespace transactions
         }
 
         /**
-         * @brief Return a reference to the @ref cluster
+         * @brief Return a reference to the @ref core::cluster
          *
          * @return Ref to the cluster used by this transaction object.
          */
-        CB_NODISCARD cluster& cluster_ref()
+        CB_NODISCARD core::cluster& cluster_ref()
         {
             return cluster_;
         }
 
       private:
-        cluster& cluster_;
+        core::cluster& cluster_;
         transaction_config config_;
         std::unique_ptr<transactions_cleanup> cleanup_;
         const size_t max_attempts_{ 1000 };

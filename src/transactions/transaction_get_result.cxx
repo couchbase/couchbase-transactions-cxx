@@ -19,7 +19,7 @@
 namespace couchbase::transactions
 {
 transaction_get_result
-transaction_get_result::create_from(const couchbase::operations::lookup_in_response& resp)
+transaction_get_result::create_from(const core::operations::lookup_in_response& resp)
 {
     std::optional<std::string> atr_id;
     std::optional<std::string> transaction_id;
@@ -45,39 +45,39 @@ transaction_get_result::create_from(const couchbase::operations::lookup_in_respo
     std::optional<std::string> op;
     std::string content;
 
-    if (resp.fields[0].status == protocol::status::success) {
+    if (resp.fields[0].status == key_value_status_code::success) {
         atr_id = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[0].value);
     }
-    if (resp.fields[1].status == protocol::status::success) {
+    if (resp.fields[1].status == key_value_status_code::success) {
         transaction_id = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[1].value);
     }
-    if (resp.fields[2].status == protocol::status::success) {
+    if (resp.fields[2].status == key_value_status_code::success) {
         attempt_id = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[2].value);
     }
-    if (resp.fields[3].status == protocol::status::success) {
+    if (resp.fields[3].status == key_value_status_code::success) {
         staged_content = resp.fields[3].value;
     }
-    if (resp.fields[4].status == protocol::status::success) {
+    if (resp.fields[4].status == key_value_status_code::success) {
         atr_bucket_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[4].value);
     }
-    if (resp.fields[5].status == protocol::status::success) {
+    if (resp.fields[5].status == key_value_status_code::success) {
         atr_scope_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[5].value);
     }
-    if (resp.fields[6].status == protocol::status::success) {
+    if (resp.fields[6].status == key_value_status_code::success) {
         atr_collection_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[6].value);
     }
 
-    if (resp.fields[7].status == protocol::status::success) {
+    if (resp.fields[7].status == key_value_status_code::success) {
         auto restore = nlohmann::json::parse(resp.fields[7].value);
         cas_pre_txn = restore["CAS"].get<std::string>();
         // only present in 6.5+
         revid_pre_txn = restore["revid"].get<std::string>();
         exptime_pre_txn = restore["exptime"].get<uint32_t>();
     }
-    if (resp.fields[8].status == protocol::status::success) {
+    if (resp.fields[8].status == key_value_status_code::success) {
         op = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[8].value);
     }
-    if (resp.fields[9].status == protocol::status::success) {
+    if (resp.fields[9].status == key_value_status_code::success) {
         auto doc = nlohmann::json::parse(resp.fields[9].value);
         cas_from_doc = doc["CAS"].get<std::string>();
         // only present in 6.5+
@@ -85,15 +85,15 @@ transaction_get_result::create_from(const couchbase::operations::lookup_in_respo
         exptime_from_doc = doc["exptime"].get<uint32_t>();
         crc32_from_doc = doc["value_crc32c"].get<std::string>();
     }
-    if (resp.fields[10].status == protocol::status::success) {
+    if (resp.fields[10].status == key_value_status_code::success) {
         crc32_of_staging = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[10].value);
     }
-    if (resp.fields[11].status == protocol::status::success) {
+    if (resp.fields[11].status == key_value_status_code::success) {
         forward_compat = nlohmann::json::parse(resp.fields[11].value);
     } else {
         forward_compat = nlohmann::json::object();
     }
-    if (resp.fields[12].status == protocol::status::success) {
+    if (resp.fields[12].status == key_value_status_code::success) {
         content = resp.fields[12].value;
     }
 
@@ -112,11 +112,15 @@ transaction_get_result::create_from(const couchbase::operations::lookup_in_respo
                             forward_compat,
                             resp.deleted);
     document_metadata md(cas_from_doc, revid_from_doc, exptime_from_doc, crc32_from_doc);
-    return { resp.ctx.id, content, resp.cas.value, links, std::make_optional(md) };
+    return { { resp.ctx.bucket(), resp.ctx.scope(), resp.ctx.collection(), resp.ctx.id() },
+             content,
+             resp.cas.value(),
+             links,
+             std::make_optional(md) };
 }
 
 transaction_get_result
-transaction_get_result::create_from(const couchbase::document_id& id, const result& res)
+transaction_get_result::create_from(const core::document_id& id, const result& res)
 {
     std::optional<std::string> atr_id;
     std::optional<std::string> transaction_id;

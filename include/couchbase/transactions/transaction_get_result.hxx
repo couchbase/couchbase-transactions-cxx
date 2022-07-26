@@ -16,9 +16,9 @@
 
 #pragma once
 
-#include <couchbase/document_id.hxx>
+#include <core/document_id.hxx>
+#include <core/operations.hxx>
 #include <couchbase/internal/nlohmann/json.hpp>
-#include <couchbase/operations.hxx>
 #include <couchbase/transactions/document_metadata.hxx>
 #include <couchbase/transactions/transaction_links.hxx>
 #include <couchbase/transactions/transcoder.hxx>
@@ -38,7 +38,7 @@ namespace transactions
     {
       private:
         std::string value_;
-        couchbase::document_id id_;
+        core::document_id id_;
         uint64_t cas_;
         transaction_links links_;
 
@@ -67,7 +67,7 @@ namespace transactions
 
         /** @internal */
         template<typename Content>
-        transaction_get_result(const couchbase::document_id& id,
+        transaction_get_result(const core::document_id& id,
                                Content content,
                                uint64_t cas,
                                transaction_links links,
@@ -80,7 +80,7 @@ namespace transactions
         {
         }
         /** @internal */
-        transaction_get_result(const couchbase::document_id& id, const nlohmann::json& json)
+        transaction_get_result(const core::document_id& id, const nlohmann::json& json)
           : id_(id)
           , links_(json)
           , metadata_(json.contains("scas") ? json["scas"].get<std::string>() : "")
@@ -130,10 +130,10 @@ namespace transactions
         }
 
         /** @internal */
-        static transaction_get_result create_from(const couchbase::document_id& id, const result& res);
+        static transaction_get_result create_from(const core::document_id& id, const result& res);
 
         /** @internal */
-        static transaction_get_result create_from(const couchbase::operations::lookup_in_response& resp);
+        static transaction_get_result create_from(const core::operations::lookup_in_response& resp);
 
         /** @internal */
         template<typename Content>
@@ -202,7 +202,7 @@ namespace transactions
          *
          * @return the id of this document.
          */
-        CB_NODISCARD const couchbase::document_id& id() const
+        CB_NODISCARD const core::document_id& id() const
         {
             return id_;
         }

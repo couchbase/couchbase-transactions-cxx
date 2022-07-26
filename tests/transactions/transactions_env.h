@@ -20,9 +20,9 @@
 #include "couchbase/transactions/internal/utils.hxx"
 #include <couchbase/transactions.hxx>
 
-#include <couchbase/cluster.hxx>
-#include <couchbase/operations.hxx>
-#include <couchbase/operations/management/bucket.hxx>
+#include <core/cluster.hxx>
+#include <core/operations.hxx>
+#include <core/operations/management/bucket.hxx>
 #include <couchbase/support.hxx>
 
 #include <algorithm>
@@ -46,18 +46,18 @@ namespace tx = couchbase::transactions;
 struct conn {
     asio::io_context io;
     std::list<std::thread> io_threads;
-    std::shared_ptr<couchbase::cluster> c;
+    std::shared_ptr<couchbase::core::cluster> c;
 
     conn(const nlohmann::json& conf)
       : io({})
-      , c(couchbase::cluster::create(io))
+      , c(couchbase::core::cluster::create(io))
     {
         // for tests, really chatty logs may be useful.
-        if (!couchbase::logger::is_initialized()) {
-            couchbase::logger::create_console_logger();
+        if (!couchbase::core::logger::is_initialized()) {
+            couchbase::core::logger::create_console_logger();
         }
-        couchbase::logger::set_log_levels(couchbase::logger::level::trace);
-        couchbase::transactions::set_transactions_log_level(couchbase::logger::level::trace);
+        couchbase::core::logger::set_log_levels(couchbase::core::logger::level::trace);
+        couchbase::transactions::set_transactions_log_level(couchbase::core::logger::level::trace);
         size_t num_threads = conf.contains("io_threads") ? conf["io_threads"].get<uint32_t>() : 4;
         couchbase::transactions::txn_log->trace("using {} io completion threads", num_threads);
         for (size_t i = 0; i < num_threads; i++) {
@@ -83,17 +83,17 @@ struct conn {
 
     void connect(const nlohmann::json& conf)
     {
-        couchbase::cluster_credentials auth{};
+        couchbase::core::cluster_credentials auth{};
         {
             if (auto env_val = std::getenv("COUCHBASE_CXX_CLIENT_LOG_LEVEL")) {
-                couchbase::logger::set_log_levels(couchbase::logger::level_from_str(env_val));
+                couchbase::core::logger::set_log_levels(couchbase::core::logger::level_from_str(env_val));
             }
-            auto connstr = couchbase::utils::parse_connection_string(conf["connection_string"]);
+            auto connstr = couchbase::core::utils::parse_connection_string(conf["connection_string"]);
             auth.username = "Administrator";
             auth.password = "password";
             auto barrier = std::make_shared<std::promise<std::error_code>>();
             auto f = barrier->get_future();
-            c->open(couchbase::origin(auth, connstr), [barrier](std::error_code ec) { barrier->set_value(ec); });
+            c->open(couchbase::core::origin(auth, connstr), [barrier](std::error_code ec) { barrier->set_value(ec); });
             auto rc = f.get();
             if (rc) {
                 std::cout << "ERROR opening cluster: " << rc.message() << std::endl;
@@ -138,11 +138,12 @@ struct conn {
                 std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time));
                 // TEMPORARILY only ping key_value.   See CCXCBC-94 for details -- ping not returning any service
                 // except KV.
-                std::set<couchbase::service_type> services{ couchbase::service_type::key_value };
-                auto barrier = std::make_shared<std::promise<couchbase::diag::ping_result>>();
+                std::set<couchbase::core::service_type> services{ couchbase::core::service_type::key_value };
+                auto barrier = std::make_shared<std::promise<couchbase::core::diag::ping_result>>();
                 auto f = barrier->get_future();
-                c->ping(
-                  "tests_startup", "default", services, [barrier](couchbase::diag::ping_result result) { barrier->set_value(result); });
+                c->ping("tests_startup", "default", services, [barrier](couchbase::core::diag::ping_result result) {
+                    barrier->set_value(result);
+                });
                 auto result = f.get();
                 ok = true;
                 for (auto& svc : services) {
@@ -150,8 +151,8 @@ struct conn {
                         if (result.services[svc].size() > 0) {
                             ok = ok && std::all_of(result.services[svc].begin(),
                                                    result.services[svc].end(),
-                                                   [&](const couchbase::diag::endpoint_ping_info& info) {
-                                                       return (!info.error && info.state == couchbase::diag::ping_state::ok);
+                                                   [&](const couchbase::core::diag::endpoint_ping_info& info) {
+                                                       return (!info.error && info.state == couchbase::core::diag::ping_state::ok);
                                                    });
                         } else {
                             ok = false;
@@ -199,14 +200,14 @@ class TransactionsTestEnvironment : public ::testing::Environment
         return conf;
     }
 
-    static bool upsert_doc(const couchbase::document_id& id, const std::string& content)
+    static bool upsert_doc(const couchbase::core::document_id& id, const std::string& content)
     {
         auto& c = get_cluster();
-        couchbase::operations::upsert_request req{ id };
-        req.value = couchbase::utils::to_binary(content);
+        couchbase::core::operations::upsert_request req{ id };
+        req.value = couchbase::core::utils::to_binary(content);
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
-        c.execute(req, [barrier](couchbase::operations::upsert_response resp) { barrier->set_value(resp.ctx.ec); });
+        c.execute(req, [barrier](couchbase::core::operations::upsert_response resp) { barrier->set_value(resp.ctx.ec()); });
         auto ec = f.get();
         if (ec) {
             spdlog::error("upsert doc failed with {}", ec.message());
@@ -214,14 +215,14 @@ class TransactionsTestEnvironment : public ::testing::Environment
         return !ec;
     }
 
-    static bool insert_doc(const couchbase::document_id& id, const std::string& content)
+    static bool insert_doc(const couchbase::core::document_id& id, const std::string& content)
     {
         auto& c = get_cluster();
-        couchbase::operations::insert_request req{ id };
-        req.value = couchbase::utils::to_binary(content);
+        couchbase::core::operations::insert_request req{ id };
+        req.value = couchbase::core::utils::to_binary(content);
         auto barrier = std::make_shared<std::promise<std::error_code>>();
         auto f = barrier->get_future();
-        c.execute(req, [barrier](couchbase::operations::insert_response resp) { barrier->set_value(resp.ctx.ec); });
+        c.execute(req, [barrier](couchbase::core::operations::insert_response resp) { barrier->set_value(resp.ctx.ec()); });
         auto ec = f.get();
         if (ec) {
             spdlog::error("insert doc failed with {}", ec.message());
@@ -229,29 +230,30 @@ class TransactionsTestEnvironment : public ::testing::Environment
         return !ec;
     }
 
-    static tx::result get_doc(const couchbase::document_id& id)
+    static tx::result get_doc(const couchbase::core::document_id& id)
     {
         auto& c = get_cluster();
-        couchbase::operations::get_request req{ id };
+        couchbase::core::operations::get_request req{ id };
         auto barrier = std::make_shared<std::promise<tx::result>>();
         auto f = barrier->get_future();
-        c.execute(req, [barrier](couchbase::operations::get_response resp) { barrier->set_value(tx::result::create_from_response(resp)); });
+        c.execute(
+          req, [barrier](couchbase::core::operations::get_response resp) { barrier->set_value(tx::result::create_from_response(resp)); });
         return tx::wrap_operation_future(f);
     }
 
-    static couchbase::cluster& get_cluster()
+    static couchbase::core::cluster& get_cluster()
     {
         static conn connection(get_conf());
         return *connection.c;
     }
 
-    static couchbase::document_id get_document_id(const std::string& id = {})
+    static couchbase::core::document_id get_document_id(const std::string& id = {})
     {
         std::string key = (id.empty() ? couchbase::transactions::uid_generator::next() : id);
         return { "default", "_default", "_default", key };
     }
 
-    static couchbase::transactions::transactions get_transactions(couchbase::cluster& c = get_cluster(),
+    static couchbase::transactions::transactions get_transactions(couchbase::core::cluster& c = get_cluster(),
                                                                   bool cleanup_client_attempts = false,
                                                                   bool cleanup_lost_txns = false)
     {

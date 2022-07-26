@@ -15,7 +15,7 @@
  */
 #pragma once
 
-#include <couchbase/document_id.hxx>
+#include <core/document_id.hxx>
 #include <string>
 
 namespace couchbase::transactions
@@ -46,7 +46,7 @@ struct transaction_keyspace {
     {
     }
 
-    transaction_keyspace(const couchbase::document_id& id)
+    transaction_keyspace(const core::document_id& id)
       : bucket(id.bucket())
       , scope(id.scope())
       , collection(id.collection())

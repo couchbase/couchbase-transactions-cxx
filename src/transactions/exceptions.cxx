@@ -16,7 +16,7 @@
 #include "couchbase/transactions/internal/exceptions_internal.hxx"
 #include "couchbase/transactions/internal/transaction_context.hxx"
 
-#include <couchbase/errors.hxx>
+#include <couchbase/error_codes.hxx>
 #include <couchbase/transactions/exceptions.hxx>
 
 namespace couchbase
@@ -40,31 +40,30 @@ namespace transactions
         subdoc_result::status_type subdoc_status = res.subdoc_status();
         assert(res.ec || (!res.ignore_subdoc_errors && subdoc_status != subdoc_result::status_type::success));
         if (res.ec || res.ignore_subdoc_errors) {
-            if (res.ec == couchbase::error::key_value_errc::document_not_found) {
+            if (res.ec == couchbase::errc::key_value::document_not_found) {
                 return FAIL_DOC_NOT_FOUND;
             }
-            if (res.ec == couchbase::error::key_value_errc::document_exists) {
+            if (res.ec == couchbase::errc::key_value::document_exists) {
                 return FAIL_DOC_ALREADY_EXISTS;
             }
-            if (res.ec == couchbase::error::common_errc::cas_mismatch) {
+            if (res.ec == couchbase::errc::common::cas_mismatch) {
                 return FAIL_CAS_MISMATCH;
             }
-            if (res.ec == couchbase::error::key_value_errc::value_too_large) {
+            if (res.ec == couchbase::errc::key_value::value_too_large) {
                 return FAIL_ATR_FULL;
             }
-            if (res.ec == couchbase::error::common_errc::unambiguous_timeout ||
-                res.ec == couchbase::error::common_errc::temporary_failure ||
-                res.ec == couchbase::error::key_value_errc::durable_write_in_progress) {
+            if (res.ec == couchbase::errc::common::unambiguous_timeout || res.ec == couchbase::errc::common::temporary_failure ||
+                res.ec == couchbase::errc::key_value::durable_write_in_progress) {
                 return FAIL_TRANSIENT;
             }
-            if (res.ec == couchbase::error::key_value_errc::durability_ambiguous ||
-                res.ec == couchbase::error::common_errc::ambiguous_timeout || res.ec == couchbase::error::common_errc::request_canceled) {
+            if (res.ec == couchbase::errc::key_value::durability_ambiguous || res.ec == couchbase::errc::common::ambiguous_timeout ||
+                res.ec == couchbase::errc::common::request_canceled) {
                 return FAIL_AMBIGUOUS;
             }
-            if (res.ec == couchbase::error::key_value_errc::path_not_found) {
+            if (res.ec == couchbase::errc::key_value::path_not_found) {
                 return FAIL_PATH_NOT_FOUND;
             }
-            if (res.ec == couchbase::error::key_value_errc::path_exists) {
+            if (res.ec == couchbase::errc::key_value::path_exists) {
                 return FAIL_PATH_ALREADY_EXISTS;
             }
             return FAIL_OTHER;

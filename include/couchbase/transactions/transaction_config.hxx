@@ -16,7 +16,7 @@
 #pragma once
 
 #include <chrono>
-#include <couchbase/operations/document_query.hxx>
+#include <core/operations/document_query.hxx>
 #include <couchbase/support.hxx>
 #include <couchbase/transactions/durability_level.hxx>
 #include <couchbase/transactions/transaction_keyspace.hxx>
@@ -148,7 +148,7 @@ namespace transactions
          *
          * @param scan_consistency Desired default scan consistency
          */
-        void scan_consistency(couchbase::query_scan_consistency scan_consistency)
+        void scan_consistency(core::query_scan_consistency scan_consistency)
         {
             scan_consistency_ = scan_consistency;
         }
@@ -157,7 +157,7 @@ namespace transactions
          *
          * @return scan consistency for transactional query operations.
          */
-        CB_NODISCARD couchbase::query_scan_consistency scan_consistency() const
+        CB_NODISCARD core::query_scan_consistency scan_consistency() const
         {
             return scan_consistency_;
         }
@@ -222,7 +222,7 @@ namespace transactions
             return custom_metadata_collection_;
         }
 
-        couchbase::document_id atr_id_from_bucket_and_key(const std::string& bucket, const std::string& key) const
+        core::document_id atr_id_from_bucket_and_key(const std::string& bucket, const std::string& key) const
         {
             if (custom_metadata_collection_) {
                 return {
@@ -256,7 +256,7 @@ namespace transactions
         bool cleanup_client_attempts_;
         std::unique_ptr<attempt_context_testing_hooks> attempt_context_hooks_;
         std::unique_ptr<cleanup_testing_hooks> cleanup_hooks_;
-        couchbase::query_scan_consistency scan_consistency_;
+        core::query_scan_consistency scan_consistency_;
         std::optional<transaction_keyspace> custom_metadata_collection_;
     };
 } // namespace transactions

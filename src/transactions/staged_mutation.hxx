@@ -56,7 +56,7 @@ namespace transactions
             return *this;
         }
 
-        CB_NODISCARD const couchbase::document_id& id() const
+        CB_NODISCARD const core::document_id& id() const
         {
             return doc_.id();
         }
@@ -116,16 +116,16 @@ namespace transactions
       public:
         bool empty();
         void add(const staged_mutation& mutation);
-        void extract_to(const std::string& prefix, couchbase::operations::mutate_in_request& req);
+        void extract_to(const std::string& prefix, core::operations::mutate_in_request& req);
         void commit(attempt_context_impl& ctx);
         void rollback(attempt_context_impl& ctx);
         void iterate(std::function<void(staged_mutation&)>);
-        void remove_any(const couchbase::document_id& id);
+        void remove_any(const core::document_id&);
 
-        staged_mutation* find_any(const couchbase::document_id& id);
-        staged_mutation* find_replace(const couchbase::document_id& id);
-        staged_mutation* find_insert(const couchbase::document_id& id);
-        staged_mutation* find_remove(const couchbase::document_id& id);
+        staged_mutation* find_any(const core::document_id& id);
+        staged_mutation* find_replace(const core::document_id& id);
+        staged_mutation* find_insert(const core::document_id& id);
+        staged_mutation* find_remove(const core::document_id& id);
     };
 } // namespace transactions
 } // namespace couchbase

@@ -48,28 +48,28 @@ namespace transactions
 
     // TODO: better integration with client, so we don't need to repeat this private
     // method.
-    spdlog::level::level_enum translate_level(couchbase::logger::level level)
+    spdlog::level::level_enum translate_level(core::logger::level level)
     {
         switch (level) {
-            case couchbase::logger::level::trace:
+            case core::logger::level::trace:
                 return spdlog::level::level_enum::trace;
-            case couchbase::logger::level::debug:
+            case core::logger::level::debug:
                 return spdlog::level::level_enum::debug;
-            case couchbase::logger::level::info:
+            case core::logger::level::info:
                 return spdlog::level::level_enum::info;
-            case couchbase::logger::level::warn:
+            case core::logger::level::warn:
                 return spdlog::level::level_enum::warn;
-            case couchbase::logger::level::err:
+            case core::logger::level::err:
                 return spdlog::level::level_enum::err;
-            case couchbase::logger::level::critical:
+            case core::logger::level::critical:
                 return spdlog::level::level_enum::critical;
-            case couchbase::logger::level::off:
+            case core::logger::level::off:
                 return spdlog::level::level_enum::off;
         }
         return spdlog::level::level_enum::trace;
     }
 
-    void set_transactions_log_level(couchbase::logger::level level)
+    void set_transactions_log_level(core::logger::level level)
     {
         spdlog::level::level_enum lvl = translate_level(level);
         txn_log->set_level(lvl);
@@ -81,7 +81,7 @@ namespace transactions
     // consider a mutex, but eventually we will merge with the cxx_client so
     // this will be fine for now.   Unsure if this will lead to issues if called
     // while logging is happening in other threads.  Do this once, at startup.
-    void create_loggers(couchbase::logger::level level, spdlog::sink_ptr sink)
+    void create_loggers(core::logger::level level, spdlog::sink_ptr sink)
     {
         if (nullptr != sink) {
             sink->set_level(translate_level(level));

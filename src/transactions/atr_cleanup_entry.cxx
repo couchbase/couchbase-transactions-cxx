@@ -43,7 +43,7 @@ tx::compare_atr_entries::operator()(atr_cleanup_entry& lhs, atr_cleanup_entry& r
 // wait a bit after an attempt is expired before cleaning it.
 const uint32_t tx::atr_cleanup_entry::safety_margin_ms_ = 1500;
 
-tx::atr_cleanup_entry::atr_cleanup_entry(const couchbase::document_id& atr_id,
+tx::atr_cleanup_entry::atr_cleanup_entry(const core::document_id& atr_id,
                                          const std::string& attempt_id,
                                          const transactions_cleanup& cleanup)
   : atr_id_(atr_id)
@@ -55,7 +55,7 @@ tx::atr_cleanup_entry::atr_cleanup_entry(const couchbase::document_id& atr_id,
 }
 
 tx::atr_cleanup_entry::atr_cleanup_entry(const atr_entry& entry,
-                                         const couchbase::document_id& atr_id,
+                                         const core::document_id& atr_id,
                                          const transactions_cleanup& cleanup,
                                          bool check_if_expired)
   //  : atr_id_(atr_id.bucket(), atr_id.scope(), atr_id.collection(), atr_id.key())
@@ -176,25 +176,25 @@ tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
 {
     for (auto& dr : docs) {
         try {
-            couchbase::operations::lookup_in_request req{ dr.document_id() };
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_ID);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, TRANSACTION_ID);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATTEMPT_ID);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, STAGED_DATA);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_BUCKET_NAME);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_SCOPE_NAME);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, ATR_COLL_NAME);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, TRANSACTION_RESTORE_PREFIX_ONLY);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, TYPE);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, "$document");
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, CRC32_OF_STAGING);
-            req.specs.add_spec(protocol::subdoc_opcode::get, true, FORWARD_COMPAT);
-            req.specs.add_spec(protocol::subdoc_opcode::get_doc, false, "");
+            core::operations::lookup_in_request req{ dr.document_id() };
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_ID);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TRANSACTION_ID);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATTEMPT_ID);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, STAGED_DATA);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_BUCKET_NAME);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_SCOPE_NAME);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_COLL_NAME);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TRANSACTION_RESTORE_PREFIX_ONLY);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TYPE);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, "$document");
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, CRC32_OF_STAGING);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, FORWARD_COMPAT);
+            req.specs.add_spec(core::protocol::subdoc_opcode::get_doc, false, "");
             req.access_deleted = true;
             wrap_request(req, cleanup_->config());
             // now a blocking lookup_in...
             auto barrier = std::make_shared<std::promise<result>>();
-            cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::lookup_in_response resp) {
+            cleanup_->cluster_ref().execute(req, [barrier](core::operations::lookup_in_response resp) {
                 barrier->set_value(result::create_from_subdoc_response<>(resp));
             });
             auto f = barrier->get_future();
@@ -205,7 +205,7 @@ tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
                 continue;
             }
             auto doc = transaction_get_result::create_from(dr.document_id(), res);
-            // now lets decide if we call the function or not
+            // now let's decide if we call the function or not
             if (!(doc.links().has_staged_content() || doc.links().is_document_being_removed()) || !doc.links().has_staged_write()) {
                 logger->trace("document {} has no staged content - assuming it was "
                               "committed and skipping",
@@ -255,25 +255,25 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger,
                     throw client_error(*ec, "before_commit_doc hook threw error");
                 }
                 if (doc.links().is_deleted()) {
-                    couchbase::operations::insert_request req{ doc.id() };
-                    req.value = couchbase::utils::to_binary(content);
+                    core::operations::insert_request req{ doc.id() };
+                    req.value = core::utils::to_binary(content);
                     auto barrier = std::make_shared<std::promise<result>>();
                     auto f = barrier->get_future();
                     cleanup_->cluster_ref().execute(wrap_durable_request(req, cleanup_->config(), dl),
-                                                    [barrier](couchbase::operations::insert_response resp) {
+                                                    [barrier](core::operations::insert_response resp) {
                                                         barrier->set_value(result::create_from_mutation_response(resp));
                                                     });
                     tx::wrap_operation_future(f);
                 } else {
-                    couchbase::operations::mutate_in_request req{ doc.id() };
-                    req.specs.add_spec(protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
-                    req.specs.add_spec(protocol::subdoc_opcode::set_doc, false, false, false, {}, content);
-                    req.cas.value = doc.cas();
-                    req.store_semantics = protocol::mutate_in_request_body::store_semantics_type::replace;
+                    core::operations::mutate_in_request req{ doc.id() };
+                    req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
+                    req.specs.add_spec(core::protocol::subdoc_opcode::set_doc, false, false, false, {}, content);
+                    req.cas = couchbase::cas(doc.cas());
+                    req.store_semantics = core::protocol::mutate_in_request_body::store_semantics_type::replace;
                     wrap_durable_request(req, cleanup_->config(), dl);
                     auto barrier = std::make_shared<std::promise<result>>();
                     auto f = barrier->get_future();
-                    cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
+                    cleanup_->cluster_ref().execute(req, [barrier](core::operations::mutate_in_response resp) {
                         barrier->set_value(result::create_from_subdoc_response(resp));
                     });
                     tx::wrap_operation_future(f);
@@ -297,24 +297,24 @@ tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger,
                 throw client_error(*ec, "before_remove_doc hook threw error");
             }
             if (is_deleted) {
-                couchbase::operations::mutate_in_request req{ doc.id() };
-                req.specs.add_spec(couchbase::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
-                req.cas.value = doc.cas();
+                core::operations::mutate_in_request req{ doc.id() };
+                req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
+                req.cas = couchbase::cas(doc.cas());
                 req.access_deleted = true;
                 wrap_durable_request(req, cleanup_->config(), dl);
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
-                cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
+                cleanup_->cluster_ref().execute(req, [barrier](core::operations::mutate_in_response resp) {
                     barrier->set_value(result::create_from_subdoc_response(resp));
                 });
                 tx::wrap_operation_future(f);
             } else {
-                couchbase::operations::remove_request req{ doc.id() };
-                req.cas.value = doc.cas();
+                core::operations::remove_request req{ doc.id() };
+                req.cas = couchbase::cas(doc.cas());
                 wrap_durable_request(req, cleanup_->config(), dl);
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
-                cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::remove_response resp) {
+                cleanup_->cluster_ref().execute(req, [barrier](core::operations::remove_response resp) {
                     barrier->set_value(result::create_from_mutation_response(resp));
                 });
                 tx::wrap_operation_future(f);
@@ -336,12 +336,12 @@ tx::atr_cleanup_entry::remove_docs_staged_for_removal(std::shared_ptr<spdlog::lo
                 if (ec) {
                     throw client_error(*ec, "before_remove_doc_staged_for_removal hook threw error");
                 }
-                couchbase::operations::remove_request req{ doc.id() };
-                req.cas.value = doc.cas();
+                core::operations::remove_request req{ doc.id() };
+                req.cas = couchbase::cas(doc.cas());
                 wrap_durable_request(req, cleanup_->config(), dl);
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
-                cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::remove_response resp) {
+                cleanup_->cluster_ref().execute(req, [barrier](core::operations::remove_response resp) {
                     barrier->set_value(result::create_from_mutation_response(resp));
                 });
                 tx::wrap_operation_future(f);
@@ -366,16 +366,15 @@ tx::atr_cleanup_entry::remove_txn_links(std::shared_ptr<spdlog::logger> logger,
             if (ec) {
                 throw client_error(*ec, "before_remove_links hook threw error");
             }
-            couchbase::operations::mutate_in_request req{ doc.id() };
-            req.specs.add_spec(protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
+            core::operations::mutate_in_request req{ doc.id() };
+            req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
             req.access_deleted = true;
-            req.cas.value = doc.cas();
+            req.cas = couchbase::cas(doc.cas());
             wrap_durable_request(req, cleanup_->config(), dl);
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
-            cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
-                barrier->set_value(result::create_from_subdoc_response(resp));
-            });
+            cleanup_->cluster_ref().execute(
+              req, [barrier](core::operations::mutate_in_response resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
             tx::wrap_operation_future(f);
             logger->trace("remove_txn_links removed links for doc {}", doc.id());
         });
@@ -390,17 +389,17 @@ tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger, dur
         if (ec) {
             throw client_error(*ec, "before_atr_remove hook threw error");
         }
-        couchbase::operations::mutate_in_request req{ atr_id_ };
+        core::operations::mutate_in_request req{ atr_id_ };
         if (atr_entry_->state() == tx::attempt_state::PENDING) {
-            req.specs.add_spec(protocol::subdoc_opcode::dict_add, true, false, false, "attempts." + atr_entry_->attempt_id() + ".p", "{}");
+            req.specs.add_spec(
+              core::protocol::subdoc_opcode::dict_add, true, false, false, "attempts." + atr_entry_->attempt_id() + ".p", "{}");
         }
-        req.specs.add_spec(protocol::subdoc_opcode::remove, true, "attempts." + atr_entry_->attempt_id());
+        req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, "attempts." + atr_entry_->attempt_id());
         wrap_durable_request(req, cleanup_->config(), dl);
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
-        cleanup_->cluster_ref().execute(req, [barrier](couchbase::operations::mutate_in_response resp) {
-            barrier->set_value(result::create_from_subdoc_response(resp));
-        });
+        cleanup_->cluster_ref().execute(
+          req, [barrier](core::operations::mutate_in_response resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
         tx::wrap_operation_future(f);
         logger->trace("successfully removed attempt {}", attempt_id_);
     } catch (const client_error& e) {

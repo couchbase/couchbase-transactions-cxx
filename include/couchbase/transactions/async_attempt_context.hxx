@@ -19,8 +19,8 @@
 #include <optional>
 #include <string>
 
+#include <core/operations/document_query.hxx>
 #include <couchbase/cluster.hxx>
-#include <couchbase/operations/document_query.hxx>
 #include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/transaction_get_result.hxx>
 #include <couchbase/transactions/transaction_query_options.hxx>
@@ -41,7 +41,7 @@ namespace transactions
       public:
         using Callback = std::function<void(std::exception_ptr, std::optional<transaction_get_result>)>;
         using VoidCallback = std::function<void(std::exception_ptr)>;
-        using QueryCallback = std::function<void(std::exception_ptr, std::optional<operations::query_response>)>;
+        using QueryCallback = std::function<void(std::exception_ptr, std::optional<core::operations::query_response>)>;
         virtual ~async_attempt_context() = default;
         /**
          * Gets a document from the specified Couchbase collection matching the specified id.
@@ -49,7 +49,7 @@ namespace transactions
          * @param id the document's ID
          * @param cb callback function with the result when successful, or a @ref transaction_operation_failed.
          */
-        virtual void get(const couchbase::document_id& id, Callback&& cb) = 0;
+        virtual void get(const core::document_id& id, Callback&& cb) = 0;
 
         /**
          * Gets a document from the specified Couchbase collection matching the specified id.
@@ -57,7 +57,7 @@ namespace transactions
          * @param id the document's ID
          * @param cb callback function with the result when successful, or a @ref transaction_operation_failed.
          */
-        virtual void get_optional(const couchbase::document_id& id, Callback&& cb) = 0;
+        virtual void get_optional(const core::document_id& id, Callback&& cb) = 0;
 
         /**
          * Mutates the specified document with new content, using the document's last TransactionDocument#cas().
@@ -96,7 +96,7 @@ namespace transactions
          *           successful, or @ref transaction_operation_failed
          */
         template<typename Content>
-        void insert(const couchbase::document_id& id, const Content& content, Callback&& cb)
+        void insert(const core::document_id& id, const Content& content, Callback&& cb)
         {
             return insert_raw(id, default_json_serializer::serialize(content), std::move(cb));
         }
@@ -159,7 +159,7 @@ namespace transactions
 
       protected:
         /** @internal */
-        virtual void insert_raw(const couchbase::document_id& id, const std::string& content, Callback&& cb) = 0;
+        virtual void insert_raw(const core::document_id& id, const std::string& content, Callback&& cb) = 0;
 
         /** @internal */
         virtual void replace_raw(const transaction_get_result& document, const std::string& content, Callback&& cb) = 0;

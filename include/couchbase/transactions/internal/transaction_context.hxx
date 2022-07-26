@@ -74,7 +74,7 @@ namespace transactions
 
         void add_attempt();
 
-        CB_NODISCARD couchbase::cluster& cluster_ref()
+        CB_NODISCARD core::cluster& cluster_ref()
         {
             return transactions_.cluster_ref();
         }
@@ -143,11 +143,11 @@ namespace transactions
         std::shared_ptr<attempt_context_impl> current_attempt_context();
 
         // These functions just delegate to the current_attempt_context_
-        void get(const couchbase::document_id& id, async_attempt_context::Callback&& cb);
+        void get(const core::document_id& id, async_attempt_context::Callback&& cb);
 
-        void get_optional(const couchbase::document_id& id, async_attempt_context::Callback&& cb);
+        void get_optional(const core::document_id& id, async_attempt_context::Callback&& cb);
 
-        void insert(const couchbase::document_id& id, const std::string& content, async_attempt_context::Callback&& cb);
+        void insert(const core::document_id& id, const std::string& content, async_attempt_context::Callback&& cb);
 
         void replace(const transaction_get_result& doc, const std::string& content, async_attempt_context::Callback&& cb);
 
