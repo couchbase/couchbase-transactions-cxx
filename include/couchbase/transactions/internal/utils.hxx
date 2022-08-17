@@ -81,20 +81,20 @@ namespace transactions
         return os;
     }
 
-    static inline core::protocol::durability_level durability(durability_level level)
+    static inline couchbase::durability_level durability(durability_level level)
     {
         switch (level) {
             case durability_level::NONE:
-                return core::protocol::durability_level::none;
+                return couchbase::durability_level::none;
             case durability_level::MAJORITY:
-                return core::protocol::durability_level::majority;
+                return couchbase::durability_level::majority;
             case durability_level::MAJORITY_AND_PERSIST_TO_ACTIVE:
-                return core::protocol::durability_level::majority_and_persist_to_active;
+                return couchbase::durability_level::majority_and_persist_to_active;
             case durability_level::PERSIST_TO_MAJORITY:
-                return core::protocol::durability_level::persist_to_majority;
+                return couchbase::durability_level::persist_to_majority;
             default:
                 // mimic java here
-                return core::protocol::durability_level::majority;
+                return couchbase::durability_level::majority;
         }
     }
 
@@ -182,7 +182,7 @@ namespace transactions
         if (!resp.first_error_index) {
             return {};
         }
-        auto status = resp.fields.at(*resp.first_error_index).status;
+        auto status = resp.fields_meta.at(*resp.first_error_index).status;
         if (status == key_value_status_code::subdoc_path_not_found) {
             return FAIL_PATH_NOT_FOUND;
         }

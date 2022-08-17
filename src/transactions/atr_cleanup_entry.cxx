@@ -194,9 +194,8 @@ tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
             wrap_request(req, cleanup_->config());
             // now a blocking lookup_in...
             auto barrier = std::make_shared<std::promise<result>>();
-            cleanup_->cluster_ref().execute(req, [barrier](core::operations::lookup_in_response resp) {
-                barrier->set_value(result::create_from_subdoc_response<>(resp));
-            });
+            cleanup_->cluster_ref().execute(
+              req, [barrier](core::operations::lookup_in_response resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
             auto f = barrier->get_future();
             auto res = wrap_operation_future(f);
 
@@ -266,10 +265,14 @@ tx::atr_cleanup_entry::commit_docs(std::shared_ptr<spdlog::logger> logger,
                     tx::wrap_operation_future(f);
                 } else {
                     core::operations::mutate_in_request req{ doc.id() };
-                    req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
-                    req.specs.add_spec(core::protocol::subdoc_opcode::set_doc, false, false, false, {}, content);
+                    req.specs =
+                      couchbase::mutate_in_specs{
+                          couchbase::mutate_in_specs::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
+                          couchbase::mutate_in_specs::replace_raw({}, core::utils::to_binary(content)),
+                      }
+                        .specs();
                     req.cas = couchbase::cas(doc.cas());
-                    req.store_semantics = core::protocol::mutate_in_request_body::store_semantics_type::replace;
+                    req.store_semantics = couchbase::store_semantics::replace;
                     wrap_durable_request(req, cleanup_->config(), dl);
                     auto barrier = std::make_shared<std::promise<result>>();
                     auto f = barrier->get_future();
@@ -298,7 +301,11 @@ tx::atr_cleanup_entry::remove_docs(std::shared_ptr<spdlog::logger> logger,
             }
             if (is_deleted) {
                 core::operations::mutate_in_request req{ doc.id() };
-                req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
+                req.specs =
+                  couchbase::mutate_in_specs{
+                      couchbase::mutate_in_specs::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
+                  }
+                    .specs();
                 req.cas = couchbase::cas(doc.cas());
                 req.access_deleted = true;
                 wrap_durable_request(req, cleanup_->config(), dl);
@@ -367,7 +374,11 @@ tx::atr_cleanup_entry::remove_txn_links(std::shared_ptr<spdlog::logger> logger,
                 throw client_error(*ec, "before_remove_links hook threw error");
             }
             core::operations::mutate_in_request req{ doc.id() };
-            req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
+            req.specs =
+              couchbase::mutate_in_specs{
+                  couchbase::mutate_in_specs::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
+              }
+                .specs();
             req.access_deleted = true;
             req.cas = couchbase::cas(doc.cas());
             wrap_durable_request(req, cleanup_->config(), dl);
@@ -390,11 +401,13 @@ tx::atr_cleanup_entry::cleanup_entry(std::shared_ptr<spdlog::logger> logger, dur
             throw client_error(*ec, "before_atr_remove hook threw error");
         }
         core::operations::mutate_in_request req{ atr_id_ };
+        couchbase::mutate_in_specs mut_specs;
         if (atr_entry_->state() == tx::attempt_state::PENDING) {
-            req.specs.add_spec(
-              core::protocol::subdoc_opcode::dict_add, true, false, false, "attempts." + atr_entry_->attempt_id() + ".p", "{}");
+            mut_specs.push_back(
+              couchbase::mutate_in_specs::insert("attempts." + atr_entry_->attempt_id() + ".p", tao::json::empty_object).xattr());
         }
-        req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, "attempts." + atr_entry_->attempt_id());
+        mut_specs.push_back(couchbase::mutate_in_specs::remove("attempts." + atr_entry_->attempt_id()).xattr());
+        req.specs = mut_specs.specs();
         wrap_durable_request(req, cleanup_->config(), dl);
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();

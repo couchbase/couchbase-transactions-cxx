@@ -20,10 +20,12 @@
 #include <string>
 
 #include <core/operations/document_query.hxx>
-#include <couchbase/cluster.hxx>
 #include <couchbase/transactions/exceptions.hxx>
 #include <couchbase/transactions/transaction_get_result.hxx>
 #include <couchbase/transactions/transaction_query_options.hxx>
+
+#include <couchbase/cluster.hxx>
+#include <couchbase/subdocument_error_context.hxx>
 
 namespace couchbase
 {

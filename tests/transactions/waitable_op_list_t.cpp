@@ -15,10 +15,13 @@
  */
 
 #include "../../src/transactions/waitable_op_list.hxx"
-#include <future>
+
 #include <gtest/gtest.h>
+
+#include <future>
 #include <list>
 #include <random>
+#include <thread>
 
 static const std::string NODE{ "someipaddress" };
 
@@ -83,13 +86,13 @@ TEST(WaitableOpList, SetModeCallsAppropriateCallbacks)
           [&] {
               begin_work_calls++;
               op_list.set_query_node(NODE);
-                  op_list.decrement_in_flight();
-                  op_list.decrement_ops();
+              op_list.decrement_in_flight();
+              op_list.decrement_ops();
           },
           [&]() {
               do_work_calls++;
-                  op_list.decrement_in_flight();
-                  op_list.decrement_ops();
+              op_list.decrement_in_flight();
+              op_list.decrement_ops();
           });
     };
 

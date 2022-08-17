@@ -257,11 +257,14 @@ attempt_context_impl::create_staging_request(const core::document_id& id,
         }
     }
 
-    req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert, true, true, false, "txn", jsonify(txn));
+    auto mut_specs =
+      couchbase::mutate_in_specs(couchbase::mutate_in_specs::upsert_raw("txn", core::utils::to_binary(jsonify(txn))).xattr().create_path());
     if (type != "remove") {
-        req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert, true, false, false, "txn.op.stgd", content.value());
+        mut_specs.push_back(couchbase::mutate_in_specs::upsert_raw("txn.op.stgd", core::utils::to_binary(content.value())).xattr());
     }
-    req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert, true, true, true, "txn.op.crc32", mutate_in_macro::VALUE_CRC_32C);
+    mut_specs.push_back(
+      couchbase::mutate_in_specs::upsert("txn.op.crc32", couchbase::subdoc::mutate_in_macro::value_crc32c).xattr().create_path());
+    req.specs = mut_specs.specs();
 
     return wrap_durable_request(req, overall_.config());
 }
@@ -419,22 +422,21 @@ attempt_context_impl::insert_raw(const core::document_id& id, const std::string&
             if (check_expiry_pre_commit(STAGE_INSERT, id.key())) {
                 return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_EXPIRY, "transaction expired").expired());
             }
-            select_atr_if_needed_unlocked(id,
-                                          [this, existing_sm = std::move(existing_sm), cb = std::move(cb), id, content](
-                                            std::optional<transaction_operation_failed> err) {
-                                              if (err) {
-                                                  return op_completed_with_error(cb, *err);
-                                              }
-                                              if (existing_sm != NULL && existing_sm->type() == staged_mutation_type::REMOVE) {
-                                                  debug("found existing remove of {} while inserting", id);
-                                                  return create_staged_replace(existing_sm->doc(), content, cb);
-                                              }
-                                              uint64_t cas = 0;
-                                              exp_delay delay(std::chrono::milliseconds(5),
-                                                              std::chrono::milliseconds(300),
-                                                              overall_.config().expiration_time());
-                                              create_staged_insert(id, content, cas, delay, cb);
-                                          });
+            select_atr_if_needed_unlocked(
+              id,
+              [this, existing_sm = std::move(existing_sm), cb = std::move(cb), id, content](
+                std::optional<transaction_operation_failed> err) {
+                  if (err) {
+                      return op_completed_with_error(cb, *err);
+                  }
+                  if (existing_sm != NULL && existing_sm->type() == staged_mutation_type::REMOVE) {
+                      debug("found existing remove of {} while inserting", id);
+                      return create_staged_replace(existing_sm->doc(), content, cb);
+                  }
+                  uint64_t cas = 0;
+                  exp_delay delay(std::chrono::milliseconds(5), std::chrono::milliseconds(300), overall_.config().expiration_time());
+                  create_staged_insert(id, content, cas, delay, cb);
+              });
         } catch (const std::exception& e) {
             return op_completed_with_error(std::move(cb), transaction_operation_failed(FAIL_OTHER, e.what()));
         }
@@ -631,7 +633,11 @@ attempt_context_impl::remove_staged_insert(const core::document_id& id, VoidCall
     }
 
     core::operations::mutate_in_request req{ id };
-    req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, "txn");
+    req.specs =
+      couchbase::mutate_in_specs{
+          couchbase::mutate_in_specs::remove("txn").xattr(),
+      }
+        .specs();
     wrap_durable_request(req, overall_.config());
     req.access_deleted = true;
 
@@ -1203,16 +1209,13 @@ attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
         try {
             std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
             core::operations::mutate_in_request req{ atr_id_.value() };
-            req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert,
-                               true,
-                               false,
-                               false,
-                               prefix + ATR_FIELD_STATUS,
-                               jsonify(attempt_state_name(attempt_state::COMMITTED)));
-            req.specs.add_spec(
-              core::protocol::subdoc_opcode::dict_upsert, true, false, true, prefix + ATR_FIELD_START_COMMIT, mutate_in_macro::CAS);
-            req.specs.add_spec(
-              core::protocol::subdoc_opcode::dict_add, true, false, false, prefix + ATR_FIELD_PREVENT_COLLLISION, jsonify(0));
+            req.specs =
+              couchbase::mutate_in_specs{
+                  couchbase::mutate_in_specs::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::COMMITTED)).xattr(),
+                  couchbase::mutate_in_specs::upsert(prefix + ATR_FIELD_START_COMMIT, subdoc::mutate_in_macro::cas).xattr(),
+                  couchbase::mutate_in_specs::insert(prefix + ATR_FIELD_PREVENT_COLLLISION, 0).xattr(),
+              }
+                .specs();
             wrap_durable_request(req, overall_.config());
             auto ec = error_if_expired_and_not_in_overtime(STAGE_ATR_COMMIT, {});
             if (ec) {
@@ -1380,7 +1383,11 @@ attempt_context_impl::atr_complete()
         debug("removing attempt {} from atr", atr_id_.value());
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id());
         core::operations::mutate_in_request req{ atr_id_.value() };
-        req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, prefix);
+        req.specs =
+          couchbase::mutate_in_specs{
+              couchbase::mutate_in_specs::remove(prefix).xattr(),
+          }
+            .specs();
         wrap_durable_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
@@ -1473,14 +1480,16 @@ attempt_context_impl::atr_abort()
         }
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
         core::operations::mutate_in_request req{ atr_id_.value() };
-        req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert,
-                           true,
-                           true,
-                           false,
-                           prefix + ATR_FIELD_STATUS,
-                           jsonify(attempt_state_name(attempt_state::ABORTED)));
-        req.specs.add_spec(
-          core::protocol::subdoc_opcode::dict_upsert, true, true, true, prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, mutate_in_macro::CAS);
+        req.specs =
+          couchbase::mutate_in_specs{
+              couchbase::mutate_in_specs::upsert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::ABORTED))
+                .xattr()
+                .create_path(),
+              couchbase::mutate_in_specs::upsert(prefix + ATR_FIELD_TIMESTAMP_ROLLBACK_START, subdoc::mutate_in_macro::cas)
+                .xattr()
+                .create_path(),
+          }
+            .specs();
         staged_mutations_->extract_to(prefix, req);
         wrap_durable_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
@@ -1535,7 +1544,11 @@ attempt_context_impl::atr_rollback_complete()
         }
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id());
         core::operations::mutate_in_request req{ atr_id_.value() };
-        req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, prefix);
+        req.specs =
+          couchbase::mutate_in_specs{
+              couchbase::mutate_in_specs::remove(prefix).xattr(),
+          }
+            .specs();
         wrap_durable_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
@@ -1764,37 +1777,27 @@ attempt_context_impl::set_atr_pending_locked(const core::document_id& id, std::u
 
             core::operations::mutate_in_request req{ atr_id_.value() };
 
-            req.specs.add_spec(core::protocol::subdoc_opcode::dict_add,
-                               true,
-                               true,
-                               false,
-                               prefix + ATR_FIELD_TRANSACTION_ID,
-                               jsonify(overall_.transaction_id()));
-            req.specs.add_spec(core::protocol::subdoc_opcode::dict_add,
-                               true,
-                               true,
-                               false,
-                               prefix + ATR_FIELD_STATUS,
-                               jsonify(attempt_state_name(attempt_state::PENDING)));
-            req.specs.add_spec(
-              core::protocol::subdoc_opcode::dict_add, true, true, true, prefix + ATR_FIELD_START_TIMESTAMP, mutate_in_macro::CAS);
-            req.specs.add_spec(core::protocol::subdoc_opcode::dict_add,
-                               true,
-                               true,
-                               false,
-                               prefix + ATR_FIELD_EXPIRES_AFTER_MSECS,
-                               jsonify(remaining_bounded_msecs));
-            // ExtStoreDurability
-            req.specs.add_spec(core::protocol::subdoc_opcode::dict_add,
-                               true,
-                               true,
-                               false,
-                               prefix + ATR_FIELD_DURABILITY_LEVEL,
-                               jsonify(store_durability_level_to_string(overall_.config().durability_level())));
-            // ExtBinaryMetadata
-            req.specs.add_spec(
-              core::protocol::subdoc_opcode::set_doc, false, false, false, std::string(""), jsonify(std::string({ 0x00 })));
-            req.store_semantics = core::protocol::mutate_in_request_body::store_semantics_type::upsert;
+            req.specs =
+              couchbase::mutate_in_specs{
+                  couchbase::mutate_in_specs::insert(prefix + ATR_FIELD_TRANSACTION_ID, overall_.transaction_id()).xattr().create_path(),
+                  couchbase::mutate_in_specs::insert(prefix + ATR_FIELD_STATUS, attempt_state_name(attempt_state::PENDING))
+                    .xattr()
+                    .create_path(),
+                  couchbase::mutate_in_specs::insert(prefix + ATR_FIELD_START_TIMESTAMP, subdoc::mutate_in_macro::cas)
+                    .xattr()
+                    .create_path(),
+                  couchbase::mutate_in_specs::insert(prefix + ATR_FIELD_EXPIRES_AFTER_MSECS, remaining_bounded_msecs).xattr().create_path(),
+                  // ExtStoreDurability
+                  couchbase::mutate_in_specs::insert(prefix + ATR_FIELD_DURABILITY_LEVEL,
+                                                     store_durability_level_to_string(overall_.config().durability_level()))
+                    .xattr()
+                    .create_path(),
+                  // subdoc::opcode::set_doc used in replace w/ empty path
+                  // ExtBinaryMetadata
+                  couchbase::mutate_in_specs::replace({}, std::string({ 0x00 })),
+              }
+                .specs();
+            req.store_semantics = couchbase::store_semantics::upsert;
 
             wrap_durable_request(req, overall_.config());
             overall_.cluster_ref().execute(req, [this, fn, error_handler](core::operations::mutate_in_response resp) {
@@ -2158,8 +2161,7 @@ attempt_context_impl::create_staged_insert(const core::document_id& id,
     req.access_deleted = true;
     req.create_as_deleted = true;
     req.cas = couchbase::cas(cas);
-    req.store_semantics = cas == 0 ? core::protocol::mutate_in_request_body::store_semantics_type::insert
-                                   : core::protocol::mutate_in_request_body::store_semantics_type::replace;
+    req.store_semantics = cas == 0 ? couchbase::store_semantics::insert : couchbase::store_semantics::replace;
     wrap_durable_request(req, overall_.config());
     overall_.cluster_ref().execute(req, [this, id, content, cas, cb, delay](core::operations::mutate_in_response resp) {
         auto ec = hooks_.after_staged_insert_complete(this, id.key());

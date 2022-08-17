@@ -14,9 +14,6 @@
  *   limitations under the License.
  */
 
-#include <algorithm>
-#include <chrono>
-#include <functional>
 #include "active_transaction_record.hxx"
 #include "atr_ids.hxx"
 #include "attempt_context_impl.hxx"
@@ -27,6 +24,10 @@
 #include "couchbase/transactions/internal/transactions_cleanup.hxx"
 #include "couchbase/transactions/internal/utils.hxx"
 #include "uid_generator.hxx"
+
+#include <algorithm>
+#include <chrono>
+#include <functional>
 
 namespace tx = couchbase::transactions;
 
@@ -224,10 +225,15 @@ tx::transactions_cleanup::create_client_record(const std::string& bucket_name)
     try {
         auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
         core::operations::mutate_in_request req{ id };
-        req.store_semantics = core::protocol::mutate_in_request_body::store_semantics_type::insert;
-        req.specs.add_spec(core::protocol::subdoc_opcode::dict_add, true, true, false, FIELD_CLIENTS, "{}");
-        // ExtBinaryMetadata
-        req.specs.add_spec(core::protocol::subdoc_opcode::set_doc, false, false, false, std::string(""), jsonify(std::string({ 0x00 })));
+        req.store_semantics = couchbase::store_semantics::insert;
+        req.specs =
+          couchbase::mutate_in_specs{
+              couchbase::mutate_in_specs::insert(FIELD_CLIENTS, tao::json::empty_object).xattr().create_path(),
+              // subdoc::opcode::set_doc used in replace w/ empty path
+              // ExtBinaryMetadata
+              couchbase::mutate_in_specs::replace({}, std::string({ 0x00 })),
+          }
+            .specs();
         wrap_durable_request(req, config_);
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
@@ -337,30 +343,24 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
 
               // update client record, maybe cleanup some as well...
               core::operations::mutate_in_request mutate_req{ id };
-              mutate_req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert,
-                                        true,
-                                        true,
-                                        true,
-                                        FIELD_CLIENTS + "." + uuid + "." + FIELD_HEARTBEAT,
-                                        mutate_in_macro::CAS);
-              mutate_req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert,
-                                        true,
-                                        true,
-                                        false,
-                                        FIELD_CLIENTS + "." + uuid + "." + FIELD_EXPIRES,
-                                        jsonify(config_.cleanup_window().count() / 2 + SAFETY_MARGIN_EXPIRY_MS));
-              mutate_req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert,
-                                        true,
-                                        true,
-                                        false,
-                                        FIELD_CLIENTS + "." + uuid + "." + FIELD_NUM_ATRS,
-                                        jsonify(atr_ids::all().size()));
+              auto mut_specs = couchbase::mutate_in_specs{
+                  couchbase::mutate_in_specs::upsert(FIELD_CLIENTS + "." + uuid + "." + FIELD_HEARTBEAT, subdoc::mutate_in_macro::cas)
+                    .xattr()
+                    .create_path(),
+                  couchbase::mutate_in_specs::upsert(FIELD_CLIENTS + "." + uuid + "." + FIELD_EXPIRES,
+                                                     config_.cleanup_window().count() / 2 + SAFETY_MARGIN_EXPIRY_MS)
+                    .xattr()
+                    .create_path(),
+                  couchbase::mutate_in_specs::upsert(FIELD_CLIENTS + "." + uuid + "." + FIELD_NUM_ATRS, atr_ids::all().size())
+                    .xattr()
+                    .create_path(),
+              };
               for (size_t idx = 0; idx < std::min(details.expired_client_ids.size(), static_cast<size_t>(12)); idx++) {
                   lost_attempts_cleanup_log->trace("adding {} to list of clients to be removed when updating this client",
                                                    details.expired_client_ids[idx]);
-                  mutate_req.specs.add_spec(
-                    core::protocol::subdoc_opcode::remove, true, FIELD_CLIENTS + "." + details.expired_client_ids[idx]);
+                  mut_specs.push_back(couchbase::mutate_in_specs::remove(FIELD_CLIENTS + "." + details.expired_client_ids[idx]).xattr());
               }
+              mutate_req.specs = mut_specs.specs();
               ec = config_.cleanup_hooks().client_record_before_update(bucket_name);
               if (ec) {
                   throw client_error(*ec, "client_record_before_update hook raised error");
@@ -410,7 +410,11 @@ tx::transactions_cleanup::remove_client_record_from_all_buckets(const std::strin
                       }
                       auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
                       core::operations::mutate_in_request req{ id };
-                      req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, FIELD_CLIENTS + "." + uuid);
+                      req.specs =
+                        couchbase::mutate_in_specs{
+                            couchbase::mutate_in_specs::remove(FIELD_CLIENTS + "." + uuid).xattr(),
+                        }
+                          .specs();
                       wrap_durable_request(req, config_);
                       auto barrier = std::make_shared<std::promise<result>>();
                       auto f = barrier->get_future();

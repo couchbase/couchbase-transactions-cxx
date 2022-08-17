@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <core/cluster.hxx>
+#include <core/utils/json.hxx>
 #include <couchbase/internal/nlohmann/json.hpp>
 #include <couchbase/support.hxx>
 #include <couchbase/transactions/transcoder.hxx>
@@ -204,8 +206,7 @@ namespace transactions
             return res;
         }
 
-        template<typename Resp>
-        static result create_from_subdoc_response(const Resp& resp)
+        static result create_from_subdoc_response(const core::operations::lookup_in_response& resp)
         {
             result res{};
             res.ec = resp.ctx.ec();
@@ -214,6 +215,23 @@ namespace transactions
             res.is_deleted = resp.deleted;
             for (auto& field : resp.fields) {
                 res.values.emplace_back(field.value, static_cast<uint32_t>(field.status));
+            }
+            return res;
+        }
+
+        static result create_from_subdoc_response(const core::operations::mutate_in_response& resp)
+        {
+            result res{};
+            res.ec = resp.ctx.ec();
+            res.cas = resp.cas.value();
+            res.key = resp.ctx.id();
+            res.is_deleted = resp.deleted;
+
+            for (int i = 0; i < resp.fields.size(); i++) {
+                auto value = resp.fields[i].value.size() > 0
+                               ? core::utils::json::generate(core::utils::json::parse_binary(resp.fields[i].value))
+                               : std::string();
+                res.values.emplace_back(value, static_cast<uint32_t>(resp.fields_meta[i].status));
             }
             return res;
         }

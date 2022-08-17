@@ -66,9 +66,19 @@ tx::staged_mutation_queue::extract_to(const std::string& prefix, core::operation
                 break;
         }
     }
-    req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert, true, true, false, prefix + ATR_FIELD_DOCS_INSERTED, inserts.dump());
-    req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert, true, true, false, prefix + ATR_FIELD_DOCS_REPLACED, replaces.dump());
-    req.specs.add_spec(core::protocol::subdoc_opcode::dict_upsert, true, true, false, prefix + ATR_FIELD_DOCS_REMOVED, removes.dump());
+    req.specs =
+      couchbase::mutate_in_specs{
+          couchbase::mutate_in_specs::upsert_raw(prefix + ATR_FIELD_DOCS_INSERTED, core::utils::to_binary(inserts.dump()))
+            .xattr()
+            .create_path(),
+          couchbase::mutate_in_specs::upsert_raw(prefix + ATR_FIELD_DOCS_REPLACED, core::utils::to_binary(replaces.dump()))
+            .xattr()
+            .create_path(),
+          couchbase::mutate_in_specs::upsert_raw(prefix + ATR_FIELD_DOCS_REMOVED, core::utils::to_binary(removes.dump()))
+            .xattr()
+            .create_path(),
+      }
+        .specs();
 }
 
 void
@@ -184,7 +194,11 @@ tx::staged_mutation_queue::rollback_insert(attempt_context_impl& ctx, staged_mut
             throw client_error(*ec, "before_rollback_delete_insert hook threw error");
         }
         core::operations::mutate_in_request req{ item.doc().id() };
-        req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
+        req.specs =
+          couchbase::mutate_in_specs{
+              couchbase::mutate_in_specs::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
+          }
+            .specs();
         req.access_deleted = true;
         req.cas = couchbase::cas(item.doc().cas());
         wrap_durable_request(req, ctx.overall_.config());
@@ -238,7 +252,11 @@ tx::staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl& ctx,
             throw client_error(*ec, "before_doc_rolled_back hook threw error");
         }
         core::operations::mutate_in_request req{ item.doc().id() };
-        req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
+        req.specs =
+          couchbase::mutate_in_specs{
+              couchbase::mutate_in_specs::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
+          }
+            .specs();
         req.cas = couchbase::cas(item.doc().cas());
         wrap_durable_request(req, ctx.overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
@@ -303,9 +321,14 @@ tx::staged_mutation_queue::commit_doc(attempt_context_impl& ctx, staged_mutation
                 res = wrap_operation_future(f);
             } else {
                 core::operations::mutate_in_request req{ item.doc().id() };
-                req.specs.add_spec(core::protocol::subdoc_opcode::remove, true, TRANSACTION_INTERFACE_PREFIX_ONLY);
-                req.specs.add_spec(core::protocol::subdoc_opcode::set_doc, false, false, false, "", item.content());
-                req.store_semantics = core::protocol::mutate_in_request_body::store_semantics_type::replace;
+                req.specs =
+                  couchbase::mutate_in_specs{
+                      couchbase::mutate_in_specs::remove(TRANSACTION_INTERFACE_PREFIX_ONLY).xattr(),
+                      // subdoc::opcode::set_doc used in replace w/ empty path
+                      couchbase::mutate_in_specs::replace_raw("", core::utils::to_binary(item.content())),
+                  }
+                    .specs();
+                req.store_semantics = couchbase::store_semantics::replace;
                 req.cas = couchbase::cas(cas_zero_mode ? 0 : item.doc().cas());
                 wrap_durable_request(req, ctx.overall_.config());
                 auto barrier = std::make_shared<std::promise<result>>();
