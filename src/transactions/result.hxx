@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include "binary_utils.hxx"
+
 #include <core/cluster.hxx>
 #include <core/utils/json.hxx>
 #include <couchbase/internal/nlohmann/json.hpp>
@@ -213,8 +215,8 @@ namespace transactions
             res.cas = resp.cas.value();
             res.key = resp.ctx.id();
             res.is_deleted = resp.deleted;
-            for (auto& field : resp.fields) {
-                res.values.emplace_back(field.value, static_cast<uint32_t>(field.status));
+            for (std::size_t i = 0; i < resp.fields.size(); ++i) {
+                res.values.emplace_back(to_string(resp.fields[i].value), static_cast<uint32_t>(resp.fields_meta[i].status));
             }
             return res;
         }

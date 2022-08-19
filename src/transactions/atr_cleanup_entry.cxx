@@ -177,19 +177,23 @@ tx::atr_cleanup_entry::do_per_doc(std::shared_ptr<spdlog::logger> logger,
     for (auto& dr : docs) {
         try {
             core::operations::lookup_in_request req{ dr.document_id() };
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_ID);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TRANSACTION_ID);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATTEMPT_ID);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, STAGED_DATA);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_BUCKET_NAME);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_SCOPE_NAME);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_COLL_NAME);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TRANSACTION_RESTORE_PREFIX_ONLY);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TYPE);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, "$document");
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, CRC32_OF_STAGING);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, FORWARD_COMPAT);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get_doc, false, "");
+            req.specs =
+              lookup_in_specs{
+                  lookup_in_specs::get(ATR_ID).xattr(),
+                  lookup_in_specs::get(TRANSACTION_ID).xattr(),
+                  lookup_in_specs::get(ATTEMPT_ID).xattr(),
+                  lookup_in_specs::get(STAGED_DATA).xattr(),
+                  lookup_in_specs::get(ATR_BUCKET_NAME).xattr(),
+                  lookup_in_specs::get(ATR_SCOPE_NAME).xattr(),
+                  lookup_in_specs::get(ATR_COLL_NAME).xattr(),
+                  lookup_in_specs::get(TRANSACTION_RESTORE_PREFIX_ONLY).xattr(),
+                  lookup_in_specs::get(TYPE).xattr(),
+                  lookup_in_specs::get(couchbase::subdoc::lookup_in_macro::document).xattr(),
+                  lookup_in_specs::get(CRC32_OF_STAGING).xattr(),
+                  lookup_in_specs::get(FORWARD_COMPAT).xattr(),
+                  lookup_in_specs::get(""),
+              }
+                .specs();
             req.access_deleted = true;
             wrap_request(req, cleanup_->config());
             // now a blocking lookup_in...

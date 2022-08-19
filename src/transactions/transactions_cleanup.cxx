@@ -272,8 +272,12 @@ tx::transactions_cleanup::get_active_clients(const std::string& bucket_name, con
           try {
               auto id = config_.atr_id_from_bucket_and_key(bucket_name, CLIENT_RECORD_DOC_ID);
               core::operations::lookup_in_request req{ id };
-              req.specs.add_spec(core::protocol::subdoc_opcode::get, true, FIELD_RECORDS);
-              req.specs.add_spec(core::protocol::subdoc_opcode::get, true, "$vbucket");
+              req.specs =
+                lookup_in_specs{
+                    lookup_in_specs::get(FIELD_RECORDS).xattr(),
+                    lookup_in_specs::get("$vbucket").xattr(),
+                }
+                  .specs();
               wrap_request(req, config_);
               auto barrier = std::make_shared<std::promise<result>>();
               auto f = barrier->get_future();

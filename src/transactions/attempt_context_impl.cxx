@@ -1326,7 +1326,7 @@ attempt_context_impl::atr_commit_ambiguity_resolution()
         }
         std::string prefix(ATR_FIELD_ATTEMPTS + "." + id() + ".");
         core::operations::lookup_in_request req{ atr_id_.value() };
-        req.specs.add_spec(core::protocol::subdoc_opcode::get, true, prefix + ATR_FIELD_STATUS);
+        req.specs = lookup_in_specs{ lookup_in_specs::get(prefix + ATR_FIELD_STATUS).xattr() }.specs();
         wrap_request(req, overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
@@ -1986,19 +1986,23 @@ attempt_context_impl::get_doc(
   std::function<void(std::optional<error_class>, std::optional<std::string>, std::optional<transaction_get_result>)>&& cb)
 {
     core::operations::lookup_in_request req{ id };
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_ID);
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TRANSACTION_ID);
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATTEMPT_ID);
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, STAGED_DATA);
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_BUCKET_NAME);
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_SCOPE_NAME);
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_COLL_NAME);
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TRANSACTION_RESTORE_PREFIX_ONLY);
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, TYPE);
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, "$document");
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, CRC32_OF_STAGING);
-    req.specs.add_spec(core::protocol::subdoc_opcode::get, true, FORWARD_COMPAT);
-    req.specs.add_spec(core::protocol::subdoc_opcode::get_doc, false, "");
+    req.specs =
+      lookup_in_specs{
+          lookup_in_specs::get(ATR_ID).xattr(),
+          lookup_in_specs::get(TRANSACTION_ID).xattr(),
+          lookup_in_specs::get(ATTEMPT_ID).xattr(),
+          lookup_in_specs::get(STAGED_DATA).xattr(),
+          lookup_in_specs::get(ATR_BUCKET_NAME).xattr(),
+          lookup_in_specs::get(ATR_SCOPE_NAME).xattr(),
+          lookup_in_specs::get(ATR_COLL_NAME).xattr(),
+          lookup_in_specs::get(TRANSACTION_RESTORE_PREFIX_ONLY).xattr(),
+          lookup_in_specs::get(TYPE).xattr(),
+          lookup_in_specs::get(subdoc::lookup_in_macro::document).xattr(),
+          lookup_in_specs::get(CRC32_OF_STAGING).xattr(),
+          lookup_in_specs::get(FORWARD_COMPAT).xattr(),
+          lookup_in_specs::get(""),
+      }
+        .specs();
     req.access_deleted = true;
     wrap_request(req, overall_.config());
     try {

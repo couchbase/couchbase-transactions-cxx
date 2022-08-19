@@ -45,56 +45,56 @@ transaction_get_result::create_from(const core::operations::lookup_in_response& 
     std::optional<std::string> op;
     std::string content;
 
-    if (resp.fields[0].status == key_value_status_code::success) {
-        atr_id = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[0].value);
+    if (resp.fields_meta[0].status == key_value_status_code::success) {
+        atr_id = default_json_serializer::deserialize_from_json_string<std::string>(to_string(resp.fields[0].value));
     }
-    if (resp.fields[1].status == key_value_status_code::success) {
-        transaction_id = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[1].value);
+    if (resp.fields_meta[1].status == key_value_status_code::success) {
+        transaction_id = default_json_serializer::deserialize_from_json_string<std::string>(to_string(resp.fields[1].value));
     }
-    if (resp.fields[2].status == key_value_status_code::success) {
-        attempt_id = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[2].value);
+    if (resp.fields_meta[2].status == key_value_status_code::success) {
+        attempt_id = default_json_serializer::deserialize_from_json_string<std::string>(to_string(resp.fields[2].value));
     }
-    if (resp.fields[3].status == key_value_status_code::success) {
-        staged_content = resp.fields[3].value;
+    if (resp.fields_meta[3].status == key_value_status_code::success) {
+        staged_content = to_string(resp.fields[3].value);
     }
-    if (resp.fields[4].status == key_value_status_code::success) {
-        atr_bucket_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[4].value);
+    if (resp.fields_meta[4].status == key_value_status_code::success) {
+        atr_bucket_name = default_json_serializer::deserialize_from_json_string<std::string>(to_string(resp.fields[4].value));
     }
-    if (resp.fields[5].status == key_value_status_code::success) {
-        atr_scope_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[5].value);
+    if (resp.fields_meta[5].status == key_value_status_code::success) {
+        atr_scope_name = default_json_serializer::deserialize_from_json_string<std::string>(to_string(resp.fields[5].value));
     }
-    if (resp.fields[6].status == key_value_status_code::success) {
-        atr_collection_name = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[6].value);
+    if (resp.fields_meta[6].status == key_value_status_code::success) {
+        atr_collection_name = default_json_serializer::deserialize_from_json_string<std::string>(to_string(resp.fields[6].value));
     }
 
-    if (resp.fields[7].status == key_value_status_code::success) {
-        auto restore = nlohmann::json::parse(resp.fields[7].value);
+    if (resp.fields_meta[7].status == key_value_status_code::success) {
+        auto restore = nlohmann::json::parse(to_string(resp.fields[7].value));
         cas_pre_txn = restore["CAS"].get<std::string>();
         // only present in 6.5+
         revid_pre_txn = restore["revid"].get<std::string>();
         exptime_pre_txn = restore["exptime"].get<uint32_t>();
     }
-    if (resp.fields[8].status == key_value_status_code::success) {
-        op = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[8].value);
+    if (resp.fields_meta[8].status == key_value_status_code::success) {
+        op = default_json_serializer::deserialize_from_json_string<std::string>(to_string(resp.fields[8].value));
     }
-    if (resp.fields[9].status == key_value_status_code::success) {
-        auto doc = nlohmann::json::parse(resp.fields[9].value);
+    if (resp.fields_meta[9].status == key_value_status_code::success) {
+        auto doc = nlohmann::json::parse(to_string(resp.fields[9].value));
         cas_from_doc = doc["CAS"].get<std::string>();
         // only present in 6.5+
         revid_from_doc = doc["revid"].get<std::string>();
         exptime_from_doc = doc["exptime"].get<uint32_t>();
         crc32_from_doc = doc["value_crc32c"].get<std::string>();
     }
-    if (resp.fields[10].status == key_value_status_code::success) {
-        crc32_of_staging = default_json_serializer::deserialize_from_json_string<std::string>(resp.fields[10].value);
+    if (resp.fields_meta[10].status == key_value_status_code::success) {
+        crc32_of_staging = default_json_serializer::deserialize_from_json_string<std::string>(to_string(resp.fields[10].value));
     }
-    if (resp.fields[11].status == key_value_status_code::success) {
-        forward_compat = nlohmann::json::parse(resp.fields[11].value);
+    if (resp.fields_meta[11].status == key_value_status_code::success) {
+        forward_compat = nlohmann::json::parse(to_string(resp.fields[11].value));
     } else {
         forward_compat = nlohmann::json::object();
     }
-    if (resp.fields[12].status == key_value_status_code::success) {
-        content = resp.fields[12].value;
+    if (resp.fields_meta[12].status == key_value_status_code::success) {
+        content = to_string(resp.fields[12].value);
     }
 
     transaction_links links(atr_id,

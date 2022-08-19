@@ -40,8 +40,12 @@ namespace transactions
         static void get_atr(core::cluster& cluster, const core::document_id& atr_id, Callback&& cb)
         {
             core::operations::lookup_in_request req{ atr_id };
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, ATR_FIELD_ATTEMPTS);
-            req.specs.add_spec(core::protocol::subdoc_opcode::get, true, "$vbucket");
+            req.specs =
+              lookup_in_specs{
+                  lookup_in_specs::get(ATR_FIELD_ATTEMPTS).xattr(),
+                  lookup_in_specs::get("$vbucket").xattr(),
+              }
+                .specs();
             cluster.execute(req, [atr_id, cb = std::move(cb)](core::operations::lookup_in_response resp) {
                 try {
                     if (resp.ctx.ec() == couchbase::errc::key_value::document_not_found) {
@@ -137,9 +141,9 @@ namespace transactions
         static inline active_transaction_record map_to_atr(const core::operations::lookup_in_response& resp)
         {
             std::vector<atr_entry> entries;
-            if (resp.fields[0].status == key_value_status_code::success) {
-                auto attempts = nlohmann::json::parse(resp.fields[0].value);
-                auto vbucket = default_json_serializer::deserialize<nlohmann::json>(resp.fields[1].value);
+            if (resp.fields_meta[0].status == key_value_status_code::success) {
+                auto attempts = nlohmann::json::parse(to_string(resp.fields[0].value));
+                auto vbucket = default_json_serializer::deserialize<nlohmann::json>(to_string(resp.fields[1].value));
                 auto now_ns = now_ns_from_vbucket(vbucket);
                 entries.reserve(attempts.size());
                 for (auto& element : attempts.items()) {

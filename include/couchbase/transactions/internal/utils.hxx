@@ -167,7 +167,7 @@ namespace transactions
     template<>
     bool is_error(const core::operations::mutate_in_response& resp)
     {
-        return resp.ctx.ec() || resp.first_error_index;
+        return resp.ctx.ec() || resp.ctx.first_error_index();
     }
 
     template<typename Resp>
@@ -179,10 +179,10 @@ namespace transactions
     template<>
     std::optional<error_class> error_class_from_response_extras(const core::operations::mutate_in_response& resp)
     {
-        if (!resp.first_error_index) {
+        if (!resp.ctx.first_error_index()) {
             return {};
         }
-        auto status = resp.fields_meta.at(*resp.first_error_index).status;
+        auto status = resp.fields_meta.at(*resp.ctx.first_error_index()).status;
         if (status == key_value_status_code::subdoc_path_not_found) {
             return FAIL_PATH_NOT_FOUND;
         }
