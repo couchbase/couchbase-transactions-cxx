@@ -216,7 +216,7 @@ namespace transactions
             res.key = resp.ctx.id();
             res.is_deleted = resp.deleted;
             for (std::size_t i = 0; i < resp.fields.size(); ++i) {
-                res.values.emplace_back(to_string(resp.fields[i].value), static_cast<uint32_t>(resp.fields_meta[i].status));
+                res.values.emplace_back(to_string(resp.fields[i].value), static_cast<uint32_t>(resp.fields[i].status));
             }
             return res;
         }
@@ -229,11 +229,11 @@ namespace transactions
             res.key = resp.ctx.id();
             res.is_deleted = resp.deleted;
 
-            for (int i = 0; i < resp.fields.size(); i++) {
+            for (std::size_t i = 0; i < resp.fields.size(); ++i) {
                 auto value = resp.fields[i].value.size() > 0
                                ? core::utils::json::generate(core::utils::json::parse_binary(resp.fields[i].value))
                                : std::string();
-                res.values.emplace_back(value, static_cast<uint32_t>(resp.fields_meta[i].status));
+                res.values.emplace_back(value, static_cast<uint32_t>(resp.fields[i].status));
             }
             return res;
         }

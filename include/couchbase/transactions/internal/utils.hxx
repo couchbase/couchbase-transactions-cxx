@@ -182,7 +182,7 @@ namespace transactions
         if (!resp.ctx.first_error_index()) {
             return {};
         }
-        auto status = resp.fields_meta.at(*resp.ctx.first_error_index()).status;
+        auto status = resp.fields.at(*resp.ctx.first_error_index()).status;
         if (status == key_value_status_code::subdoc_path_not_found) {
             return FAIL_PATH_NOT_FOUND;
         }
