@@ -1,3 +1,7 @@
+# Archived. Transactions code has been integrated into [C++SDK](https://github.com/couchbase/couchbase-cxx-client)
+
+C++ Transactions API is generally available since release 1.0.0 of C++SDK.
+
 # Couchbase C++ Transactions Client
 
 ## Getting the Source Code
